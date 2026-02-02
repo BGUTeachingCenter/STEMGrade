@@ -1,4 +1,4 @@
-# grader.py
+# main.py
 import json, urllib.request, pathlib
 
 OLLAMA_URL = "http://localhost:11434/api/generate"

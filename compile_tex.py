@@ -1,3 +1,4 @@
+# compile_tex
 import re
 import subprocess
 from pathlib import Path
