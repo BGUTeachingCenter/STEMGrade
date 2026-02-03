@@ -1,233 +1,495 @@
-# qa_bundle.py
+# grader/qa_bundle.py
 from __future__ import annotations
 
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
-from .compile_tex import compile_tex_file
+# Try to import your compiler function (module style)
+try:
+    from .compile_tex import compile_tex_to_pdf  # should exist in grader/compile_tex.py
+except Exception:
+    compile_tex_to_pdf = None
+
+Key = Tuple[int, str]  # (qnum, part) where part in {"א","ב",""}; "" means no part detected
 
 
-Key = Tuple[int, str]  # (qnum, part-letter)
-
-
-@dataclass
-class BundleOutputs:
-    bundle_tex: Path
+@dataclass(frozen=True)
+class QABundleOutputs:
     bundle_pdf: Path
+    bundle_tex: Path
     student_clean_pdf: Path
     ref_ranges: Dict[Key, Tuple[int, int]]
     student_ranges: Dict[Key, Tuple[int, int]]
+    student_answer_pdfs: Dict[Key, Optional[Path]]
 
 
-# --- Detection helpers --------------------------------------------------------
+# ============================================================
+# Low-level helpers
+# ============================================================
 
-_HEB_LETTER_RE = r"[א-ת]"
-_MARK_RE = re.compile(rf"שאלה\s+(\d+)\(({_HEB_LETTER_RE})\)")
+def _run(cmd: List[str], cwd: Optional[Path] = None) -> None:
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.CalledProcessError as e:
+        print("\n--- COMMAND FAILED ---")
+        print("CMD:", " ".join(cmd))
+        print("\nSTDOUT:\n", e.stdout)
+        print("\nSTDERR:\n", e.stderr)
+        raise
 
-def _page_text(doc: fitz.Document, i: int) -> str:
-    # "text" is usually best for searching markers
-    return doc[i].get_text("text") or ""
+
+def _normalize_part(p: str) -> str:
+    p = (p or "").strip()
+    if p in ("a", "A"):
+        return "א"
+    if p in ("b", "B"):
+        return "ב"
+    return p
 
 
-def find_question_markers(pdf_path: Path) -> List[Tuple[int, str, int]]:
+def _compile_tex(tex_path: Path, out_dir: Path, *, font_name: str, passes: int = 2, clean: bool = False) -> Path:
     """
-    Returns a list of (qnum, part, page_index_0based) sorted by page.
-    Looks for markers like: 'שאלה 3(ב)'
+    Prefer grader.compile_tex.compile_tex_to_pdf if available.
+    Fall back to xelatex directly.
     """
-    doc = fitz.open(str(pdf_path))
-    markers: Dict[Key, int] = {}
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    for i in range(doc.page_count):
-        t = _page_text(doc, i)
-        for m in _MARK_RE.finditer(t):
-            qnum = int(m.group(1))
-            part = m.group(2)
-            key = (qnum, part)
-            # keep earliest page where marker appears
-            markers.setdefault(key, i)
+    if compile_tex_to_pdf is not None:
+        # support different signatures
+        try:
+            pdf = compile_tex_to_pdf(tex_path, out_dir, font_name=font_name, passes=passes, clean=clean)
+        except TypeError:
+            try:
+                pdf = compile_tex_to_pdf(tex_path, out_dir, font_name=font_name, passes=passes)
+            except TypeError:
+                pdf = compile_tex_to_pdf(tex_path, out_dir)
+        # normalize return
+        if isinstance(pdf, Path):
+            return pdf
+        if hasattr(pdf, "pdf"):
+            return Path(getattr(pdf, "pdf"))
+        return out_dir / f"{tex_path.stem}.pdf"
 
-    # sort by page
-    out = [(k[0], k[1], p) for k, p in markers.items()]
-    out.sort(key=lambda x: x[2])
+    # fallback
+    for _ in range(passes):
+        _run(["xelatex", "-interaction=nonstopmode", "-halt-on-error", f"-output-directory={out_dir}", str(tex_path)])
+    pdf_path = out_dir / f"{tex_path.stem}.pdf"
+    if not pdf_path.exists():
+        raise RuntimeError(f"XeLaTeX did not produce {pdf_path}")
+    return pdf_path
+
+
+# ============================================================
+# Reference PDF range detection (robust to your PDF style)
+# ============================================================
+
+# Style A (your PDF): "(נקודות35) .1" -> qnum=1
+_REF_Q_POINTS_DOT_RE = re.compile(r"\(נקודות\s*\d+\)\s*\.?\s*(\d+)", re.UNICODE)
+# Style B: "שאלה 1" or "Question 1"
+_REF_Q_WORD_RE = re.compile(r"(?:שאלה|Question)\s*(\d+)", re.IGNORECASE | re.UNICODE)
+
+# Part markers: "(א)" or "()א"
+_REF_PART_PAREN_RE = re.compile(r"\(\s*([א-תA-Za-z])\s*\)", re.UNICODE)
+_REF_PART_EMPTY_PAREN_RE = re.compile(r"\(\s*\)\s*([א-תA-Za-z])", re.UNICODE)
+
+
+def _extract_qnum(text: str) -> Optional[int]:
+    m = _REF_Q_POINTS_DOT_RE.search(text)
+    if m:
+        return int(m.group(1))
+    m = _REF_Q_WORD_RE.search(text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _extract_parts(text: str) -> List[str]:
+    parts: List[str] = []
+    for m in _REF_PART_EMPTY_PAREN_RE.finditer(text):
+        parts.append(_normalize_part(m.group(1)))
+    for m in _REF_PART_PAREN_RE.finditer(text):
+        parts.append(_normalize_part(m.group(1)))
+
+    parts = [p for p in parts if p in ("א", "ב")]
+    seen = set()
+    out = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
     return out
 
 
-def build_page_ranges(
-    markers: List[Tuple[int, str, int]],
-    total_pages: int,
-) -> Dict[Key, Tuple[int, int]]:
+def find_reference_ranges(reference_pdf: Path, out_dir: Path) -> Dict[Key, Tuple[int, int]]:
     """
-    Converts marker pages into 1-based inclusive page ranges for pdfpages.
-    Range is from marker page to the page before next marker.
+    Build page ranges (1-based inclusive) for each (qnum,part).
+    Also writes debug_reference_pages.txt.
     """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    doc = fitz.open(str(reference_pdf))
+    page_keys: List[Optional[Key]] = []
+    current_qnum: Optional[int] = None
+    current_part: str = ""
+
+    dbg: List[str] = []
+
+    for i in range(doc.page_count):
+        text = doc[i].get_text("text") or ""
+        dbg.append(f"--- PAGE {i+1} ---")
+        dbg.append(text[:2500])
+        dbg.append("")
+
+        q = _extract_qnum(text)
+        if q is not None:
+            current_qnum = q
+            current_part = ""  # reset
+
+        if current_qnum is None:
+            page_keys.append(None)
+            continue
+
+        parts = _extract_parts(text)
+        if parts:
+            current_part = parts[0]
+
+        page_keys.append((current_qnum, current_part))
+
+    (out_dir / "debug_reference_pages.txt").write_text("\n".join(dbg), encoding="utf-8")
+
+    first_page: Dict[Key, int] = {}
+    for idx, k in enumerate(page_keys):
+        if k is None:
+            continue
+        first_page.setdefault(k, idx)
+
+    if not first_page:
+        return {}
+
+    ordered = sorted(first_page.items(), key=lambda kv: kv[1])
     ranges: Dict[Key, Tuple[int, int]] = {}
-    for idx, (qnum, part, p0) in enumerate(markers):
-        start0 = p0
-        end0 = (markers[idx + 1][2] - 1) if idx + 1 < len(markers) else (total_pages - 1)
-        # convert to 1-based
-        ranges[(qnum, part)] = (start0 + 1, end0 + 1)
+    for j, (key, start0) in enumerate(ordered):
+        end0 = (ordered[j + 1][1] - 1) if j + 1 < len(ordered) else (doc.page_count - 1)
+        ranges[key] = (start0 + 1, end0 + 1)
+
     return ranges
 
 
-# --- LaTeX bundle builder -----------------------------------------------------
+# ============================================================
+# Student TeX answer parsing (by subsections + parts)
+# ============================================================
 
-def _tex_path(p: Path) -> str:
-    # LaTeX likes forward slashes even on Windows
-    return str(p).replace("\\", "/")
+_TEX_QHDR_RE = re.compile(
+    r"\\subsection\*\{[^}]*?(?:Question|שאלה)\s*([0-9]{1,2})[^}]*\}",
+    re.UNICODE | re.IGNORECASE
+)
 
+# Part markers inside body:
+# - \textbf{(א) ...} or \textbf{(א)}
+# - or (א) at start of line
+_TEX_PART_MARK_RE = re.compile(
+    r"(\\textbf\{\(\s*([אבaAbB])\s*\)[^}]*\}|\\textbf\{\(\s*([אבaAbB])\s*\)\}|^\s*\(\s*([אבaAbB])\s*\))",
+    re.UNICODE | re.MULTILINE
+)
+
+
+def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Key, str], Dict[Key, Tuple[int, int]]]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src = student_tex.read_text(encoding="utf-8", errors="replace")
+
+    m_begin = re.search(r"\\begin\{document\}", src)
+    m_end = re.search(r"\\end\{document\}", src)
+    body = src
+    body_offset = 0
+    if m_begin and m_end and m_begin.end() < m_end.start():
+        body_offset = m_begin.end()
+        body = src[m_begin.end():m_end.start()]
+
+    q_matches = list(_TEX_QHDR_RE.finditer(body))
+    answers: Dict[Key, str] = {}
+    ranges: Dict[Key, Tuple[int, int]] = {}
+    dbg: List[str] = []
+
+    if not q_matches:
+        (out_dir / "debug_student_tex_parts.txt").write_text(
+            "No \\subsection*{Question N ...} / \\subsection*{שאלה N ...} found.\n\n"
+            + body[:2500],
+            encoding="utf-8"
+        )
+        return answers, ranges
+
+    for qi, qm in enumerate(q_matches):
+        qnum = int(qm.group(1))
+        q_start = qm.end()
+        q_end = q_matches[qi + 1].start() if qi + 1 < len(q_matches) else len(body)
+        q_block = body[q_start:q_end]
+
+        hits = list(_TEX_PART_MARK_RE.finditer(q_block))
+        if not hits:
+            key = (qnum, "")
+            snippet = q_block.strip()
+            if snippet:
+                answers[key] = snippet
+                ranges[key] = (body_offset + q_start, body_offset + q_end)
+                dbg.append(f"== Q{qnum} (no parts) ==")
+                dbg.append(snippet[:1200])
+                dbg.append("")
+            continue
+
+        # Build split points for א/ב
+        split: List[Tuple[str, int]] = []
+        for h in hits:
+            p = h.group(2) or h.group(3) or h.group(4) or ""
+            p = _normalize_part(p)
+            if p in ("א", "ב"):
+                split.append((p, h.start()))
+
+        # Keep earliest marker for each part
+        earliest: Dict[str, int] = {}
+        for p, idx in split:
+            if p not in earliest or idx < earliest[p]:
+                earliest[p] = idx
+
+        if not earliest:
+            key = (qnum, "")
+            snippet = q_block.strip()
+            if snippet:
+                answers[key] = snippet
+                ranges[key] = (body_offset + q_start, body_offset + q_end)
+            continue
+
+        points = sorted(earliest.items(), key=lambda x: x[1])
+
+        for pi, (part, start_rel) in enumerate(points):
+            end_rel = points[pi + 1][1] if pi + 1 < len(points) else len(q_block)
+            chunk = q_block[start_rel:end_rel].strip()
+
+            # Strip obvious part label at start
+            chunk = re.sub(r"^\s*\\textbf\{\(\s*[אבaAbB]\s*\)[^}]*\}\s*", "", chunk)
+            chunk = re.sub(r"^\s*\\textbf\{\(\s*[אבaAbB]\s*\)\}\s*", "", chunk)
+            chunk = re.sub(r"^\s*\(\s*[אבaAbB]\s*\)\s*", "", chunk)
+
+            key = (qnum, part)
+            if chunk:
+                answers[key] = chunk
+                ranges[key] = (body_offset + q_start + start_rel, body_offset + q_start + end_rel)
+                dbg.append(f"== Q{qnum}({part}) ==")
+                dbg.append(chunk[:1200])
+                dbg.append("")
+
+    (out_dir / "debug_student_tex_parts.txt").write_text("\n".join(dbg), encoding="utf-8")
+    return answers, ranges
+
+
+# ============================================================
+# Render student answer snippets to standalone PDFs
+# ============================================================
+
+def make_answer_tex(qnum: int, part: str, answer_latex: str, font_name: str) -> str:
+    """
+    Create a minimal, safe XeLaTeX document for a single answer snippet.
+    NOTE: we do NOT trust the snippet to be balanced, but at least errors stay local.
+    """
+    title = f"Student Answer — Q{qnum}" + (f"({part})" if part else "")
+    return (
+        r"\documentclass[12pt]{article}" "\n"
+        r"\usepackage[a4paper,margin=2cm]{geometry}" "\n"
+        r"\usepackage{amsmath,amssymb,mathtools}" "\n"
+        r"\usepackage{xcolor}" "\n"
+        r"\usepackage{fontspec}" "\n"
+        r"\usepackage{bidi}" "\n"
+        rf"\setmainfont[Script=Hebrew]{{{font_name}}}" "\n"
+        rf"\setmonofont{{{font_name}}}" "\n"
+        r"\setRTL" "\n"
+        r"\setlength{\parskip}{0.6em}" "\n"
+        r"\setlength{\parindent}{0pt}" "\n"
+        r"\begin{document}" "\n"
+        rf"\section*{{{title}}}" "\n"
+        r"\begingroup" "\n"
+        + answer_latex.strip()
+        + "\n"
+        r"\endgroup" "\n"
+        r"\end{document}" "\n"
+    )
+
+
+def compile_student_answer_pdfs(
+    student_answers: Dict[Key, str],
+    out_dir: Path,
+    font_name: str,
+) -> Dict[Key, Optional[Path]]:
+    """
+    Compile each answer into its own PDF. Failures return None but do not stop the pipeline.
+    """
+    ans_dir = out_dir / "student_answers"
+    ans_dir.mkdir(parents=True, exist_ok=True)
+
+    out: Dict[Key, Optional[Path]] = {}
+    for (qnum, part), snippet in student_answers.items():
+        stem = f"student_ans_Q{qnum}" + (f"_{part}" if part else "")
+        tex_path = ans_dir / f"{stem}.tex"
+        pdf_path = ans_dir / f"{stem}.pdf"
+
+        tex_path.write_text(make_answer_tex(qnum, part, snippet, font_name), encoding="utf-8")
+
+        try:
+            compiled_pdf = _compile_tex(tex_path, ans_dir, font_name=font_name, passes=2, clean=False)
+            # normalize name
+            if compiled_pdf.exists() and compiled_pdf != pdf_path:
+                try:
+                    compiled_pdf.replace(pdf_path)
+                except Exception:
+                    pdf_path = compiled_pdf
+            out[(qnum, part)] = pdf_path if pdf_path.exists() else compiled_pdf
+        except Exception:
+            out[(qnum, part)] = None
+
+    return out
+
+
+# ============================================================
+# Bundle generator (includes reference pages + answer PDFs)
+# ============================================================
 
 def write_bundle_tex(
     out_tex: Path,
-    reference_pdf: Path,
-    student_pdf: Path,
-    ref_ranges: Dict[Key, Tuple[int, int]],
-    student_ranges: Dict[Key, Tuple[int, int]],
     *,
-    title: str = "חוברת התאמה: שאלות + פתרונות + תשובות סטודנט/ית",
+    reference_pdf: Path,
+    ref_ranges: Dict[Key, Tuple[int, int]],
+    answer_pdfs: Dict[Key, Optional[Path]],
+    font_name: str,
+    title: str,
 ) -> None:
-    """
-    Writes a clean bundle TeX that includes PDF pages directly via pdfpages.
-    """
-    # Build a deterministic order: sort by qnum then part letter
+    ref_pdf_tex = str(reference_pdf).replace("\\", "/")
+
     keys = sorted(ref_ranges.keys(), key=lambda k: (k[0], k[1]))
 
-    ref_pdf_tex = _tex_path(reference_pdf)
-    stu_pdf_tex = _tex_path(student_pdf)
-
-    lines: List[str] = []
-    lines.append(r"\documentclass[11pt]{article}" "\n")
-    lines.append(r"\usepackage[a4paper,margin=1.5cm]{geometry}" "\n")
-    lines.append(r"\usepackage{hyperref}" "\n")
-    lines.append(r"\usepackage{bookmark}" "\n")
-    lines.append(r"\usepackage{pdfpages}" "\n")
-    lines.append(r"\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}" "\n")
-    lines.append(r"\begin{document}" "\n\n")
-    lines.append(rf"\section*{{{title}}}" "\n")
-    lines.append(r"\tableofcontents" "\n")
-    lines.append(r"\newpage" "\n\n")
+    tex: List[str] = []
+    tex.append(r"\documentclass[12pt]{article}" "\n")
+    tex.append(r"\usepackage[a4paper,margin=1.7cm]{geometry}" "\n")
+    tex.append(r"\usepackage{hyperref}" "\n")
+    tex.append(r"\usepackage{bookmark}" "\n")
+    tex.append(r"\usepackage{pdfpages}" "\n")
+    tex.append(r"\usepackage{fontspec}" "\n")
+    tex.append(r"\usepackage{bidi}" "\n")
+    tex.append(rf"\setmainfont[Script=Hebrew]{{{font_name}}}" "\n")
+    tex.append(rf"\setmonofont{{{font_name}}}" "\n")
+    tex.append(r"\setRTL" "\n")
+    tex.append(r"\setlength{\parskip}{0.6em}" "\n")
+    tex.append(r"\setlength{\parindent}{0pt}" "\n")
+    tex.append(r"\begin{document}" "\n")
+    tex.append(rf"\section*{{{title}}}" "\n")
+    tex.append(r"\tableofcontents" "\n\newpage" "\n")
 
     for (qnum, part) in keys:
-        r_start, r_end = ref_ranges[(qnum, part)]
-        s_range = student_ranges.get((qnum, part))
-        # Section title in Hebrew marker format
-        sec_title = f"שאלה {qnum}({part})"
+        start, end = ref_ranges[(qnum, part)]
+        sec = f"שאלה {qnum}" + (f"({part})" if part else "")
+        tex.append(rf"\section{{{sec}}}" "\n")
 
-        lines.append(rf"\section{{{sec_title}}}" "\n")
+        tex.append(r"\subsection*{Reference (question + official solution)}" "\n")
+        tex.append(rf"\includepdf[pages={{{start}-{end}}},pagecommand={{}}]{{{ref_pdf_tex}}}" "\n")
 
-        lines.append(r"\subsection*{מבחן (נוסח שאלה + פתרון רשמי)}" "\n")
-        lines.append(
-            rf"\includepdf[pages={r_start}-{r_end},pagecommand={{}}]{{{ref_pdf_tex}}}" "\n"
-        )
+        tex.append(r"\subsection*{Student answer (rendered)}" "\n")
+        ap = answer_pdfs.get((qnum, part))
+        if ap is None:
+            # fallback: sometimes we only have (q,"") for a whole question
+            ap = answer_pdfs.get((qnum, ""))
 
-        lines.append(r"\subsection*{הגשת הסטודנט/ית (כפי שהודפסה)}" "\n")
-        if s_range:
-            s_start, s_end = s_range
-            lines.append(
-                rf"\includepdf[pages={s_start}-{s_end},pagecommand={{}}]{{{stu_pdf_tex}}}" "\n"
-            )
+        if ap is None:
+            tex.append(r"\textcolor{red}{Could not compile student answer for this part.}" "\n")
         else:
-            lines.append(
-                r"\noindent\textbf{לא נמצאו סימוני 'שאלה X(א/ב)' בקובץ הסטודנט/ית, לכן לא ניתן לחלץ טווח עמודים אוטומטית.}\par"
-                "\n"
-                r"\noindent אפשר לפתור זאת ע״י הוספת כותרות 'שאלה 1(א)' וכו׳ במסמך ה-LaTeX או ע״י מיפוי ידני.\par"
-                "\n\n"
-            )
+            ap_tex = str(ap).replace("\\", "/")
+            tex.append(rf"\includepdf[pages=-,pagecommand={{}}]{{{ap_tex}}}" "\n")
 
-        lines.append(r"\newpage" "\n\n")
+        tex.append(r"\newpage" "\n")
 
-    lines.append(r"\end{document}" "\n")
+    tex.append(r"\end{document}" "\n")
 
     out_tex.parent.mkdir(parents=True, exist_ok=True)
-    out_tex.write_text("".join(lines), encoding="utf-8")
+    out_tex.write_text("".join(tex), encoding="utf-8")
 
 
-# --- Public API ---------------------------------------------------------------
+# ============================================================
+# Public API
+# ============================================================
 
 def generate_qa_bundle_pdf(
     *,
     reference_pdf: Path,
     student_tex: Path,
-    out_dir: Path = Path("build"),
+    out_dir: Path,
     bundle_stem: str = "qa_bundle",
     font_name: str = "Arial",
-) -> BundleOutputs:
-    """
-    1) Compiles student_tex -> out_dir/<student_stem>_clean.pdf using compile_tex_file()
-    2) Detects question markers and builds page ranges for both:
-        - reference_pdf
-        - student_clean_pdf
-    3) Writes out_dir/<bundle_stem>.tex that includes the pages
-    4) Compiles it -> out_dir/<bundle_stem>.pdf
-    """
+) -> QABundleOutputs:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if not reference_pdf.exists():
-        raise FileNotFoundError(f"Missing reference PDF: {reference_pdf.resolve()}")
-    if not student_tex.exists():
-        raise FileNotFoundError(f"Missing student TeX: {student_tex.resolve()}")
+    # 1) Reference ranges
+    ref_ranges = find_reference_ranges(reference_pdf, out_dir)
+    if not ref_ranges:
+        raise RuntimeError(
+            "Reference question detection failed.\n"
+            "Check build/debug_reference_pages.txt for extracted text.\n"
+            "If it is empty, your PDF may be scanned (no selectable text)."
+        )
 
-    # Step 1: compile student
-    student_result = compile_tex_file(
-        input_tex=student_tex,
-        out_dir=out_dir,
-        make_pdf=True,
-        make_docx=False,
-        font_name=font_name,
-        passes=2,
-    )
-    if not student_result.pdf or not student_result.pdf.exists():
-        raise RuntimeError("Failed to compile student PDF. Check build logs.")
-    student_pdf = student_result.pdf
+    # 2) Parse student TeX answers
+    student_answers, student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    if not student_answers:
+        raise RuntimeError(
+            "Could not parse any student answers from the TeX.\n"
+            "Check build/debug_student_tex_parts.txt."
+        )
 
-    # Step 2: find markers & ranges
-    ref_doc = fitz.open(str(reference_pdf))
-    stu_doc = fitz.open(str(student_pdf))
+    # 3) Compile full student TeX (useful for validation / later grading)
+    student_clean_pdf = _compile_tex(student_tex, out_dir, font_name=font_name, passes=2, clean=True)
 
-    ref_markers = find_question_markers(reference_pdf)
-    stu_markers = find_question_markers(student_pdf)
+    # 4) Compile each answer snippet to a PDF (safe embedding)
+    answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
 
-    ref_ranges = build_page_ranges(ref_markers, ref_doc.page_count)
-    stu_ranges = build_page_ranges(stu_markers, stu_doc.page_count)
-
-    # Step 3: write bundle TeX
+    # 5) Build bundle TeX
     bundle_tex = out_dir / f"{bundle_stem}.tex"
     write_bundle_tex(
-        out_tex=bundle_tex,
+        bundle_tex,
         reference_pdf=reference_pdf,
-        student_pdf=student_pdf,
         ref_ranges=ref_ranges,
-        student_ranges=stu_ranges,
-    )
-
-    # Step 4: compile bundle
-    bundle_result = compile_tex_file(
-        input_tex=bundle_tex,
-        out_dir=out_dir,
-        make_pdf=True,
-        make_docx=False,
+        answer_pdfs=answer_pdfs,
         font_name=font_name,
-        passes=2,
+        title="Q/A Bundle (Reference pages + Rendered student answers)",
     )
 
-    if not bundle_result.pdf or not bundle_result.pdf.exists():
-        raise RuntimeError("Failed to compile bundle PDF. Check build logs.")
+    # 6) Compile bundle
+    bundle_pdf = _compile_tex(bundle_tex, out_dir, font_name=font_name, passes=2, clean=False)
 
-    # normalize output name: compile_tex_file makes <stem>_clean.pdf
-    produced_pdf = bundle_result.pdf
-    final_pdf = out_dir / f"{bundle_stem}.pdf"
-    if produced_pdf != final_pdf:
-        if final_pdf.exists():
-            final_pdf.unlink()
-        produced_pdf.replace(final_pdf)
+    # normalize bundle name
+    normalized = out_dir / f"{bundle_stem}.pdf"
+    if bundle_pdf.exists() and bundle_pdf != normalized:
+        try:
+            bundle_pdf.replace(normalized)
+            bundle_pdf = normalized
+        except Exception:
+            pass
 
-    return BundleOutputs(
+    if not bundle_pdf.exists():
+        raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+
+    return QABundleOutputs(
+        bundle_pdf=bundle_pdf,
         bundle_tex=bundle_tex,
-        bundle_pdf=final_pdf,
-        student_clean_pdf=student_pdf,
+        student_clean_pdf=student_clean_pdf,
         ref_ranges=ref_ranges,
-        student_ranges=stu_ranges,
+        student_ranges=student_ranges,
+        student_answer_pdfs=answer_pdfs,
     )

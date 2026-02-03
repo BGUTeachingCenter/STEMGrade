@@ -1,4 +1,3 @@
-# main.py
 from pathlib import Path
 from grader import generate_qa_bundle_pdf
 
@@ -12,9 +11,6 @@ def main():
     )
     print("Bundle PDF:", outputs.bundle_pdf)
     print("Bundle TEX:", outputs.bundle_tex)
-    print("Student PDF:", outputs.student_clean_pdf)
-    print("Ref ranges:", outputs.ref_ranges)
-    print("Student ranges:", outputs.student_ranges)
 
 if __name__ == "__main__":
     main()
