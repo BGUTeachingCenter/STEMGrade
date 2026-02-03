@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple, Optional
 
 import fitz  # PyMuPDF
 
-from grader.compile_tex import compile_tex_file  # must expose compile_tex_file()
+from .compile_tex import compile_tex_file
 
 
 Key = Tuple[int, str]  # (qnum, part-letter)

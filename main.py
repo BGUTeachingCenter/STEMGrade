@@ -1,6 +1,6 @@
 # main.py
 from pathlib import Path
-from grader.qa_bundle import generate_qa_bundle_pdf
+from grader import generate_qa_bundle_pdf
 
 def main():
     outputs = generate_qa_bundle_pdf(
