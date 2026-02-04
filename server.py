@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +12,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from grader.qa_bundle import generate_qa_bundle_pdf
+
+# AI grading modules (you added these earlier)
+from grader.ai_grading.grader import grade_bundle_pdf
+from grader.ai_grading.graded_pdf import build_graded_pdf
 
 app = FastAPI(title="MathGrade Bundle Generator", version="1.0")
 
@@ -22,89 +28,177 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ollama config (override via environment if you want)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
+
+# Fixed font to avoid user-supplied surprises
+FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
+
 
 @app.get("/health")
 def health():
     """Health check endpoint."""
-    return {"ok": True}
+    return {"ok": True, "ollama_base_url": OLLAMA_BASE_URL, "ollama_model": OLLAMA_MODEL}
 
 
-@app.post("/api/generate")
-async def generate_bundle(
-    reference_pdf: UploadFile = File(...),
-    student_tex: UploadFile = File(...),
-):
+def _save_upload(upload: UploadFile, dest: Path) -> None:
+    """Save an uploaded file to disk."""
+    with dest.open("wb") as f:
+        shutil.copyfileobj(upload.file, f)
+
+
+def _pick_pdf_output(outputs) -> Optional[Path]:
     """
-    Generate a QA bundle PDF from:
-      - reference_pdf: official exam+solution PDF
-      - student_tex: student's LaTeX results file
+    Try to interpret the return value of generate_qa_bundle_pdf.
+    Supports returning a dataclass with .bundle_pdf/.pdf or a direct path.
+    """
+    candidate = None
+    if hasattr(outputs, "bundle_pdf") and getattr(outputs, "bundle_pdf"):
+        candidate = Path(getattr(outputs, "bundle_pdf"))
+    elif hasattr(outputs, "pdf") and getattr(outputs, "pdf"):
+        candidate = Path(getattr(outputs, "pdf"))
+    elif isinstance(outputs, (str, Path)):
+        candidate = Path(outputs)
+    return candidate
 
-    Returns the final bundle PDF as a file download.
 
-    Notes:
-    - Uses a fixed font ("Arial") to avoid user-supplied font issues.
-    - Uses a temporary folder per request (safe for concurrent users).
-    - Cleans up the temporary folder AFTER streaming the response.
+def _find_newest_pdf(folder: Path) -> Optional[Path]:
+    """Return the newest PDF in folder, or None if none exist."""
+    pdfs = sorted(folder.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return pdfs[0] if pdfs else None
+
+
+async def _prepare_inputs(reference_pdf: UploadFile, student_tex: UploadFile) -> tuple[Path, Path, Path]:
+    """
+    Create temp dir and save uploads.
+    Returns (tmp_dir, reference_pdf_path, student_tex_path).
     """
     if not reference_pdf.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="reference_pdf must be a .pdf")
-
     if not student_tex.filename.lower().endswith((".tex", ".txt")):
         raise HTTPException(status_code=400, detail="student_tex must be .tex or .txt")
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_"))
-    out_dir = tmp_dir / "out"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    ref_path = tmp_dir / "reference.pdf"
+    tex_path = tmp_dir / "student.tex"
 
+    _save_upload(reference_pdf, ref_path)
+    _save_upload(student_tex, tex_path)
+
+    return tmp_dir, ref_path, tex_path
+
+
+def _file_response_with_cleanup(path: Path, download_name: str, tmp_dir: Path) -> FileResponse:
+    """Return a FileResponse and delete tmp_dir after streaming completes."""
+    cleanup = BackgroundTask(shutil.rmtree, tmp_dir, ignore_errors=True)
+    return FileResponse(
+        path=str(path),
+        media_type="application/pdf",
+        filename=download_name,
+        background=cleanup,
+    )
+
+
+@app.post("/api/generate")
+async def generate_bundle_api(
+    reference_pdf: UploadFile = File(...),
+    student_tex: UploadFile = File(...),
+):
+    """
+    Generate the bundle PDF (questions + official solutions + student answers).
+    Returns a PDF download.
+    """
+    tmp_dir = None
     try:
-        # Save uploads
-        ref_path = tmp_dir / "reference.pdf"
-        tex_path = tmp_dir / "student.tex"
+        tmp_dir, ref_path, tex_path = await _prepare_inputs(reference_pdf, student_tex)
+        out_dir = tmp_dir / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        with ref_path.open("wb") as f:
-            shutil.copyfileobj(reference_pdf.file, f)
-
-        with tex_path.open("wb") as f:
-            shutil.copyfileobj(student_tex.file, f)
-
-        # Run pipeline
         outputs = generate_qa_bundle_pdf(
             reference_pdf=ref_path,
             student_tex=tex_path,
             out_dir=out_dir,
-            font_name="Arial",  # fixed to prevent user-caused font issues
+            font_name=FIXED_FONT,
         )
 
-        # Try to locate produced PDF robustly
-        candidate = None
-        if hasattr(outputs, "bundle_pdf") and getattr(outputs, "bundle_pdf"):
-            candidate = Path(getattr(outputs, "bundle_pdf"))
-        elif hasattr(outputs, "pdf") and getattr(outputs, "pdf"):
-            candidate = Path(getattr(outputs, "pdf"))
-        elif isinstance(outputs, (str, Path)):
-            candidate = Path(outputs)
+        candidate = _pick_pdf_output(outputs)
+        if not candidate or not candidate.exists():
+            candidate = _find_newest_pdf(out_dir)
 
         if not candidate or not candidate.exists():
-            pdfs = sorted(out_dir.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if not pdfs:
-                produced = [p.name for p in out_dir.glob("*")]
-                raise RuntimeError(f"No PDF produced. Files in out/: {produced}")
-            candidate = pdfs[0]
+            produced = [p.name for p in out_dir.glob("*")]
+            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
 
-        # Cleanup temp folder AFTER response finishes streaming
-        cleanup = BackgroundTask(shutil.rmtree, tmp_dir, ignore_errors=True)
-
-        return FileResponse(
-            path=str(candidate),
-            media_type="application/pdf",
-            filename="qa_bundle.pdf",
-            background=cleanup,
-        )
+        return _file_response_with_cleanup(candidate, "qa_bundle.pdf", tmp_dir)
 
     except Exception as e:
-        # If anything fails, clean up immediately and return a readable JSON error.
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Generation failed", "detail": str(e)},
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return JSONResponse(status_code=500, content={"error": "Bundle generation failed", "detail": str(e)})
+
+
+@app.post("/api/grade")
+async def grade_bundle_api(
+    reference_pdf: UploadFile = File(...),
+    student_tex: UploadFile = File(...),
+):
+    """
+    Generate the bundle PDF and then grade it using Ollama (gemma3:4b by default).
+    Returns a graded PDF download (bundle + feedback pages).
+    """
+    tmp_dir = None
+    try:
+        tmp_dir, ref_path, tex_path = await _prepare_inputs(reference_pdf, student_tex)
+        out_dir = tmp_dir / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1) Create bundle
+        outputs = generate_qa_bundle_pdf(
+            reference_pdf=ref_path,
+            student_tex=tex_path,
+            out_dir=out_dir,
+            font_name=FIXED_FONT,
         )
+
+        bundle_pdf = _pick_pdf_output(outputs)
+        if not bundle_pdf or not bundle_pdf.exists():
+            bundle_pdf = _find_newest_pdf(out_dir)
+
+        if not bundle_pdf or not bundle_pdf.exists():
+            produced = [p.name for p in out_dir.glob("*")]
+            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
+
+        # 2) AI grade via Ollama
+        ai_dir = out_dir / "ai_grade"
+        ai_dir.mkdir(parents=True, exist_ok=True)
+
+        grades_json, _feedback_tex_unused = grade_bundle_pdf(
+            bundle_pdf=bundle_pdf,
+            out_dir=ai_dir,
+            ollama_base_url=OLLAMA_BASE_URL,
+            model=OLLAMA_MODEL,
+        )
+
+        # Optional: pass a TTF font if you want strong Hebrew/Unicode support.
+        # Example Windows path (adjust if needed):
+        # font_path = Path(r"C:\Windows\Fonts\arial.ttf")
+        font_path = None
+
+        graded_pdf = build_graded_pdf(
+            bundle_pdf=bundle_pdf,
+            grades_json=grades_json,
+            out_dir=ai_dir,
+            font_path=font_path,
+        )
+
+        if not graded_pdf.exists():
+            produced = [p.name for p in ai_dir.glob("*")]
+            raise RuntimeError(f"Graded PDF was not created. Files in ai_grade/: {produced}")
+
+        return _file_response_with_cleanup(graded_pdf, "graded_test.pdf", tmp_dir)
+
+    except Exception as e:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return JSONResponse(status_code=500, content={"error": "Grading failed", "detail": str(e)})
