@@ -46,11 +46,15 @@ def _require_tool(exe: str) -> None:
 
 
 def clean_tex_for_windows(tex: str, font_name: str = "Arial") -> str:
-    """
-    Minimal cleaning that helps XeLaTeX succeed on Windows and keeps bidi/RTL stable.
-    - normalize tabs
-    - force \setmainfont{<font_name>} if present
-    - strip trailing whitespace
+    r"""Minimal cleaning that helps XeLaTeX succeed on Windows and keeps bidi/RTL stable.
+
+    Notes:
+      - normalize tabs
+      - force \setmainfont{<font_name>} if present
+      - strip trailing whitespace
+
+    This docstring is a *raw* string to avoid Python "invalid escape sequence" warnings
+    for LaTeX backslashes.
     """
     tex = tex.replace("\t", "  ")
 
