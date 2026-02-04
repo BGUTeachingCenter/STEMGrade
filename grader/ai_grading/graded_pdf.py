@@ -27,7 +27,7 @@ def build_graded_pdf(
     )
 
     graded_pdf = out_dir / "graded_test.pdf"
-    _merge_pdfs([bundle_pdf, feedback_pdf], graded_pdf)
+    _merge_pdfs([feedback_pdf, bundle_pdf], graded_pdf)
     return graded_pdf
 
 

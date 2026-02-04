@@ -182,8 +182,8 @@ async def grade_bundle_api(
 
         # Optional: pass a TTF font if you want strong Hebrew/Unicode support.
         # Example Windows path (adjust if needed):
-        # font_path = Path(r"C:\Windows\Fonts\arial.ttf")
-        font_path = None
+        font_path = Path(r"C:\Windows\Fonts\arial.ttf")
+
 
         graded_pdf = build_graded_pdf(
             bundle_pdf=bundle_pdf,

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from .ollama_client import OllamaClient
-from .pdf_extract import BundleQuestionText, extract_bundle_text, split_into_questions
+from .pdf_extract import BundleQuestionText, split_bundle_pdf_into_questions
 from .schema import grading_response_schema
 
 
@@ -42,15 +42,14 @@ _POINTS_RE = re.compile(r"\(\s*(\d+)\s*נקודות\s*\)")
 
 def infer_max_points(reference_solution_text: str, default_max: float = 0.0) -> float:
     """
-    Try to infer max points from the reference/solution block.
-    Looks for patterns like '(15 נקודות)'.
-
-    If not found, returns default_max.
+    Extract max points from reference/solution text.
+    Picks the first '(NN נקודות)' it sees (usually the part's points).
     """
-    m = _POINTS_RE.search(reference_solution_text)
-    if not m:
+    if not reference_solution_text:
         return default_max
-    return float(m.group(1))
+    m = _POINTS_RE.search(reference_solution_text)
+    return float(m.group(1)) if m else default_max
+
 
 
 def grade_bundle_pdf(
@@ -70,8 +69,9 @@ def grade_bundle_pdf(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    bundle_text = extract_bundle_text(bundle_pdf)
-    questions: Dict[str, BundleQuestionText] = split_into_questions(bundle_text)
+    questions = split_bundle_pdf_into_questions(bundle_pdf)
+    if not questions:
+        raise RuntimeError("Could not detect questions in bundle PDF text extraction.")
 
     if not questions:
         raise RuntimeError("Could not detect questions in bundle PDF text extraction.")
@@ -79,12 +79,12 @@ def grade_bundle_pdf(
     client = OllamaClient(base_url=ollama_base_url, model=model)
 
     system = (
-        "You are a strict but fair university calculus exam grader. "
-        "You MUST compare the student's answer to the official solution. "
-        "Grade only based on mathematical correctness and completeness. "
-        "If the student's answer is irrelevant or 'I don't know', give 0. "
-        "If the student's answer partially matches, award partial credit. "
-        "Output ONLY valid JSON matching the provided schema."
+        "את/ה בודק/ת מבחנים בקורס חדו\"א באוניברסיטה. "
+        "השוואה חובה: להשוות את תשובת הסטודנט/ית לפתרון הרשמי בלבד. "
+        "תן/י ניקוד הוגן, כולל ניקוד חלקי כאשר מתאים. "
+        "אם התשובה לא רלוונטית או 'לא לבדיקה', תן/י 0. "
+        "חשוב מאוד: כל הטקסטים של המשוב (summary/what_was_correct/main_mistakes/how_to_improve) חייבים להיות בעברית. "
+        "הפלט חייב להיות JSON תקין בלבד לפי הסכמה."
     )
 
     schema = grading_response_schema()
