@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
+from .pdf_cleanse import cleanse_test_pdf
+
 # Try to import your compiler function (module style)
 try:
     from .compile_tex import compile_tex_to_pdf  # should exist in grader/compile_tex.py
@@ -23,6 +25,7 @@ class QABundleOutputs:
     bundle_pdf: Path
     bundle_tex: Path
     student_clean_pdf: Path
+    reference_clean_pdf: Path
     ref_ranges: Dict[Key, Tuple[int, int]]
     student_ranges: Dict[Key, Tuple[int, int]]
     student_answer_pdfs: Dict[Key, Optional[Path]]
@@ -436,8 +439,12 @@ def generate_qa_bundle_pdf(
 ) -> QABundleOutputs:
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # 0) Clean reference/test PDF (remove cover page, formula sheet, trailing blanks)
+    cleanse_report = cleanse_test_pdf(reference_pdf, out_dir)
+    reference_clean_pdf = cleanse_report.output_pdf
+
     # 1) Reference ranges
-    ref_ranges = find_reference_ranges(reference_pdf, out_dir)
+    ref_ranges = find_reference_ranges(reference_clean_pdf, out_dir)
     if not ref_ranges:
         raise RuntimeError(
             "Reference question detection failed.\n"
@@ -463,7 +470,7 @@ def generate_qa_bundle_pdf(
     bundle_tex = out_dir / f"{bundle_stem}.tex"
     write_bundle_tex(
         bundle_tex,
-        reference_pdf=reference_pdf,
+        reference_pdf=reference_clean_pdf,
         ref_ranges=ref_ranges,
         answer_pdfs=answer_pdfs,
         font_name=font_name,
@@ -489,6 +496,7 @@ def generate_qa_bundle_pdf(
         bundle_pdf=bundle_pdf,
         bundle_tex=bundle_tex,
         student_clean_pdf=student_clean_pdf,
+        reference_clean_pdf=reference_clean_pdf,
         ref_ranges=ref_ranges,
         student_ranges=student_ranges,
         student_answer_pdfs=answer_pdfs,
