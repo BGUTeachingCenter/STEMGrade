@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MathGrade Bundle Generator</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 16px 0; }
+    label { display:block; margin: 12px 0 6px; font-weight: 600; }
+    input[type="file"], input[type="text"] { width: 100%; padding: 10px; }
+    button { padding: 10px 14px; border-radius: 10px; border: 0; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .row { display:flex; gap:12px; }
+    .row > div { flex:1; }
+    .status { white-space: pre-wrap; background: #f7f7f7; border-radius: 10px; padding: 10px; min-height: 50px; }
+  </style>
+</head>
+<body>
+  <h1>MathGrade Bundle Generator</h1>
+  <p>Upload the official exam+solution PDF and the student's LaTeX results file. The server returns a bundled PDF.</p>
+
+  <div class="card">
+    <label>Reference PDF (exam + solution)</label>
+    <input id="referencePdf" type="file" accept="application/pdf" />
+
+    <label>Student results LaTeX (.tex)</label>
+    <input id="studentTex" type="file" accept=".tex,.txt" />
+
+    <div class="row">
+      <div>
+        <label>Font name (XeLaTeX)</label>
+        <input id="fontName" type="text" value="Arial" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="generateBtn">Generate PDF</button>
+      </div>
+    </div>
+
+    <h3>Status</h3>
+    <div id="status" class="status">Idle</div>
+  </div>
+
+  <script>
+    // Change if your API is on another host:
+    const API_URL = "http://localhost:8000/api/generate";
+
+    const referencePdf = document.getElementById("referencePdf");
+    const studentTex = document.getElementById("studentTex");
+    const fontName = document.getElementById("fontName");
+    const statusEl = document.getElementById("status");
+    const btn = document.getElementById("generateBtn");
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    btn.addEventListener("click", async () => {
+      if (!referencePdf.files[0] || !studentTex.files[0]) {
+        setStatus("Please select both files.");
+        return;
+      }
+
+      btn.disabled = true;
+      setStatus("Uploading…");
+
+      try {
+        const form = new FormData();
+        form.append("reference_pdf", referencePdf.files[0]);
+        form.append("student_tex", studentTex.files[0]);
+        form.append("font_name", fontName.value || "Arial");
+
+        const res = await fetch(API_URL, { method: "POST", body: form });
+
+        // If backend returned JSON error
+        const contentType = res.headers.get("content-type") || "";
+        if (!res.ok) {
+          if (contentType.includes("application/json")) {
+            const j = await res.json();
+            setStatus(`Error: ${j.error}\n${j.detail || ""}`);
+          } else {
+            const t = await res.text();
+            setStatus(`Error: ${t}`);
+          }
+          return;
+        }
+
+        // Download PDF
+        setStatus("Generating… Downloading result…");
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "qa_bundle.pdf";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        URL.revokeObjectURL(url);
+        setStatus("Done ✅");
+      } catch (e) {
+        setStatus("Request failed: " + (e?.message || e));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
