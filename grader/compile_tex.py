@@ -1,6 +1,7 @@
 # grader/compile_tex.py
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ class CompileOutputs:
     pdf: Path
 
 
-def _run(cmd: list[str], cwd: Path | None = None) -> None:
+def _run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
     try:
         subprocess.run(
             cmd,
@@ -24,6 +25,7 @@ def _run(cmd: list[str], cwd: Path | None = None) -> None:
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=env,
         )
     except subprocess.CalledProcessError as e:
         print("\n--- COMMAND FAILED ---")
@@ -71,6 +73,7 @@ def compile_tex_to_pdf(
     font_name: str = "Arial",
     passes: int = 2,
     xelatex: str = "xelatex",
+    texinputs: Optional[list[Path]] = None,
 ) -> CompileOutputs:
     """
     Compile a .tex file to PDF using XeLaTeX, writing outputs into out_dir.
@@ -93,6 +96,16 @@ def compile_tex_to_pdf(
     # XeLaTeX output name follows tex stem
     pdf_path = out_dir / f"{clean_tex.stem}.pdf"
 
+    # Ensure \input{} and other relative includes can be found even if we compile from out_dir.
+    # Add the original TeX folder (and any extra texinputs) to TEXINPUTS.
+    env = os.environ.copy()
+    tex_paths = [input_tex.parent]
+    if texinputs:
+        tex_paths.extend([p for p in texinputs if p])
+    prepend = os.pathsep.join(str(p.resolve()) for p in dict.fromkeys(tex_paths))
+    existing = env.get("TEXINPUTS", "")
+    env["TEXINPUTS"] = prepend + (os.pathsep + existing if existing else "") + os.pathsep
+
     for _ in range(max(1, int(passes))):
         _run(
             [
@@ -101,7 +114,8 @@ def compile_tex_to_pdf(
                 "-halt-on-error",
                 f"-output-directory={out_dir}",
                 str(clean_tex),
-            ]
+            ],
+            env=env,
         )
 
     if not pdf_path.exists():

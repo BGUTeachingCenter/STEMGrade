@@ -63,7 +63,7 @@ def _normalize_part(p: str) -> str:
     return p
 
 
-def _compile_tex(tex_path: Path, out_dir: Path, *, font_name: str, passes: int = 2, clean: bool = False) -> Path:
+def _compile_tex(tex_path: Path, out_dir: Path, *, font_name: str, passes: int = 2, clean: bool = False, texinputs: list[Path] | None = None) -> Path:
     """
     Prefer grader.compile_tex.compile_tex_to_pdf if available.
     Fall back to xelatex directly.
@@ -73,12 +73,12 @@ def _compile_tex(tex_path: Path, out_dir: Path, *, font_name: str, passes: int =
     if compile_tex_to_pdf is not None:
         # support different signatures
         try:
-            pdf = compile_tex_to_pdf(tex_path, out_dir, font_name=font_name, passes=passes, clean=clean)
+            pdf = compile_tex_to_pdf(tex_path, out_dir, font_name=font_name, passes=passes, clean=clean, texinputs=texinputs)
         except TypeError:
             try:
-                pdf = compile_tex_to_pdf(tex_path, out_dir, font_name=font_name, passes=passes)
+                pdf = compile_tex_to_pdf(tex_path, out_dir, font_name=font_name, passes=passes, texinputs=texinputs)
             except TypeError:
-                pdf = compile_tex_to_pdf(tex_path, out_dir)
+                pdf = compile_tex_to_pdf(tex_path, out_dir, texinputs=texinputs)
         # normalize return
         if isinstance(pdf, Path):
             return pdf
@@ -209,6 +209,24 @@ _TEX_PART_MARK_RE = re.compile(
 )
 
 
+# Fallback format: comment markers like "% Page 5 - Question 1a"
+_TEX_PAGEQ_RE = re.compile(
+    r"^\s*%\s*Page\s*\d+\s*-\s*Question\s*([0-9]{1,2})\s*([אבaAbB])\s*$",
+    re.UNICODE | re.IGNORECASE | re.MULTILINE
+)
+
+def _strip_to_solution_block(snippet: str) -> str:
+    # Many student templates include the question statement and then a marker like "פתרון:".
+    # For bundling we want primarily the student's work, so if we see such a marker,
+    # keep only the content after it.
+    for tok in ("פתרון:", "Solution:", "solution:"):
+        j = snippet.find(tok)
+        if j != -1:
+            return snippet[j + len(tok):].strip()
+    return snippet.strip()
+
+
+
 def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Key, str], Dict[Key, Tuple[int, int]]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     src = student_tex.read_text(encoding="utf-8", errors="replace")
@@ -227,8 +245,34 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
     dbg: List[str] = []
 
     if not q_matches:
+        # Fallback: some students submit a full document with markers like:
+        #   % Page 5 - Question 1a
+        #   % Page 7 - Question 1b
+        page_hits = list(_TEX_PAGEQ_RE.finditer(body))
+        if page_hits:
+            dbg.append("Parsed using % Page ... - Question Na/Nb markers.")
+            for i, ph in enumerate(page_hits):
+                qnum = int(ph.group(1))
+                part = _normalize_part(ph.group(2))
+                start = ph.end()
+                end = page_hits[i + 1].start() if i + 1 < len(page_hits) else len(body)
+                block = body[start:end]
+                snippet = _strip_to_solution_block(block)
+                key = (qnum, part)
+                if snippet:
+                    answers[key] = snippet
+                    ranges[key] = (body_offset + start, body_offset + end)
+                    dbg.append(f"== Q{qnum}{part} ==")
+                    dbg.append(snippet[:1200])
+                    dbg.append("")
+            (out_dir / "debug_student_tex_parts.txt").write_text(
+                "\n".join(dbg) + "\n\n--- RAW BODY (first 2500 chars) ---\n\n" + body[:2500],
+                encoding="utf-8"
+            )
+            return answers, ranges
+
         (out_dir / "debug_student_tex_parts.txt").write_text(
-            "No \\subsection*{Question N ...} / \\subsection*{שאלה N ...} found.\n\n"
+            r"No \subsection*{Question N ...} / \subsection*{שאלה N ...} found, and no '% Page ... - Question Na/Nb' markers found.\n\n"
             + body[:2500],
             encoding="utf-8"
         )
@@ -243,7 +287,7 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
         hits = list(_TEX_PART_MARK_RE.finditer(q_block))
         if not hits:
             key = (qnum, "")
-            snippet = q_block.strip()
+            snippet = _strip_to_solution_block(q_block)
             if snippet:
                 answers[key] = snippet
                 ranges[key] = (body_offset + q_start, body_offset + q_end)
@@ -268,7 +312,7 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
 
         if not earliest:
             key = (qnum, "")
-            snippet = q_block.strip()
+            snippet = _strip_to_solution_block(q_block)
             if snippet:
                 answers[key] = snippet
                 ranges[key] = (body_offset + q_start, body_offset + q_end)
@@ -278,12 +322,14 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
 
         for pi, (part, start_rel) in enumerate(points):
             end_rel = points[pi + 1][1] if pi + 1 < len(points) else len(q_block)
-            chunk = q_block[start_rel:end_rel].strip()
+            chunk = q_block[start_rel:end_rel]
 
             # Strip obvious part label at start
             chunk = re.sub(r"^\s*\\textbf\{\(\s*[אבaAbB]\s*\)[^}]*\}\s*", "", chunk)
             chunk = re.sub(r"^\s*\\textbf\{\(\s*[אבaAbB]\s*\)\}\s*", "", chunk)
             chunk = re.sub(r"^\s*\(\s*[אבaAbB]\s*\)\s*", "", chunk)
+
+            chunk = _strip_to_solution_block(chunk)
 
             key = (qnum, part)
             if chunk:
@@ -311,6 +357,22 @@ def make_answer_tex(qnum: int, part: str, answer_latex: str, font_name: str) -> 
         r"\documentclass[12pt]{article}" "\n"
         r"\usepackage[a4paper,margin=2cm]{geometry}" "\n"
         r"\usepackage{amsmath,amssymb,mathtools}" "\n"
+        r"% ---- Common student macros (robust defaults) ----" "\n"
+        r"% Many students use \abs{...}, \norm{...}, \ceil{...}, \floor{...} without defining them." "\n"
+        r"% We provide lightweight fallbacks that work with plain amsmath/mathtools." "\n"
+        r"\providecommand{\abs}[1]{\left\lvert#1\right\rvert}" "\n"
+        r"\providecommand{\norm}[1]{\left\lVert#1\right\rVert}" "\n"
+        r"\providecommand{\ceil}[1]{\left\lceil#1\right\rceil}" "\n"
+        r"\providecommand{\floor}[1]{\left\lfloor#1\right\rfloor}" "\n"
+        r"\providecommand{\set}[1]{\left\{#1\right\}}" "\n"
+        r"\providecommand{\paren}[1]{\left(#1\right)}" "\n"
+        r"\providecommand{\bracks}[1]{\left[#1\right]}" "\n"
+        r"\providecommand{\angles}[1]{\left\langle#1\right\rangle}" "\n"
+        r"\providecommand{\RR}{\mathbb{R}}" "\n"
+        r"\providecommand{\CC}{\mathbb{C}}" "\n"
+        r"\providecommand{\NN}{\mathbb{N}}" "\n"
+        r"\providecommand{\ZZ}{\mathbb{Z}}" "\n"
+        r"\providecommand{\QQ}{\mathbb{Q}}" "\n"
         r"\usepackage{xcolor}" "\n"
         r"\usepackage{fontspec}" "\n"
         r"\usepackage{bidi}" "\n"
@@ -461,7 +523,7 @@ def generate_qa_bundle_pdf(
         )
 
     # 3) Compile full student TeX (useful for validation / later grading)
-    student_clean_pdf = _compile_tex(student_tex, out_dir, font_name=font_name, passes=2, clean=True)
+    student_clean_pdf = _compile_tex(student_tex, out_dir, font_name=font_name, passes=2, clean=True, texinputs=[student_tex.parent])
 
     # 4) Compile each answer snippet to a PDF (safe embedding)
     answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
