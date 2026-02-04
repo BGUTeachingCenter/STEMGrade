@@ -4,7 +4,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-from grader.ai_grading.feedback_reportlab import build_feedback_pdf_from_grades
+from grader.ai_grading.feedback_latex import build_feedback_pdf_from_grades_latex
 
 
 def build_graded_pdf(
@@ -14,16 +14,14 @@ def build_graded_pdf(
     font_path: Path | None = None,
 ) -> Path:
     """
-    Build final graded PDF by creating feedback.pdf with ReportLab (no LaTeX),
+    Build final graded PDF by creating feedback.pdf with LaTeX (XeLaTeX) for readable Hebrew/RTL,
     then merging: [bundle_pdf] + [feedback_pdf].
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    feedback_pdf = out_dir / "graded_feedback.pdf"
-    build_feedback_pdf_from_grades(
+    feedback_pdf = build_feedback_pdf_from_grades_latex(
         grades_json=grades_json,
-        out_pdf=feedback_pdf,
-        font_path=font_path,
+        out_dir=out_dir,
     )
 
     graded_pdf = out_dir / "graded_test.pdf"
