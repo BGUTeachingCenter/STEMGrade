@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import requests
@@ -15,8 +16,8 @@ class OllamaClient:
     Uses /api/chat with optional structured output (JSON schema).
     Docs: https://docs.ollama.com/api/chat  (base URL is typically http://localhost:11434/api)
     """
-    base_url: str = "http://localhost:11434"
-    model: str = "gemma3:4b"
+    base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+    model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "gemma3:4b"))
     timeout_s: int = 180
 
     def chat_json(

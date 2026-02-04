@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,8 +56,8 @@ def infer_max_points(reference_solution_text: str, default_max: float = 0.0) -> 
 def grade_bundle_pdf(
     bundle_pdf: Path,
     out_dir: Path,
-    ollama_base_url: str = "http://localhost:11434",
-    model: str = "gemma3:4b",
+    ollama_base_url: str | None = None,
+    model: str | None = None,
 ) -> Tuple[Path, Path]:
     """
     Main entry point:
@@ -69,10 +70,14 @@ def grade_bundle_pdf(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    questions = split_bundle_pdf_into_questions(bundle_pdf)
-    if not questions:
-        raise RuntimeError("Could not detect questions in bundle PDF text extraction.")
+    # Single source of truth: server.py sets these environment variables.
+    # If this function is used standalone, environment variables still work.
+    if ollama_base_url is None:
+        ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    if model is None:
+        model = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 
+    questions = split_bundle_pdf_into_questions(bundle_pdf)
     if not questions:
         raise RuntimeError("Could not detect questions in bundle PDF text extraction.")
 
