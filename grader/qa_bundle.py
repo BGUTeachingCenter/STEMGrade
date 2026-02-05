@@ -20,10 +20,12 @@ from typing import Dict, Optional, Tuple
 
 from .answer_render import compile_student_answer_pdfs
 from .bundle_writer import write_bundle_tex
+from .bundle_writer import write_bundle_tex_from_reference_snippets
 from .compile_tex import compile_tex_to_pdf
 from .pdf_cleanse import CleanseReport, cleanse_test_pdf
 from .reference_ranges import Key, find_reference_ranges
 from .student_tex import parse_student_tex_answers
+from .reference_tex import parse_reference_tex
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,114 @@ def generate_qa_bundle_pdf(
         reference_clean_pdf=reference_clean_pdf,
         cleanse_report=cleanse_report,
         ref_ranges=ref_ranges,
+        student_ranges=student_ranges,
+        student_answer_pdfs=answer_pdfs,
+    )
+
+
+def generate_qa_bundle_from_reference_tex(
+    *,
+    reference_tex: Path,
+    student_tex: Path,
+    out_dir: Path,
+    bundle_stem: str = "qa_bundle",
+    font_name: str = "Arial",
+) -> QABundleOutputs:
+    """Generate a Q/A bundle PDF using a reference .tex instead of a reference .pdf.
+
+    The bundle will contain, for each detected question/part:
+      1) Typeset reference LaTeX (question + official solution) pulled from reference_tex
+      2) A PDF rendering of the student's answer snippet
+
+    This is more robust than PDF extraction, especially for RTL + math.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1) Parse reference .tex into per-part LaTeX snippets
+    ref_parts = parse_reference_tex(reference_tex)
+    if not ref_parts:
+        raise RuntimeError(
+            "Could not parse any reference parts from the TeX. "
+            "Expected headings like \\section*{Question N} and \\subsection*{(a)}."
+        )
+
+    # 2) Parse student TeX answers
+    student_answers, student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    if not student_answers:
+        raise RuntimeError(
+            "Could not parse any student answers from the TeX. "
+            "Check build/debug_student_tex_parts.txt."
+        )
+
+    # 3) Compile full student TeX (debug/validation)
+    student_clean_pdf = compile_tex_to_pdf(
+        student_tex,
+        out_dir,
+        clean=True,
+        font_name=font_name,
+        passes=2,
+        texinputs=[student_tex.parent],
+    ).pdf
+
+    # 4) Compile each answer snippet into its own PDF
+    answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
+
+    # 5) Build reference snippets map (raw LaTeX blocks)
+    reference_snippets = {
+        k: (f"\\textbf{{{v.title}}}\\par\n\n{v.latex_body}".strip() if v.title else (v.latex_body or "").strip())
+        for k, v in ref_parts.items()
+    }
+
+    # 6) Write bundle TeX
+    bundle_tex = out_dir / f"{bundle_stem}.tex"
+    write_bundle_tex_from_reference_snippets(
+        bundle_tex,
+        reference_snippets=reference_snippets,
+        answer_pdfs=answer_pdfs,
+        font_name=font_name,
+        title="Q/A Bundle (Reference TeX + Rendered student answers)",
+    )
+
+    # 7) Compile bundle
+    bundle_pdf = compile_tex_to_pdf(
+        bundle_tex,
+        out_dir,
+        clean=False,
+        font_name=font_name,
+        passes=2,
+        texinputs=[bundle_tex.parent, reference_tex.parent, student_tex.parent],
+    ).pdf
+
+    normalized = out_dir / f"{bundle_stem}.pdf"
+    if bundle_pdf.exists() and bundle_pdf != normalized:
+        try:
+            bundle_pdf.replace(normalized)
+            bundle_pdf = normalized
+        except Exception:
+            pass
+
+    if not bundle_pdf.exists():
+        raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+
+    placeholder_pdf = out_dir / "reference_tex_placeholder.pdf"
+    cleanse_report = CleanseReport(
+        input_pdf=placeholder_pdf,
+        output_pdf=placeholder_pdf,
+        removed_pages_1based=(),
+        kept_pages_1based=(),
+        reason_lines=("Reference provided as .tex; PDF cleansing step skipped.",),
+        debug_report_path=None,
+    )
+
+    # For API compatibility, we don't produce a cleaned reference PDF here.
+    # Use the student's clean pdf and an empty placeholder for reference_clean_pdf.
+    return QABundleOutputs(
+        bundle_pdf=bundle_pdf,
+        bundle_tex=bundle_tex,
+        student_clean_pdf=student_clean_pdf,
+        reference_clean_pdf=out_dir / "reference_tex_placeholder.pdf",
+        cleanse_report=cleanse_report,
+        ref_ranges={},
         student_ranges=student_ranges,
         student_answer_pdfs=answer_pdfs,
     )

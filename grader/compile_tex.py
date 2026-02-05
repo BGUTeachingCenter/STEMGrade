@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .latex_cleanup import clean_tex_source
-
 
 @dataclass(frozen=True)
 class CompileOutputs:
@@ -47,6 +45,29 @@ def _require_tool(exe: str) -> None:
         )
 
 
+def clean_tex_for_windows(tex: str, font_name: str = "Arial") -> str:
+    r"""Minimal cleaning that helps XeLaTeX succeed on Windows and keeps bidi/RTL stable.
+
+    Notes:
+      - normalize tabs
+      - force \setmainfont{<font_name>} if present
+      - strip trailing whitespace
+
+    This docstring is a *raw* string to avoid Python "invalid escape sequence" warnings
+    for LaTeX backslashes.
+    """
+    tex = tex.replace("\t", "  ")
+
+    # Replace any \setmainfont[...]{} or \setmainfont{} with the requested font.
+    tex = re.sub(
+        r"(\\setmainfont(?:\[[^\]]*\])?\{)([^}]+)(\})",
+        rf"\1{font_name}\3",
+        tex,
+    )
+
+    tex = "\n".join(line.rstrip() for line in tex.splitlines()) + "\n"
+    return tex
+
 
 def compile_tex_to_pdf(
     input_tex: Path,
@@ -71,7 +92,7 @@ def compile_tex_to_pdf(
         raise FileNotFoundError(f"Missing input_tex: {input_tex.resolve()}")
 
     src = input_tex.read_text(encoding="utf-8", errors="ignore")
-    cleaned = clean_tex_source(src, font_name=font_name) if clean else src
+    cleaned = clean_tex_for_windows(src, font_name=font_name) if clean else src
 
     clean_tex = out_dir / f"{input_tex.stem}_clean.tex"
     clean_tex.write_text(cleaned, encoding="utf-8")

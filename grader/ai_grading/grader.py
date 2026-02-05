@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json, hashlib
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -12,27 +12,6 @@ from .pdf_extract import split_bundle_pdf_into_questions
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema
 from .latex_render import render_feedback_tex  # uses math normalization internally
-
-from datetime import datetime
-
-def sha256(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
-
-def dump_payload(run_dir: Path, qkey: str, payload: dict):
-    run_dir.mkdir(parents=True, exist_ok=True)
-    payload2 = dict(payload)
-    payload2["_meta"] = {
-        "dumped_at": datetime.utcnow().isoformat() + "Z",
-        "hashes": {
-            k: sha256(v) for k, v in payload.items()
-            if isinstance(v, str)
-        }
-    }
-    (run_dir / f"{qkey}_payload.json").write_text(
-        json.dumps(payload2, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-
 
 
 @dataclass
@@ -114,7 +93,6 @@ def grade_bundle_pdf(
                 "key_points": [],
             },
         }
-        # dump_payload(user_accessible_run_dir, qid, payload)
 
         user = json.dumps(payload["ai_input"], ensure_ascii=False, indent=2)
         resp = client.chat_json(system=system, user=user, schema=schema, temperature=0.2)

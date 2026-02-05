@@ -26,6 +26,7 @@ import fitz  # PyMuPDF
 
 from grader.pdf_cleanse import cleanse_test_pdf
 from grader.reference_ranges import Key, find_reference_ranges
+from grader.reference_tex import parse_reference_tex
 from grader.student_tex import parse_student_tex_answers
 
 
@@ -366,4 +367,115 @@ def build_payloads(
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    return manifest_path, items
+
+
+def build_payloads_from_reference_tex(
+    *,
+    reference_tex: Path,
+    student_tex: Path,
+    out_dir: Path,
+    default_max_points: float = 0.0,
+) -> Tuple[Path, List[PayloadItem]]:
+    """Create payloads from a reference .tex (questions/solutions) + student .tex.
+
+    This avoids PDF text extraction entirely. The reference content is assumed to
+    be *LaTeX already*, so we feed it to the LLM without escaping.
+
+    Notes:
+      - We still use the student's raw LaTeX per part.
+      - If the reference .tex doesn't contain explicit question text, the
+        question_latex field may be empty; the solution_latex remains usable.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload_dir = out_dir / "payloads"
+    payload_dir.mkdir(parents=True, exist_ok=True)
+
+    reference_tex_text = Path(reference_tex).read_text(encoding="utf-8", errors="replace")
+    ref_parts = parse_reference_tex(reference_tex_text)
+
+    if not ref_parts:
+        raise RuntimeError(
+            "Could not parse any questions/parts from reference .tex. "
+            "Expected headings like \\section*{Question N} and \\subsection*{(a)}."
+        )
+
+    student_answers, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    if not student_answers:
+        raise RuntimeError(
+            "Could not parse any student answers from the TeX. "
+            "Check out/debug_student_tex_parts.txt."
+        )
+
+    # Union keys: we want payloads even if either side is missing (helps debugging).
+    keys = sorted(set(ref_parts.keys()) | set(student_answers.keys()))
+    items: List[PayloadItem] = []
+
+    for key in keys:
+        qid = qid_from_key(key)
+
+        ref = ref_parts.get(key)
+        question_tex = (ref.title if ref else "").strip()
+        solution_tex = (ref.latex_body if ref else "").strip()
+        reference_block = (question_tex + "\n\n" + solution_tex).strip() if (question_tex or solution_tex) else ""
+
+        student_latex = (student_answers.get(key) or "").strip()
+
+        # Points: reference .tex may not include points. Keep default_max_points.
+        max_points = float(default_max_points or 0.0)
+
+        # For consistency with the PDF path, we still provide the AI-facing fields.
+        required_outcome = _normalize_reference_to_latexish(_infer_required_outcome(question_tex, solution_tex))
+
+        payload = {
+            "question_id": qid,
+            "qid": qid,
+            "key": {"qnum": key[0], "part": key[1]},
+            "max_points": float(max_points),
+            "rubric": {"score_max": float(max_points), "key_points": []},
+            "reference": {
+                "source": "reference.tex",
+                "question_text": question_tex,
+                "solution_text": solution_tex,
+                "text": reference_block,
+            },
+            "student": {
+                "source": "student.tex",
+                "latex_raw": student_latex,
+                "latex_clean": "",
+            },
+            "ai_input": {
+                # These are already LaTeX; do NOT escape.
+                "question_latex": question_tex,
+                "reference_solution_latex": solution_tex,
+                "student_answer_latex": student_latex,
+                "required_outcome": required_outcome,
+                "max_points": float(max_points),
+            },
+        }
+
+        payload_path = payload_dir / f"{qid.replace('(', '_').replace(')', '')}.json"
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        items.append(
+            PayloadItem(
+                key=key,
+                qid=qid,
+                max_points=float(max_points),
+                reference_text=reference_block,
+                student_latex=student_latex,
+                payload_path=payload_path,
+            )
+        )
+
+    manifest = {
+        "version": 2,
+        "reference_tex": str(reference_tex.name),
+        "student_tex": str(student_tex.name),
+        "count": len(items),
+        "items": [{"qid": it.qid, "payload_file": it.payload_path.name} for it in items],
+    }
+
+    manifest_path = out_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest_path, items

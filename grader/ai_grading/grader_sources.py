@@ -26,7 +26,7 @@ from typing import Dict, Tuple
 from grader.reference_ranges import Key
 from grader.student_tex import parse_student_tex_answers
 
-from .payloads import build_payloads
+from .payloads import build_payloads, build_payloads_from_reference_tex
 from .grader_payloads import grade_payload_manifest
 
 
@@ -119,5 +119,37 @@ def grade_reference_and_student_tex(
     )
 
     # Return student answers as before (useful for UI/debugging)
+    student_answers = _parse_student_answers_for_debug(student_tex, out_dir)
+    return grades_json, student_answers
+
+
+def grade_reference_tex_and_student_tex(
+    *,
+    reference_tex: Path,
+    student_tex: Path,
+    out_dir: Path,
+    ollama_base_url: str | None = None,
+    model: str | None = None,
+) -> Tuple[Path, Dict[Key, str]]:
+    """Grade by pairing reference LaTeX (question/solution) with student's LaTeX snippets."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_json, _items = build_payloads_from_reference_tex(
+        reference_tex=reference_tex,
+        student_tex=student_tex,
+        out_dir=out_dir,
+    )
+
+    _sanity_check_payloads(manifest_json, out_dir)
+
+    os.environ["MATHGRADE_USE_AI_INPUT"] = "1"
+
+    grades_json = grade_payload_manifest(
+        manifest_json=manifest_json,
+        out_dir=out_dir,
+        ollama_base_url=ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        model=model or os.getenv("OLLAMA_MODEL", "gemma3:4b"),
+    )
+
     student_answers = _parse_student_answers_for_debug(student_tex, out_dir)
     return grades_json, student_answers

@@ -167,7 +167,7 @@
       <div>
         <h1>MathGrade</h1>
         <div class="sub">
-          Upload the official exam+solution PDF and the student's LaTeX results file.
+          Upload the official exam+solution <b>TeX</b> and the student's LaTeX results file.
           Generate a bundle PDF, or generate a graded PDF with AI feedback (Ollama).
         </div>
       </div>
@@ -180,20 +180,22 @@
     <div class="card">
       <div class="cardInner">
         <div class="grid">
-          <div class="drop" id="dropPdf">
-            <div class="label"><span class="icon">📄</span> Reference PDF (exam + solution)</div>
-            <div class="hint">Drag & drop a <b>.pdf</b> here, or click to choose.</div>
-            <div class="chip" id="pdfChip" style="display:none;">
-              <span>Selected:</span> <span id="pdfName" style="color:var(--text)"></span>
+          <!-- Reference TeX -->
+          <div class="drop" id="dropRefTex">
+            <div class="label"><span class="icon">📄</span> Reference TeX (exam + solution)</div>
+            <div class="hint">Drag & drop a <b>.tex</b> here, or click to choose.</div>
+            <div class="chip" id="refChip" style="display:none;">
+              <span>Selected:</span> <span id="refName" style="color:var(--text)"></span>
             </div>
-            <input id="referencePdf" type="file" accept="application/pdf" />
+            <input id="referenceTex" type="file" accept=".tex,.txt" />
           </div>
 
-          <div class="drop" id="dropTex">
+          <!-- Student TeX -->
+          <div class="drop" id="dropStudentTex">
             <div class="label"><span class="icon violet">🧾</span> Student results (LaTeX)</div>
             <div class="hint">Drag & drop a <b>.tex</b> file here, or click to choose.</div>
-            <div class="chip" id="texChip" style="display:none;">
-              <span>Selected:</span> <span id="texName" style="color:var(--text)"></span>
+            <div class="chip" id="stuChip" style="display:none;">
+              <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
             </div>
             <input id="studentTex" type="file" accept=".tex,.txt" />
           </div>
@@ -215,21 +217,22 @@
   </div>
 
   <script>
-    // If you deploy frontend+backend on same domain later, you can set API_BASE = "" and use "/api/.."
     const API_BASE = "http://localhost:8000";
-    const ENDPOINT_BUNDLE = API_BASE + "/api/generate";
-    const ENDPOINT_GRADE  = API_BASE + "/api/grade";
 
-    const referencePdf = document.getElementById("referencePdf");
+    // NEW endpoints (TeX reference)
+    const ENDPOINT_BUNDLE = API_BASE + "/api/generate_tex"; // you implement on backend
+    const ENDPOINT_GRADE  = API_BASE + "/api/grade_tex";    // you implement on backend
+
+    const referenceTex = document.getElementById("referenceTex");
     const studentTex = document.getElementById("studentTex");
 
-    const dropPdf = document.getElementById("dropPdf");
-    const dropTex = document.getElementById("dropTex");
+    const dropRefTex = document.getElementById("dropRefTex");
+    const dropStudentTex = document.getElementById("dropStudentTex");
 
-    const pdfChip = document.getElementById("pdfChip");
-    const texChip = document.getElementById("texChip");
-    const pdfName = document.getElementById("pdfName");
-    const texName = document.getElementById("texName");
+    const refChip = document.getElementById("refChip");
+    const stuChip = document.getElementById("stuChip");
+    const refName = document.getElementById("refName");
+    const stuName = document.getElementById("stuName");
 
     const statusEl = document.getElementById("status");
     const bundleBtn = document.getElementById("bundleBtn");
@@ -266,21 +269,19 @@
         document.getElementById("modelName").textContent = "Ollama model";
       }
     }
-
-loadModelName();
-
+    loadModelName();
 
     function updateUI() {
-      const pdf = referencePdf.files[0];
-      const tex = studentTex.files[0];
+      const ref = referenceTex.files[0];
+      const stu = studentTex.files[0];
 
-      if (pdf) { pdfChip.style.display = "inline-flex"; pdfName.textContent = pdf.name; }
-      else { pdfChip.style.display = "none"; }
+      if (ref) { refChip.style.display = "inline-flex"; refName.textContent = ref.name; }
+      else { refChip.style.display = "none"; }
 
-      if (tex) { texChip.style.display = "inline-flex"; texName.textContent = tex.name; }
-      else { texChip.style.display = "none"; }
+      if (stu) { stuChip.style.display = "inline-flex"; stuName.textContent = stu.name; }
+      else { stuChip.style.display = "none"; }
 
-      const ready = !!(pdf && tex);
+      const ready = !!(ref && stu);
       bundleBtn.disabled = !ready;
       gradeBtn.disabled = !ready;
 
@@ -315,22 +316,36 @@ loadModelName();
       input.addEventListener("change", updateUI);
     }
 
-    wireDropZone(dropPdf, referencePdf, (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
-    wireDropZone(dropTex, studentTex, (f) => f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt"));
+    // both are TeX now
+    wireDropZone(dropRefTex, referenceTex, (f) => f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt"));
+    wireDropZone(dropStudentTex, studentTex, (f) => f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt"));
+
+    function stageLine(stage, extra="") {
+      const ts = new Date().toLocaleTimeString();
+      return `[${ts}] ${stage}${extra ? " — " + extra : ""}`;
+    }
 
     async function postAndDownload(url, downloadName, workLabel) {
-      const pdf = referencePdf.files[0];
-      const tex = studentTex.files[0];
-      if (!pdf || !tex) return;
+      const ref = referenceTex.files[0];
+      const stu = studentTex.files[0];
+      if (!ref || !stu) return;
 
       bundleBtn.disabled = true;
       gradeBtn.disabled = true;
-      setStatus(workLabel + "\nUploading…", "work");
+
+      // Frontend “best effort” stages (true upload + wait + download).
+      setStatus(
+        workLabel + "\n" +
+        stageLine("Uploading files") + "\n" +
+        stageLine("Waiting for server to process (grading + PDF generation)") ,
+        "work"
+      );
 
       try {
         const form = new FormData();
-        form.append("reference_pdf", pdf);
-        form.append("student_tex", tex);
+        // IMPORTANT: field names must match backend
+        form.append("reference_tex", ref);
+        form.append("student_tex", stu);
 
         const res = await fetch(url, { method: "POST", body: form });
 
@@ -346,7 +361,12 @@ loadModelName();
           return;
         }
 
-        setStatus(workLabel + "\nDownloading…", "work");
+        setStatus(
+          workLabel + "\n" +
+          stageLine("Processing done") + "\n" +
+          stageLine("Downloading PDF"),
+          "work"
+        );
 
         const blob = await res.blob();
         const objUrl = URL.createObjectURL(blob);
@@ -359,7 +379,7 @@ loadModelName();
         a.remove();
 
         URL.revokeObjectURL(objUrl);
-        setStatus("Done ✅ Download should start.", "ok");
+        setStatus(stageLine("Done ✅", "Download should start."), "ok");
       } catch (e) {
         setStatus("Request failed: " + (e?.message || e), "err");
       } finally {
@@ -372,7 +392,7 @@ loadModelName();
     );
 
     gradeBtn.addEventListener("click", () =>
-      postAndDownload(ENDPOINT_GRADE, "graded_test.pdf", "Generating graded PDF (AI)…\nThis may take a bit.")
+      postAndDownload(ENDPOINT_GRADE, "graded_test.pdf", "Generating graded PDF (AI)…")
     );
 
     updateUI();
