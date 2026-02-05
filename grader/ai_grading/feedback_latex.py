@@ -42,6 +42,7 @@ def _render_feedback_tex(data: dict, title: str) -> str:
     lines.append(r"\usepackage{hyperref}")
     lines.append(r"\usepackage{enumitem}")
     lines.append(r"\usepackage{polyglossia}")
+    lines.append(r"\usepackage{xcolor}")
     lines.append(r"\usepackage{bidi}")  # robust RTL/LTR handling with XeLaTeX
     lines.append(r"\setdefaultlanguage{hebrew}")
     lines.append(r"\setotherlanguage{english}")
@@ -63,10 +64,32 @@ def _render_feedback_tex(data: dict, title: str) -> str:
         good = q.get("what_was_correct", []) or []
         mistakes = q.get("main_mistakes", []) or []
         improve = q.get("how_to_improve", []) or []
+        mismatch = q.get("mismatch", {}) or {}
+        tags = q.get("common_errors_detected", []) or []
+        next_step = q.get("suggested_next_step_he", "") or ""
         conf = q.get("confidence", None)
 
         lines.append(r"\hrule\vspace{0.35cm}")
         lines.append(rf"{{\Large {qid} \ \ \ ({score:.1f}/{max_points:.1f})\par}}")
+        # Mismatch warning (if student solved a different problem)
+        try:
+            is_mismatch = bool(mismatch.get("is_mismatch"))
+        except Exception:
+            is_mismatch = False
+
+        if is_mismatch:
+            lines.append(r"\vspace{0.15cm}")
+            lines.append(r"\textbf{\Large \color{red}⚠ פתירת שאלה אחרת / אי־התאמה:}")
+            expl = _latex_escape(str(mismatch.get("explanation_he", "") or ""))
+            ref_t = _latex_escape(str(mismatch.get("reference_target", "") or ""))
+            stu_t = _latex_escape(str(mismatch.get("student_target", "") or ""))
+            if expl:
+                lines.append(expl + r"\par")
+            if ref_t:
+                lines.append(r"\textbf{מה נדרש:} " + ref_t + r"\par")
+            if stu_t:
+                lines.append(r"\textbf{מה נפתר בפועל:} " + stu_t + r"\par")
+            lines.append(r"\vspace{0.2cm}")
         if summary:
             lines.append(r"\vspace{0.2cm}")
             lines.append(summary + r"\par")
@@ -92,6 +115,15 @@ def _render_feedback_tex(data: dict, title: str) -> str:
             for item in improve[:12]:
                 lines.append(rf"\item {_latex_escape(str(item))}")
             lines.append(r"\end{itemize}")
+
+        if next_step:
+            lines.append(r"\textbf{צעד מומלץ עכשיו:}")
+            lines.append(_latex_escape(str(next_step)) + r"\par")
+
+        if tags:
+            # Render tags on one line for quick scanning
+            tag_line = ", ".join(str(t) for t in tags[:12])
+            lines.append(r"\textit{תגיות: " + _latex_escape(tag_line) + r"}\par")
 
         if conf is not None:
             lines.append(rf"\textit{{רמת ביטחון: {float(conf):.2f}}}\par")

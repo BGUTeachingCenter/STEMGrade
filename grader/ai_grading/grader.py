@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple
 
 from .ollama_client import OllamaClient
 from .pdf_extract import BundleQuestionText, split_bundle_pdf_into_questions
+from .prompting import load_grading_prompt
 from .schema import grading_response_schema
 
 
@@ -21,6 +22,9 @@ class QuestionGrade:
     what_was_correct: List[str]
     main_mistakes: List[str]
     how_to_improve: List[str]
+    mismatch: dict
+    common_errors_detected: List[str]
+    suggested_next_step_he: str
     confidence: float
 
 
@@ -83,14 +87,8 @@ def grade_bundle_pdf(
 
     client = OllamaClient(base_url=ollama_base_url, model=model)
 
-    system = (
-        "את/ה בודק/ת מבחנים בקורס חדו\"א באוניברסיטה. "
-        "השוואה חובה: להשוות את תשובת הסטודנט/ית לפתרון הרשמי בלבד. "
-        "תן/י ניקוד הוגן, כולל ניקוד חלקי כאשר מתאים. "
-        "אם התשובה לא רלוונטית או 'לא לבדיקה', תן/י 0. "
-        "חשוב מאוד: כל הטקסטים של המשוב (summary/what_was_correct/main_mistakes/how_to_improve) חייבים להיות בעברית. "
-        "הפלט חייב להיות JSON תקין בלבד לפי הסכמה."
-    )
+    # Load human-readable grading instructions from a txt file next to this module.
+    system = load_grading_prompt()
 
     schema = grading_response_schema()
 
@@ -98,17 +96,22 @@ def grade_bundle_pdf(
     for qid, qt in questions.items():
         max_points = infer_max_points(qt.reference_solution, default_max=0.0)
 
-        user = (
-            f"Question ID: {qid}\n"
-            f"Max points: {max_points}\n\n"
-            "OFFICIAL SOLUTION (and question statement if included):\n"
-            f"{qt.reference_solution}\n\n"
-            "STUDENT ANSWER:\n"
-            f"{qt.student_answer}\n\n"
-            "Now produce the JSON grade. "
-            "Score must be between 0 and Max points. "
-            "Confidence between 0 and 1."
-        )
+        payload = {
+            "question_id": qid,
+            "reference": {
+                "question_text": "",
+                "solution_text": qt.reference_solution,
+            },
+            "student": {
+                "latex_raw": qt.student_answer,
+            },
+            "rubric": {
+                "score_max": max_points,
+                "key_points": [],
+            },
+        }
+
+        user = json.dumps(payload, ensure_ascii=False, indent=2)
 
         resp = client.chat_json(system=system, user=user, schema=schema, temperature=0.2)
 
@@ -128,6 +131,9 @@ def grade_bundle_pdf(
                 what_was_correct=list(resp["what_was_correct"]),
                 main_mistakes=list(resp["main_mistakes"]),
                 how_to_improve=list(resp["how_to_improve"]),
+                mismatch=dict(resp.get("mismatch") or {}),
+                common_errors_detected=list(resp.get("common_errors_detected") or []),
+                suggested_next_step_he=str(resp.get("suggested_next_step_he") or ""),
                 confidence=confidence,
             )
         )
@@ -196,7 +202,7 @@ def _render_feedback_tex(bundle: BundleGrades, original_pdf_filename: str) -> st
     lines.append(r"\usepackage{enumitem}")
     lines.append(r"\usepackage{microtype}")
     lines.append(r"\usepackage{polyglossia}")
-    lines.append(r"\setdefaultlanguage{english}")
+    lines.append(r"\setdefaultlanguage{hebrew}")
     lines.append(r"\setotherlanguage{hebrew}")
     lines.append(r"\begin{document}")
 

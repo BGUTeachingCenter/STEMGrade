@@ -4,10 +4,15 @@ from typing import Any, Dict
 
 
 def grading_response_schema() -> Dict[str, Any]:
+    """JSON Schema for model output (Option B).
+
+    We keep the original fields for compatibility with the feedback PDF renderer,
+    and add richer feedback signals:
+      - mismatch detection (student solved a different object)
+      - common error tags
+      - a single concrete "next step" suggestion
     """
-    JSON Schema for model output.
-    Keep it simple and strict so you can render to PDF reliably.
-    """
+
     return {
         "type": "object",
         "additionalProperties": False,
@@ -20,6 +25,24 @@ def grading_response_schema() -> Dict[str, Any]:
             "main_mistakes": {"type": "array", "items": {"type": "string"}},
             "how_to_improve": {"type": "array", "items": {"type": "string"}},
             "confidence": {"type": "number"},
+            "mismatch": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "is_mismatch": {"type": "boolean"},
+                    "reference_target": {"type": "string"},
+                    "student_target": {"type": "string"},
+                    "explanation_he": {"type": "string"},
+                },
+                "required": [
+                    "is_mismatch",
+                    "reference_target",
+                    "student_target",
+                    "explanation_he",
+                ],
+            },
+            "common_errors_detected": {"type": "array", "items": {"type": "string"}},
+            "suggested_next_step_he": {"type": "string"},
         },
         "required": [
             "qid",
@@ -30,5 +53,8 @@ def grading_response_schema() -> Dict[str, Any]:
             "main_mistakes",
             "how_to_improve",
             "confidence",
+            "mismatch",
+            "common_errors_detected",
+            "suggested_next_step_he",
         ],
     }

@@ -15,6 +15,7 @@ from grader.qa_bundle import generate_qa_bundle_pdf
 
 # AI grading modules (you added these earlier)
 from grader.ai_grading.grader import grade_bundle_pdf
+from grader.ai_grading.grader_sources import grade_reference_and_student_tex
 from grader.ai_grading.graded_pdf import build_graded_pdf
 
 app = FastAPI(title="MathGrade Bundle Generator", version="1.0")
@@ -161,8 +162,10 @@ async def grade_bundle_api(
     student_tex: UploadFile = File(...),
 ):
     """
-    Generate the bundle PDF and then grade it using Ollama (gemma3:4b by default).
-    Returns a graded PDF download (bundle + feedback pages).
+    Grade using *source-of-truth* inputs (reference PDF + student TeX) and only
+    then compile the final PDFs.
+
+    Output: graded_test.pdf (bundle + feedback pages).
     """
     tmp_dir = None
     try:
@@ -170,7 +173,42 @@ async def grade_bundle_api(
         out_dir = tmp_dir / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1) Create bundle
+        # 1) AI grade via Ollama (from JSON payloads built from sources)
+        ai_dir = out_dir / "ai_grade"
+        ai_dir.mkdir(parents=True, exist_ok=True)
+
+        # Prefer grading from *source-of-truth* inputs (reference PDF text + student LaTeX),
+        # because extracting the student's math from the rendered bundle PDF often degrades.
+        try:
+            grades_json, _student_answers_unused = grade_reference_and_student_tex(
+                reference_pdf=ref_path,
+                student_tex=tex_path,
+                out_dir=ai_dir,
+                ollama_base_url=OLLAMA_BASE_URL,
+                model=OLLAMA_MODEL,
+            )
+        except Exception:
+            # Fallback: generate the bundle and grade by extracting text from the rendered PDF.
+            outputs_fallback = generate_qa_bundle_pdf(
+                reference_pdf=ref_path,
+                student_tex=tex_path,
+                out_dir=out_dir,
+                font_name=FIXED_FONT,
+            )
+
+            bundle_pdf_fallback = _pick_pdf_output(outputs_fallback) or _find_newest_pdf(out_dir)
+            if not bundle_pdf_fallback or not bundle_pdf_fallback.exists():
+                produced = [p.name for p in out_dir.glob("*")]
+                raise RuntimeError(f"No bundle PDF produced (fallback). Files in out/: {produced}")
+
+            grades_json, _feedback_tex_unused = grade_bundle_pdf(
+                bundle_pdf=bundle_pdf_fallback,
+                out_dir=ai_dir,
+                ollama_base_url=OLLAMA_BASE_URL,
+                model=OLLAMA_MODEL,
+            )
+
+        # 2) Create bundle *after* grading (so grading never depends on PDF extraction)
         outputs = generate_qa_bundle_pdf(
             reference_pdf=ref_path,
             student_tex=tex_path,
@@ -186,21 +224,11 @@ async def grade_bundle_api(
             produced = [p.name for p in out_dir.glob("*")]
             raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
 
-        # 2) AI grade via Ollama
-        ai_dir = out_dir / "ai_grade"
-        ai_dir.mkdir(parents=True, exist_ok=True)
-
-        grades_json, _feedback_tex_unused = grade_bundle_pdf(
-            bundle_pdf=bundle_pdf,
-            out_dir=ai_dir,
-            ollama_base_url=OLLAMA_BASE_URL,
-            model=OLLAMA_MODEL,
-        )
+        # 3) Compile graded PDF (bundle + feedback)
 
         # Optional: pass a TTF font if you want strong Hebrew/Unicode support.
         # Example Windows path (adjust if needed):
         font_path = Path(r"C:\Windows\Fonts\arial.ttf")
-
 
         graded_pdf = build_graded_pdf(
             bundle_pdf=bundle_pdf,
