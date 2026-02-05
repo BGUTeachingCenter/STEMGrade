@@ -152,21 +152,16 @@ def grade_bundle_pdf(
     return grades_json, grades_tex
 
 
-def _latex_escape(s: str) -> str:
-    """
-    Escape plain text for LaTeX reliably.
-    - Escapes special characters.
-    - Converts backslashes to \\textbackslash{} to avoid accidental commands.
-    - Leaves newlines as line breaks.
-    """
+import re
+
+_MATH_SPLIT_RE = re.compile(r"(\$\$.*?\$\$|\$.*?\$)", re.DOTALL)
+
+def _escape_text_only(s: str) -> str:
+    """Escape plain text for LaTeX (NOT math)."""
     if s is None:
         return ""
-
-    # Normalize line endings
     s = s.replace("\r\n", "\n").replace("\r", "\n")
-
     repl = {
-        "\\": r"\textbackslash{}",
         "&": r"\&",
         "%": r"\%",
         "$": r"\$",
@@ -177,22 +172,49 @@ def _latex_escape(s: str) -> str:
         "~": r"\textasciitilde{}",
         "^": r"\textasciicircum{}",
     }
-
     out = []
     for ch in s:
         out.append(repl.get(ch, ch))
-    # Turn newlines into LaTeX line breaks (more stable than raw newlines)
     return "".join(out).replace("\n", r"\\ ")
+
+def _escape_math_only(s: str) -> str:
+    """
+    Escape only characters that commonly break LaTeX *inside math*.
+    Keep backslashes intact so commands like \epsilon, \frac, \Delta survive.
+    """
+    if s is None:
+        return ""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    # In math mode, % and # still comment/parameterize; escape them.
+    # Curly braces are meaningful in math; keep them.
+    s = s.replace("%", r"\%").replace("#", r"\#")
+    return s
+
+def _latex_render_mixed(s: str) -> str:
+    """
+    Render a string that may contain $...$ or $$...$$.
+    Text outside math is escaped; math content is preserved.
+    """
+    if s is None:
+        return ""
+    parts = _MATH_SPLIT_RE.split(s)
+    rendered = []
+    for part in parts:
+        if not part:
+            continue
+        if (part.startswith("$") and part.endswith("$")):
+            # math segment (either $...$ or $$...$$)
+            rendered.append(part[0:2] + _escape_math_only(part[2:-2]) + part[-2:]
+                           if part.startswith("$$") else
+                           "$" + _escape_math_only(part[1:-1]) + "$")
+        else:
+            rendered.append(_escape_text_only(part))
+    return "".join(rendered)
+
 
 
 
 def _render_feedback_tex(bundle: BundleGrades, original_pdf_filename: str) -> str:
-    """
-    Produce a LaTeX document that:
-      - shows total score
-      - includes per-question feedback
-      - (optionally) can be combined with the original bundle PDF via pdfpages in a separate step
-    """
     lines = []
     lines.append(r"\documentclass[12pt]{article}")
     lines.append(r"\usepackage[a4paper,margin=2cm]{geometry}")
@@ -203,34 +225,48 @@ def _render_feedback_tex(bundle: BundleGrades, original_pdf_filename: str) -> st
     lines.append(r"\usepackage{microtype}")
     lines.append(r"\usepackage{polyglossia}")
     lines.append(r"\setdefaultlanguage{hebrew}")
-    lines.append(r"\setotherlanguage{hebrew}")
+    lines.append(r"\setotherlanguage{english}")
+    lines.append(r"\setlength{\parskip}{6pt}")
+    lines.append(r"\setlength{\parindent}{0pt}")
     lines.append(r"\begin{document}")
+
+    # Optional title header
+    lines.append(r"\section*{משוב בדיקה}")
+    lines.append(_latex_render_mixed(
+        f"שם קובץ: {original_pdf_filename}"
+    ))
 
     for q in bundle.question_grades:
         lines.append(r"\hrule\medskip")
-        lines.append(rf"\subsection*{{{_latex_escape(q.qid)} \ \ \ ({q.score:.1f}/{q.max_points:.1f})}}")
-        lines.append(_latex_escape(q.summary))
+        # qid is plain text (usually "Q1(a)" etc.) – escape as text only
+        lines.append(rf"\subsection*{{{_escape_text_only(q.qid)} \ \ \ ({q.score:.1f}/{q.max_points:.1f})}}")
+
+        # summary may include math
+        lines.append(_latex_render_mixed(q.summary))
         lines.append(r"\medskip")
 
-        lines.append(r"\textbf{What you did well:}")
-        lines.append(r"\begin{itemize}[leftmargin=*]")
+        # Hebrew headings (readability)
+        lines.append(r"\textbf{מה עשית נכון:}")
+        lines.append(r"\begin{itemize}[leftmargin=*,itemsep=3pt,topsep=2pt]")
         for item in q.what_was_correct[:8]:
-            lines.append(rf"\item {_latex_escape(item)}")
+            lines.append(rf"\item {_latex_render_mixed(item)}")
         lines.append(r"\end{itemize}")
 
-        lines.append(r"\textbf{Main mistakes / missing parts:}")
-        lines.append(r"\begin{itemize}[leftmargin=*]")
+        lines.append(r"\textbf{טעויות / חלקים חסרים:}")
+        lines.append(r"\begin{itemize}[leftmargin=*,itemsep=3pt,topsep=2pt]")
         for item in q.main_mistakes[:8]:
-            lines.append(rf"\item {_latex_escape(item)}")
+            lines.append(rf"\item {_latex_render_mixed(item)}")
         lines.append(r"\end{itemize}")
 
-        lines.append(r"\textbf{How to improve (next time):}")
-        lines.append(r"\begin{itemize}[leftmargin=*]")
+        lines.append(r"\textbf{איך להשתפר לפעם הבאה:}")
+        lines.append(r"\begin{itemize}[leftmargin=*,itemsep=3pt,topsep=2pt]")
         for item in q.how_to_improve[:8]:
-            lines.append(rf"\item {_latex_escape(item)}")
+            lines.append(rf"\item {_latex_render_mixed(item)}")
         lines.append(r"\end{itemize}")
 
-        lines.append(rf"\textit{{Confidence: {q.confidence:.2f}}}")
+        # confidence line
+        lines.append(_escape_text_only(f"רמת ביטחון: {q.confidence:.2f}"))
 
     lines.append(r"\end{document}")
     return "\n".join(lines)
+

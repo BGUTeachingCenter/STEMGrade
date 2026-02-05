@@ -1,159 +1,163 @@
-# MathGrade Bundle Generator (Web)
+# MathGrade
 
-This project provides a small web app to upload:
-1) the official **exam + solution PDF** and  
-2) a student's **LaTeX results (.tex)**
+MathGrade is a small Python backend + HTML frontend project for collecting student solutions, generating PDFs, and producing AI-assisted grading feedback.
 
-The Python backend generates a **bundled PDF** (questions + solution + student answers) and returns it for download.
+This README focuses on **the grading pipeline** (how inputs flow through extraction → AI → feedback PDF).
 
 ---
 
-## Requirements
+## What the system is trying to do
 
-### 1) Python
-- Python 3.10+ recommended
-- Create and use a virtual environment (`.venv`)
+Instead of asking the model to “read” math from a rendered PDF (which often destroys structure), the system grades from **structured source content**:
 
-### 2) LaTeX (XeLaTeX)
-The backend compiles LaTeX using `xelatex`, so you must have:
+- The **reference question + reference solution** (source-of-truth)
+- The **student answer** (preferably the original LaTeX snippet per question/part)
 
-- **MiKTeX** (Windows) or **TeX Live** (Linux/macOS)
-- `xelatex` available in your PATH
-
-Quick check:
-```bash
-xelatex --version
-```
-
-If that command fails, install MiKTeX/TeX Live and ensure the binaries are in PATH.
-
-> Tip (MiKTeX): use MiKTeX Console to enable on-the-fly package install or install required packages ahead of time.
-
-### 3) Python dependencies
-Backend uses:
-- `fastapi`
-- `uvicorn`
-- `python-multipart` (for file uploads)
-
-Install them:
-```bash
-pip install fastapi uvicorn python-multipart
-```
+The AI produces **feedback in Hebrew** (and optional scores), which is rendered into a readable feedback PDF and merged into the final output PDF.
 
 ---
 
-## Project Structure (important files)
+## Pipeline overview
 
-- `server.py` — FastAPI backend
-- `web/index.html` — frontend upload page (vanilla HTML/JS)
-- `grader/` — core grading / bundling logic
-- `build/` — local build output (optional; server uses temp dirs per request)
+### Inputs
 
----
+- **Reference**: an official exam/reference PDF that contains the question text and the official solution
+- **Student submission**:
+  - Recommended: **LaTeX** (`.tex`)
+  - Optional: **handwritten** (scanned PDF/images) via OCR
 
-## Run Locally (Development)
+### Outputs
 
-### Step 1 — Create venv and install deps
-From the project root:
-
-**Windows (PowerShell):**
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install fastapi uvicorn python-multipart
-```
-
-**Windows (CMD):**
-```bat
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install fastapi uvicorn python-multipart
-```
-
-**macOS / Linux:**
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install fastapi uvicorn python-multipart
-```
-
-### Step 2 — Start the backend server
-From the project root (same folder as `server.py`):
-```bash
-uvicorn server:app --host 0.0.0.0 --port 8000
-```
-
-Verify it’s running:
-- Open: `http://localhost:8000/health`
-- You should see: `{"ok": true}`
-
-### Step 3 — Start the frontend page
-In a **second terminal**, serve the `web/` folder.
-
-Option A (recommended):
-```bash
-cd web
-python -m http.server 5173
-```
-
-Then open:
-- `http://localhost:5173/`
-
-Option B (serve web folder from project root):
-```bash
-python -m http.server 5173 --directory web
-```
-
-Then open:
-- `http://localhost:5173/`
-
-### Step 4 — Generate a bundle
-1. Choose the official reference PDF (exam+solution)
-2. Choose the student `.tex`
-3. Click **Generate PDF**
-4. Your browser should download `qa_bundle.pdf`
+- `payloads/*.json` (or a manifest + payload directory) — per-question/part “grading payloads”
+- `grades.json` — AI grading results (structured JSON)
+- `graded_feedback.tex` — LaTeX document containing the feedback
+- `graded_feedback.pdf` — compiled feedback PDF (XeLaTeX)
+- `graded_test.pdf` — final merged PDF (bundle + feedback)
 
 ---
 
-## API
+## A) LaTeX submission flow (recommended)
 
-### POST `/api/generate`
-**Form-data fields**
-- `reference_pdf` (file, .pdf)
-- `student_tex` (file, .tex or .txt)
+### Step A1 — Extract / align per-question content
 
-**Response**
-- On success: `application/pdf` download
-- On failure: `application/json` with fields `{ "error": "...", "detail": "..." }`
+The system splits content so each AI call matches the correct question/part:
 
----
+- `reference.question_text` (if available)
+- `reference.solution_text`
+- `student.latex_raw` (the student’s original LaTeX snippet for that same question/part)
 
-## Common Issues / Troubleshooting
+This alignment is important: the model grades **Q1(a) vs Q1(a)**, not the entire exam at once.
 
-### 1) “Failed to fetch” in the browser
-Usually means the backend returned an error.
-- Check the backend console (uvicorn terminal) for the traceback
-- Confirm `http://localhost:8000/health` works
+### Step A2 — Build rich JSON payloads
 
-### 2) `xelatex` not found
-Install MiKTeX / TeX Live and ensure `xelatex` is in PATH:
-```bash
-xelatex --version
+For each question/part, the backend generates a JSON payload that is readable for humans and stable for machines. Example:
+
+```json
+{
+  "question_id": "Q3(b)",
+  "reference": {
+    "question_text": "...",
+    "solution_text": "..."
+  },
+  "student": {
+    "latex_raw": "..."
+  },
+  "rubric": {
+    "score_max": 15,
+    "key_points": []
+  }
+}
 ```
 
-### 3) Missing LaTeX packages / font errors
-If XeLaTeX fails due to missing packages, install them via MiKTeX Console or TeX Live package manager.
-If you see a font-related issue, ensure Arial exists or adjust the hardcoded font in `server.py`.
+These payloads are saved on disk so you can debug and reproduce grading.
 
-### 4) Windows Defender / permissions / temp folder issues
-The server writes to a temp folder for each request (e.g. `%TEMP%\mathgrade_*`).
-If you suspect permissions issues, try running the terminal as admin once to confirm.
+### Step A3 — AI grading using a local TXT prompt
+
+The grader loads a Hebrew-only grading prompt from a text file located next to the grading code:
+
+- `grading_prompt_he_math.txt`
+
+For each question/part:
+- **System message** = contents of `grading_prompt_he_math.txt`
+- **User message** = the JSON payload for that question/part
+
+The model must return **valid JSON only** (Option B “rich feedback” format), including:
+
+- `summary_he`
+- `feedback_he[]` (actionable feedback items)
+- `mismatch` object:
+  - `is_mismatch`
+  - `reference_target`
+  - `student_target`
+  - `explanation_he`
+- `common_errors_detected[]` (tags)
+- `suggested_next_step_he`
+
+Mismatch detection is a key feature:
+> If the student solved a different integral/series/claim than the question asks, the AI must say so explicitly.
+
+### Step A4 — Convert AI JSON → LaTeX feedback
+
+After grading all questions/parts, the backend writes:
+
+- `grades.json`
+- `graded_feedback.tex`
+
+The LaTeX rendering is designed for readability:
+
+- Hebrew is the default language (RTL)
+- Plain text is escaped safely
+- Math segments (e.g. `$...$`, `$$...$$`) are preserved so LaTeX commands like `\epsilon`, `\frac`, `\int` render correctly
+
+### Step A5 — Compile feedback LaTeX → PDF
+
+`graded_feedback.tex` is compiled with **XeLaTeX** into `graded_feedback.pdf`.
+
+### Step A6 — Merge PDFs into final output
+
+Finally the system produces a single PDF by merging:
+
+- the bundle PDF (questions + student answers)
+- the feedback PDF
+
+Result: `graded_test.pdf` containing the full submission context plus readable feedback.
 
 ---
 
-## Notes (Security)
-This service compiles user-supplied LaTeX. For real deployments:
-- run in a sandbox/container
-- keep shell-escape disabled (default)
-- consider file size limits + request timeouts
-- restrict CORS to your domain
+## B) Handwritten submission flow (OCR)
+
+If students submit handwritten answers (scanned PDF/images), you do **not** need to convert everything into LaTeX first.
+
+Recommended approach:
+
+1. Run OCR on the handwriting
+2. Produce per-question JSON directly, for example:
+   - `student.ocr_text_raw` (raw OCR output)
+   - optional `student.math_latex` (if you use math-aware OCR that outputs LaTeX)
+   - `student.ocr_confidence` and `uncertain_tokens` (if available)
+3. Send this JSON payload into the **same** AI grading step
+
+Why JSON-first works better for handwriting:
+
+- OCR → perfect LaTeX is hard and can introduce silent math errors
+- Keeping OCR raw text + confidence makes uncertainty visible
+- The model can provide more cautious feedback when OCR is unreliable
+
+---
+
+## Notes on feedback quality
+
+- The system prioritizes **helpful feedback** over scores.
+- The model is forced to respond in **Hebrew** and in **valid JSON** (no extra text).
+- Mismatch detection prevents “grading the wrong problem” when a student solves a different integral/series/question.
+- If the reference PDF is scanned (images, not selectable text), extracting the reference solution may require OCR.
+
+---
+
+## Where to edit the prompt
+
+To change feedback style/tone/rules, edit:
+
+- `grading_prompt_he_math.txt`
+
+This file is loaded at runtime from the same directory as the grading module, so you do not need to redeploy code to refine feedback instructions—only update the TXT.
