@@ -94,7 +94,7 @@ def grade_bundle_pdf(
             },
         }
 
-        user = json.dumps(payload, ensure_ascii=False, indent=2)
+        user = json.dumps(payload["ai_input"], ensure_ascii=False, indent=2)
         resp = client.chat_json(system=system, user=user, schema=schema, temperature=0.2)
 
         score = float(resp.get("score", 0.0))
