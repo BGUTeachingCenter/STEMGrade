@@ -26,7 +26,18 @@ def _latex_escape(s: str) -> str:
     out = []
     for ch in s:
         out.append(repl.get(ch, ch))
-    return "".join(out).replace("\n", r"\\ ")
+
+    escaped = "".join(out)
+
+    # IMPORTANT:
+    # Do NOT render raw newlines as "\\".
+    # In LaTeX, "\\[<len>]" is a special form where the bracketed content
+    # must be a *length*. If the user's text contains a line break followed
+    # by "[" (common in math like "[a,b]") then "\\[" is produced and XeLaTeX
+    # fails with: "Missing number, treated as zero".
+    # Use \newline / \par which do not have this ambiguity.
+    escaped = escaped.replace("\n\n", r"\par ").replace("\n", r"\newline ")
+    return escaped
 
 
 def _render_feedback_tex(data: dict, title: str) -> str:
@@ -79,7 +90,7 @@ def _render_feedback_tex(data: dict, title: str) -> str:
 
         if is_mismatch:
             lines.append(r"\vspace{0.15cm}")
-            lines.append(r"\textbf{\Large \color{red}⚠ פתירת שאלה אחרת / אי־התאמה:}")
+            lines.append(r"\textbf{\Large \color{red}(!) פתירת שאלה אחרת / אי־התאמה:}")
             expl = _latex_escape(str(mismatch.get("explanation_he", "") or ""))
             ref_t = _latex_escape(str(mismatch.get("reference_target", "") or ""))
             stu_t = _latex_escape(str(mismatch.get("student_target", "") or ""))
