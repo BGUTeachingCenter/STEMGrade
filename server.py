@@ -44,7 +44,7 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 # Change THIS default to switch models for the whole app.
 # You can still override it via environment variable if you prefer.
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:14b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 
 # Propagate to the rest of the process so any module can read it consistently.
 os.environ["OLLAMA_BASE_URL"] = OLLAMA_BASE_URL
