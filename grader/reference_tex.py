@@ -10,21 +10,28 @@ from .part_normalize import normalize_part
 
 @dataclass(frozen=True)
 class RefPart:
+    """One part of a question, e.g. Q1(a)."""
     qnum: int
-    part: str
+    part: str  # canonical: "a", "b", ...
     title: str
     latex_body: str
 
 
 _SECTION_RE = re.compile(r"\\section\*\{\s*Question\s+(\d+)\s*\}", re.IGNORECASE)
+# Accepts: \subsection*{(a) ...} or \subsection*{(א) ...}  (with optional title)
 _SUBSECTION_RE = re.compile(r"\\subsection\*\{\s*\(([^)\s])\)\s*([^}]*)\}", re.IGNORECASE)
 
 
 def parse_reference_tex(tex: Union[str, Path]) -> Dict[Tuple[int, str], RefPart]:
     """
-    Accepts either:
-      - a str containing TeX content, or
-      - a Path to a .tex file
+    Parse a reference TeX document with the structure:
+      \\section*{Question 1}
+      \\subsection*{(a) ...}
+      <latex...>
+      \\subsection*{(b) ...}
+      <latex...>
+
+    Returns: dict[(qnum, part)] -> RefPart, where part is canonicalized to latin ("a","b",...)
     """
     if isinstance(tex, Path):
         tex = tex.read_text(encoding="utf-8", errors="replace")
@@ -61,7 +68,10 @@ def parse_reference_tex(tex: Union[str, Path]) -> Dict[Tuple[int, str], RefPart]
             body = q_block[body_start:body_end].strip()
 
             results[(qnum, part_letter)] = RefPart(
-                qnum=qnum, part=part_letter, title=title, latex_body=body
+                qnum=qnum,
+                part=part_letter,
+                title=title,
+                latex_body=body.strip(),
             )
 
     return results

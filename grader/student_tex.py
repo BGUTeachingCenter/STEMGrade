@@ -1,5 +1,9 @@
 # grader/student_tex.py
-"""Parse student LaTeX submissions into per-question/per-part answer snippets."""
+"""Parse student LaTeX submissions into per-question/per-part answer snippets.
+
+Key rule: part labels are always canonicalized to latin letters: "a", "b", ...
+(See `grader.part_normalize.normalize_part`.)
+"""
 
 from __future__ import annotations
 
@@ -18,38 +22,23 @@ _TEX_QHDR_RE = re.compile(
 )
 
 # Part markers inside the subsection body:
-# - \textbf{(א) ...} or \textbf{(א)}
-# - or (א) at start of a line
+# - \textbf{(א) ...} / \textbf{(a) ...}
+# - \textbf{(א)} / \textbf{(a)}
+# - (א) / (a) at start of a line
 _TEX_PART_MARK_RE = re.compile(
-    r"(\\textbf\{\(\s*([אבaAbB])\s*\)[^}]*\}|\\textbf\{\(\s*([אבaAbB])\s*\)\}|^\s*\(\s*([אבaAbB])\s*\))",
+    r"(\\textbf\{\(\s*([A-Za-zא-ת])\s*\)[^}]*\}|\\textbf\{\(\s*([A-Za-zא-ת])\s*\)\}|^\s*\(\s*([A-Za-zא-ת])\s*\))",
     re.UNICODE | re.MULTILINE,
 )
 
 # Fallback format: comment markers like "% Page 5 - Question 1a"
 _TEX_PAGEQ_RE = re.compile(
-    r"^\s*%\s*Page\s*\d+\s*-\s*Question\s*([0-9]{1,2})\s*([אבaAbB])\s*$",
+    r"^\s*%\s*Page\s*\d+\s*-\s*Question\s*([0-9]{1,2})\s*([A-Za-zא-ת])\s*$",
     re.UNICODE | re.IGNORECASE | re.MULTILINE,
 )
 
 
-# def _normalize_part(part: str) -> str:
-#     """Normalize common part markers into Hebrew א/ב."""
-#
-#     p = (part or "").strip()
-#     if p in ("a", "A"):
-#         return "א"
-#     if p in ("b", "B"):
-#         return "ב"
-#     return p
-
-
 def _strip_to_solution_block(snippet: str) -> str:
-    """Heuristic: keep only the student's work portion.
-
-    Many templates include the question statement and then a marker like
-    "פתרון:" / "Solution:". For bundling we prefer the work after that marker.
-    """
-
+    """Heuristic: keep only the student's work portion."""
     for tok in ("פתרון:", "Solution:", "solution:"):
         j = snippet.find(tok)
         if j != -1:
@@ -60,21 +49,10 @@ def _strip_to_solution_block(snippet: str) -> str:
 def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Key, str], Dict[Key, Tuple[int, int]]]:
     r"""Parse a student's .tex into answer snippets.
 
-    Args:
-        student_tex: Path to the student's LaTeX submission.
-        out_dir: Directory where a debug file is written.
-
     Returns:
-        A tuple of:
-          1) answers: (qnum, part) -> latex snippet
-          2) ranges : (qnum, part) -> (start_char, end_char) in the original file
-             These ranges are useful for highlighting in editors or for future tooling.
-
-    Notes:
-        - If no \subsection* blocks exist, we fall back to "% Page ... - Question Na" markers.
-        - If part markers are absent, the whole subsection becomes (qnum, "").
+        answers: (qnum, part) -> latex snippet
+        ranges : (qnum, part) -> (start_char, end_char) in original file
     """
-
     out_dir.mkdir(parents=True, exist_ok=True)
     src = student_tex.read_text(encoding="utf-8", errors="replace")
 
@@ -108,7 +86,7 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
                 if snippet:
                     answers[key] = snippet
                     ranges[key] = (body_offset + start, body_offset + end)
-                    dbg.append(f"== Q{qnum}{part} ==")
+                    dbg.append(f"== Q{qnum}({part}) ==")
                     dbg.append(snippet[:1200])
                     dbg.append("")
 
@@ -146,12 +124,13 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
                 dbg.append("")
             continue
 
-        # Identify split points for parts א/ב (use earliest marker per part).
+        # Identify split points for parts by earliest marker per part.
         split_points: List[Tuple[str, int]] = []
         for h in hits:
             p = h.group(2) or h.group(3) or h.group(4) or ""
             p = normalize_part(p)
-            if p in ("א", "ב"):
+            # keep only single-letter parts like a,b,c...
+            if p and len(p) == 1 and p.isalpha():
                 split_points.append((p, h.start()))
 
         earliest: Dict[str, int] = {}
@@ -174,9 +153,9 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
             chunk = q_block[start_rel:end_rel]
 
             # Strip obvious part label at the start of the chunk.
-            chunk = re.sub(r"^\s*\\textbf\{\(\s*[אבaAbB]\s*\)[^}]*\}\s*", "", chunk)
-            chunk = re.sub(r"^\s*\\textbf\{\(\s*[אבaAbB]\s*\)\}\s*", "", chunk)
-            chunk = re.sub(r"^\s*\(\s*[אבaAbB]\s*\)\s*", "", chunk)
+            chunk = re.sub(r"^\s*\\textbf\{\(\s*[A-Za-zא-ת]\s*\)[^}]*\}\s*", "", chunk)
+            chunk = re.sub(r"^\s*\\textbf\{\(\s*[A-Za-zא-ת]\s*\)\}\s*", "", chunk)
+            chunk = re.sub(r"^\s*\(\s*[A-Za-zא-ת]\s*\)\s*", "", chunk)
 
             chunk = _strip_to_solution_block(chunk)
 
