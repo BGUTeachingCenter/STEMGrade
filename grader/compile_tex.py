@@ -9,8 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .tex_cleaner import clean_tex
-
 
 @dataclass(frozen=True)
 class CompileOutputs:
@@ -122,37 +120,10 @@ def clean_tex_for_windows(tex: str, font_name: str = "Arial") -> str:
 
 def clean_tex_robust(tex: str, font_name: str = "Arial") -> tuple[str, str]:
     """
-    Apply robust AI-oriented TeX cleaning (math delimiter normalization, text escaping, unicode)
-    + Windows font/bidi stabilization.
-
-    Returns:
-        (cleaned_tex, human_readable_report)
+    Use the robust tex_cleaner module for all cleaning.
     """
-    cleaned, report = clean_tex(tex)  # robust cleaner from tex_cleaner.py
-    cleaned = clean_tex_for_windows(cleaned, font_name=font_name)
-
-    # Compact report for logs/debug (report is a dict)
-    notes = report.get("notes") or []
-    if not isinstance(notes, list):
-        notes = [str(notes)]
-
-    report_lines = [
-        "TeX clean report:",
-        f"  triple_dollars_fixed: {report.get('triple_dollars_fixed', 0)}",
-        f"  bracket_math_converted: {report.get('bracket_math_converted', 0)}",
-        f"  paren_math_converted: {report.get('paren_math_converted', 0)}",
-        f"  env_math_sanitized: {report.get('env_math_sanitized', 0)}",
-        f"  dollar_math_sanitized: {report.get('dollar_math_sanitized', 0)}",
-        f"  set_notation_fixed: {report.get('set_notation_fixed', 0)}",
-        f"  invalid_delimiters_fixed: {report.get('invalid_delimiters_fixed', 0)}",
-    ]
-
-    if notes:
-        report_lines.append("  notes:")
-        report_lines.extend([f"    - {str(n)}" for n in notes])
-
-    return cleaned, "\n".join(report_lines) + "\n"
-
+    from .tex_cleaner import clean_tex_robust as robust_clean
+    return robust_clean(tex, font_name)
 
 
 def compile_tex_to_pdf(

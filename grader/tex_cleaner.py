@@ -1,198 +1,426 @@
+"""
+Extremely robust LaTeX cleaning for XeLaTeX compilation.
+Handles all common issues with AI-generated LaTeX content.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
 import re
-
-# -----------------------
-# Tokenization patterns
-# -----------------------
-
-# $$...$$
-_DISPLAY_DOLLAR_RE = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
-
-# $...$  (avoid $$...$$ by negative lookaround)
-_INLINE_DOLLAR_RE = re.compile(r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", re.DOTALL)
-
-# \[...\]
-_BRACKET_DISPLAY_RE = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
-
-# \( ... \)
-_PAREN_INLINE_RE = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
-
-# \begin{equation}...\end{equation} etc.
-_ENV_MATH_RE = re.compile(
-    r"\\begin\{(?P<env>equation\*?|align\*?|gather\*?|multline\*?|flalign\*?|alignat\*?)\}"
-    r"(?P<body>.*?)"
-    r"\\end\{(?P=env)\}",
-    re.DOTALL,
-)
-
-# Detect $$$, $$$$, etc. (unescaped)
-_MULTI_DOLLAR_RE = re.compile(r"(?<!\\)\${3,}")
-
-# Fix invalid \left{ and \right} delimiters - detect set notation patterns
-_SET_NOTATION_RE = re.compile(
-    r"\\left\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}?\s*\\right\s*\}?",
-    re.IGNORECASE | re.DOTALL
-)
-
-# Simpler cases of just \left{ or \right} without proper pairing
-_INVALID_LEFT_BRACE_RE = re.compile(r"\\left\s*\{", re.IGNORECASE)
-_INVALID_RIGHT_BRACE_RE = re.compile(r"\\right\s*\}", re.IGNORECASE)
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Tuple
 
 
 @dataclass(frozen=True)
-class CleanReport:
+class CleanupReport:
     changed: bool = False
-    triple_dollars_fixed: int = 0
-    bracket_math_converted: int = 0
-    paren_math_converted: int = 0
-    env_math_sanitized: int = 0
-    dollar_math_sanitized: int = 0
-    invalid_delimiters_fixed: int = 0
-    set_notation_fixed: int = 0
+    fixes_applied: Dict[str, int] = None
+
+    def __post_init__(self):
+        if self.fixes_applied is None:
+            object.__setattr__(self, 'fixes_applied', {})
 
 
-def _normalize_line_endings(s: str) -> str:
-    return s.replace("\r\n", "\n").replace("\r", "\n")
+# =============================================
+# REGEX PATTERNS
+# =============================================
+
+# Math delimiters
+_MATH_DISPLAY_RE = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
+_MATH_INLINE_RE = re.compile(r"(?<!\$)\$(?!\$)(.*?)(?<!\$)\$(?!\$)", re.DOTALL)
+_BRACKET_DISPLAY_RE = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
+_PAREN_INLINE_RE = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
+
+# Math environments
+_MATH_ENV_RE = re.compile(
+    r"\\begin\{(equation\*?|align\*?|gather\*?|multline\*?|flalign\*?|alignat\*?)\}"
+    r"(.*?)"
+    r"\\end\{\1\}",
+    re.DOTALL | re.IGNORECASE
+)
+
+# Problem patterns
+_MULTI_DOLLAR_RE = re.compile(r"(?<!\\)\${3,}")
+_TEXTBACKSLASH_RE = re.compile(r"\\textbackslash\{\}")
+_TEXTBRACE_RE = re.compile(r"\\textbraceleft|\\textbraceright")
+
+# Invalid LaTeX constructs
+_INVALID_LEFT_BRACE_RE = re.compile(r"\\left\s*\{", re.IGNORECASE)
+_INVALID_RIGHT_BRACE_RE = re.compile(r"\\right\s*\}", re.IGNORECASE)
+
+# Escaped dollars in wrong contexts
+_ESCAPED_DOLLAR_MATH_RE = re.compile(r"\\\$\\begin\{|\\\$\\end\{|\\\$\s*[a-zA-Z_\\]")
+
+# Common undefined commands
+_UNDEFINED_COMMANDS = {
+    r'\\abs\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}': lambda m: f"|{m.group(1)}|",
+    r'\\norm\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}': lambda m: f"\\|{m.group(1)}\\|",
+    r'\\floor\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}': lambda m: f"\\lfloor {m.group(1)} \\rfloor",
+    r'\\ceil\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}': lambda m: f"\\lceil {m.group(1)} \\rceil",
+}
+
+# Text escaping patterns
+_TEXT_ESCAPE_MAP = {
+    "\\": r"\textbackslash{}",
+    "&": r"\&",
+    "%": r"\%",
+    "$": r"\$",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+    "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+}
+
+# Reverse map for unescaping in math
+_MATH_UNESCAPE_MAP = {
+    r"\textbackslash{}": "\\",
+    r"\textasciicircum{}": "^",
+    r"\textasciitilde{}": "~",
+    r"\_": "_",
+    r"\&": "&",
+    r"\#": "#",
+    r"\{": "{",
+    r"\}": "}",
+}
 
 
-def _fix_triple_dollars(s: str) -> str:
-    # $$$ -> $$, $$$$ -> $$, etc.
-    return _MULTI_DOLLAR_RE.sub("$$", s)
+# =============================================
+# CORE CLEANING FUNCTIONS
+# =============================================
+
+def _normalize_line_endings(text: str) -> str:
+    """Normalize all line endings to Unix style."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _convert_bracket_math(s: str) -> str:
-    # Convert \[...\] => $$...$$ and \(..\) => $..$
-    s = _BRACKET_DISPLAY_RE.sub(lambda m: "$$" + m.group(1) + "$$", s)
-    s = _PAREN_INLINE_RE.sub(lambda m: "$" + m.group(1) + "$", s)
-    return s
-
-
-def _fix_set_notation(s: str) -> tuple[str, int]:
-    """Fix set notation with invalid \left{ and \right} delimiters."""
+def _fix_textbackslash_sequences(text: str) -> Tuple[str, int]:
+    """Fix problematic \\textbackslash{} and \\textbrace sequences."""
     count = 0
 
-    # First, handle complete set notation patterns like \left{\,\frac{k}{2^n}\ :\ k=0,1,2,\dots,2^n\,\right}.
-    def replace_set_notation(match):
-        content = match.group(1)
-        # Use proper set notation with \{ and \}
-        return r"\left\{" + content + r"\right\}"
-
-    s, n1 = _SET_NOTATION_RE.subn(replace_set_notation, s)
+    # Fix \\textbackslash{} -> \\
+    text, n1 = _TEXTBACKSLASH_RE.subn("\\\\", text)
     count += n1
 
-    # Then handle any remaining isolated \left{ or \right}
-    s, n2 = _INVALID_LEFT_BRACE_RE.subn(r"\\{", s)  # Convert to simple brace
+    # Fix \\textbraceleft/\\textbraceright 
+    text, n2 = _TEXTBRACE_RE.subn("", text)
     count += n2
 
-    s, n3 = _INVALID_RIGHT_BRACE_RE.subn(r"\\}", s)  # Convert to simple brace
-    count += n3
-
-    return s, count
+    return text, count
 
 
-def _sanitize_math_inner(inner: str) -> str:
-    # Avoid TeX comments breaking compilation inside math
-    inner = inner.replace("%", r"\%")
-    # Undo common text-escape artifact
-    inner = inner.replace(r"\textbackslash{}", "\\")
-    # Undo brace escaping inside math (but be careful not to break set notation)
-
-    # First fix set notation issues
-    inner, _ = _fix_set_notation(inner)
-
-    return inner
+def _fix_multi_dollars(text: str) -> Tuple[str, int]:
+    """Convert $$$, $$$$, etc. to $$."""
+    text, count = _MULTI_DOLLAR_RE.subn("$$", text)
+    return text, count
 
 
-def _sanitize_math_blocks(s: str) -> tuple[str, int]:
-    # Sanitize $$...$$
-    def repl_dd(m: re.Match) -> str:
-        return "$$" + _sanitize_math_inner(m.group(1)) + "$$"
+def _fix_escaped_dollars_in_commands(text: str) -> Tuple[str, int]:
+    """Fix \\$\\begin{} -> \\begin{} etc."""
+    patterns = [
+        (r"\\\$\\begin\{", r"\\begin{"),
+        (r"\\\$\\end\{", r"\\end{"),
+        (r"\\\$\s*(\\[a-zA-Z]+)", r"\1"),  # \\$ \\command -> \\command
+    ]
 
-    # Sanitize $...$
-    def repl_id(m: re.Match) -> str:
-        return "$" + _sanitize_math_inner(m.group(1)) + "$"
+    count = 0
+    for pattern, replacement in patterns:
+        text, n = re.subn(pattern, replacement, text)
+        count += n
 
-    s, n1 = _DISPLAY_DOLLAR_RE.subn(repl_dd, s)
-    s, n2 = _INLINE_DOLLAR_RE.subn(repl_id, s)
-    return s, n1 + n2
-
-
-def _sanitize_env_math(s: str) -> str:
-    # Sanitize \begin{align}...\end{align} etc.
-    def repl(m: re.Match) -> str:
-        env = m.group("env")
-        body = _sanitize_math_inner(m.group("body"))
-        return rf"\begin{{{env}}}{body}\end{{{env}}}"
-
-    return _ENV_MATH_RE.sub(repl, s)
+    return text, count
 
 
-def clean_tex(tex: str) -> tuple[str, dict]:
+def _fix_invalid_delimiters(text: str) -> Tuple[str, int]:
+    """Fix invalid \\left{ and \\right} delimiters."""
+    count = 0
+
+    # \\left{ -> \\{
+    text, n1 = _INVALID_LEFT_BRACE_RE.subn(r"\\{", text)
+    count += n1
+
+    # \\right} -> \\}  
+    text, n2 = _INVALID_RIGHT_BRACE_RE.subn(r"\\}", text)
+    count += n2
+
+    return text, count
+
+
+def _fix_undefined_commands(text: str) -> Tuple[str, int]:
+    """Replace undefined math commands with standard equivalents."""
+    count = 0
+
+    for pattern, replacement_func in _UNDEFINED_COMMANDS.items():
+        text, n = re.subn(pattern, replacement_func, text)
+        count += n
+
+    return text, count
+
+
+def _convert_bracket_math(text: str) -> Tuple[str, int]:
+    """Convert \\[...\\] -> $$...$$ and \\(...\\) -> $...$."""
+    count = 0
+
+    # \\[...\\] -> $$...$$
+    text, n1 = _BRACKET_DISPLAY_RE.subn(lambda m: "$$" + m.group(1) + "$$", text)
+    count += n1
+
+    # \\(...\\) -> $...$
+    text, n2 = _PAREN_INLINE_RE.subn(lambda m: "$" + m.group(1) + "$", text)
+    count += n2
+
+    return text, count
+
+
+def _clean_math_content(math_content: str) -> str:
+    """Clean content that should be in math mode."""
+    if not math_content:
+        return math_content
+
+    content = math_content
+
+    # Fix undefined commands
+    content, _ = _fix_undefined_commands(content)
+
+    # Unescape text-mode artifacts
+    for escaped, unescaped in _MATH_UNESCAPE_MAP.items():
+        content = content.replace(escaped, unescaped)
+
+    # Fix invalid delimiters
+    content, _ = _fix_invalid_delimiters(content)
+
+    # Escape % to prevent comments
+    content = content.replace("%", r"\%")
+
+    return content
+
+
+def _sanitize_math_blocks(text: str) -> Tuple[str, int]:
+    """Clean $$...$$ and $...$ blocks."""
+    count = 0
+
+    def clean_display_math(match):
+        nonlocal count
+        count += 1
+        return "$$" + _clean_math_content(match.group(1)) + "$$"
+
+    def clean_inline_math(match):
+        nonlocal count
+        count += 1
+        return "$" + _clean_math_content(match.group(1)) + "$"
+
+    # Clean display math
+    text = _MATH_DISPLAY_RE.sub(clean_display_math, text)
+
+    # Clean inline math  
+    text = _MATH_INLINE_RE.sub(clean_inline_math, text)
+
+    return text, count
+
+
+def _sanitize_math_environments(text: str) -> Tuple[str, int]:
+    """Clean math environments like \\begin{equation}...\\end{equation}."""
+
+    def clean_env(match):
+        env_name = match.group(1)
+        content = _clean_math_content(match.group(2))
+        return f"\\begin{{{env_name}}}{content}\\end{{{env_name}}}"
+
+    text, count = _MATH_ENV_RE.subn(clean_env, text)
+    return text, count
+
+
+def _escape_text_safely(text: str) -> str:
+    """Escape special characters in text mode, but preserve valid LaTeX."""
+    if not text:
+        return text
+
+    # Don't escape text that's already in math or LaTeX environments
+    if any(marker in text for marker in ["$$", "$", "\\begin{", "\\end{", "\\section", "\\item"]):
+        return text
+
+    # Only escape if it looks like plain text
+    escaped = ""
+    for char in text:
+        escaped += _TEXT_ESCAPE_MAP.get(char, char)
+
+    return escaped
+
+
+def _fix_malformed_environments(text: str) -> Tuple[str, int]:
+    """Fix malformed LaTeX environments and commands."""
+    fixes = [
+        # Fix \\begin\\{itemize\\} -> \\begin{itemize}
+        (r"\\begin\\?\{([^}]+)\\?\}", r"\\begin{\1}"),
+        (r"\\end\\?\{([^}]+)\\?\}", r"\\end{\1}"),
+
+        # Fix double backslashes in commands
+        (r"\\\\([a-zA-Z]+)", r"\\\1"),
+
+        # Fix escaped braces in command names  
+        (r"\\([a-zA-Z]+)\\?\{", r"\\\1{"),
+
+        # Fix newlines in wrong places
+        (r"\\newline\s*\\item", r"\\item"),
+        (r"\\par\s*\\item", r"\\item"),
+    ]
+
+    count = 0
+    for pattern, replacement in fixes:
+        text, n = re.subn(pattern, replacement, text)
+        count += n
+
+    return text, count
+
+
+def _final_cleanup(text: str) -> str:
+    """Final cleanup pass."""
+    # Strip trailing whitespace from each line
+    lines = text.splitlines()
+    lines = [line.rstrip() for line in lines]
+
+    # Ensure document ends with newline
+    result = "\n".join(lines)
+    if result and not result.endswith("\n"):
+        result += "\n"
+
+    return result
+
+
+def _preserve_unicode_text(text: str) -> str:
     """
-    Robust TeX cleaning focused on preventing XeLaTeX crashes from AI output.
-    Returns (cleaned_tex, report_dict).
-
-    Performs:
-      - normalize newlines
-      - collapse $$$ / $$$$ -> $$
-      - convert \[...\], \(..\) to $$..$$ / $..$
-      - fix invalid \left{ and \right} delimiters (convert to proper set notation)
-      - sanitize math blocks and common math environments
-      - trim trailing whitespace
+    Ensure Unicode text (including Hebrew) is preserved during cleaning.
+    Only modify LaTeX-specific issues, not content.
     """
-    if tex is None:
-        return "", asdict(CleanReport(changed=False))
+    if not text:
+        return text
 
-    original = tex
-    report = CleanReport(changed=False)
+    # Don't modify Hebrew characters or other Unicode content
+    # Only fix LaTeX syntax issues
 
-    # Normalize line endings
+    # Hebrew characters range: \u0590-\u05FF
+    # Arabic characters range: \u0600-\u06FF
+    # We want to preserve these completely
+
+    return text
+
+# =============================================
+# PUBLIC API  
+# =============================================
+
+
+def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
+    """
+    Extremely robust LaTeX cleaning for XeLaTeX compilation.
+
+    Args:
+        tex: Raw LaTeX content
+        font_name: Font to use (for XeLaTeX)
+
+    Returns:
+        Tuple of (cleaned_tex, human_readable_report)
+    """
+    if not tex:
+        return "", "No content to clean."
+
+    original = tex  # FIX: Store original before processing
+
+    # Ensure we preserve Unicode content
+    tex = _preserve_unicode_text(tex)
+    fixes = {}
+
+    # Phase 1: Basic normalization
     tex = _normalize_line_endings(tex)
 
-    # Fix set notation and invalid delimiters BEFORE processing math blocks
-    tex2, n_set = _fix_set_notation(tex)
-    report = CleanReport(**{**asdict(report), "set_notation_fixed": n_set})
-    tex = tex2
+    # Phase 2: Fix dangerous sequences
+    tex, n = _fix_textbackslash_sequences(tex)
+    if n: fixes["textbackslash_fixed"] = n
 
-    # $$$ -> $$
-    tex2, n1 = _MULTI_DOLLAR_RE.subn("$$", tex)
-    report = CleanReport(**{**asdict(report), "triple_dollars_fixed": n1})
-    tex = tex2
+    tex, n = _fix_escaped_dollars_in_commands(tex)
+    if n: fixes["escaped_dollars_fixed"] = n
 
-    # \[...\] -> $$...$$
-    tex2, n2 = _BRACKET_DISPLAY_RE.subn(lambda m: "$$" + m.group(1) + "$$", tex)
-    report = CleanReport(**{**asdict(report), "bracket_math_converted": n2})
-    tex = tex2
+    tex, n = _fix_malformed_environments(tex)
+    if n: fixes["malformed_environments_fixed"] = n
 
-    # \(..\) -> $..$
-    tex2, n3 = _PAREN_INLINE_RE.subn(lambda m: "$" + m.group(1) + "$", tex)
-    report = CleanReport(**{**asdict(report), "paren_math_converted": n3})
-    tex = tex2
+    # Phase 3: Math delimiter fixes
+    tex, n = _fix_multi_dollars(tex)
+    if n: fixes["multi_dollars_fixed"] = n
 
-    # env math sanitize
-    tex2, n4 = _ENV_MATH_RE.subn(
-        lambda m: rf"\begin{{{m.group('env')}}}{_sanitize_math_inner(m.group('body'))}\end{{{m.group('env')}}}",
-        tex
-    )
-    report = CleanReport(**{**asdict(report), "env_math_sanitized": n4})
-    tex = tex2
+    tex, n = _convert_bracket_math(tex)
+    if n: fixes["bracket_math_converted"] = n
 
-    # $$...$$ and $...$ sanitize
-    tex, n5 = _sanitize_math_blocks(tex)
-    report = CleanReport(**{**asdict(report), "dollar_math_sanitized": n5})
+    # Phase 4: Content cleaning
+    tex, n = _fix_undefined_commands(tex)
+    if n: fixes["undefined_commands_fixed"] = n
 
-    # Strip trailing whitespace on each line; ensure file ends with newline
-    tex = "\n".join(line.rstrip() for line in tex.splitlines()) + "\n"
+    tex, n = _fix_invalid_delimiters(tex)
+    if n: fixes["invalid_delimiters_fixed"] = n
 
-    changed = (tex != original)
-    report = CleanReport(**{**asdict(report), "changed": changed})
-    return tex, asdict(report)
+    # Phase 5: Math block sanitization
+    tex, n = _sanitize_math_blocks(tex)
+    if n: fixes["math_blocks_sanitized"] = n
+
+    tex, n = _sanitize_math_environments(tex)
+    if n: fixes["math_environments_sanitized"] = n
+
+    # Phase 6: Font handling (XeLaTeX)
+    tex = _handle_font_setup(tex, font_name)
+
+    # Phase 7: Final cleanup
+    tex = _final_cleanup(tex)
+
+    # Generate report
+    report_lines = ["LaTeX cleanup report:"]
+    if not fixes:
+        report_lines.append("  No issues found - document was already clean.")
+    else:
+        for fix_type, count in fixes.items():
+            report_lines.append(f"  {fix_type}: {count}")
+
+    changed = tex != original  # FIX: Now original is defined
+    report_lines.append(f"  Document changed: {changed}")
+
+    return tex, "\n".join(report_lines)
 
 
-# Convenience function for backward compatibility
-def clean_tex_simple(tex: str) -> str:
-    """Simple version that returns only the cleaned tex without report."""
-    cleaned, _ = clean_tex(tex)
-    return cleaned
+def _handle_font_setup(tex: str, font_name: str) -> str:
+    """Handle XeLaTeX font setup."""
+    # Replace tabs with spaces
+    tex = tex.replace("\t", "  ")
+
+    # Fix font setup if present
+    if re.search(r"\\setmainfont(?:\[[^\]]*\])?\{[^}]+\}", tex):
+        tex = re.sub(
+            r"(\\setmainfont(?:\[[^\]]*\])?\{)([^}]+)(\})",
+            rf"\1{font_name}\3",
+            tex,
+        )
+    else:
+        # Add font setup after fontspec if missing
+        m = re.search(r"(\\usepackage(?:\[[^\]]*\])?\{fontspec\}\s*)", tex)
+        if m:
+            insert_at = m.end()
+            tex = tex[:insert_at] + f"\\setmainfont{{{font_name}}}\n" + tex[insert_at:]
+
+    return tex
+
+
+# For backwards compatibility
+def clean_tex(tex: str) -> Tuple[str, Dict]:
+    """Backwards compatible interface."""
+    cleaned, report_str = clean_tex_robust(tex)
+
+    # Parse fixes from report for dict format
+    fixes = {}
+    for line in report_str.split('\n'):
+        if ':' in line and 'fixed' in line or 'converted' in line or 'sanitized' in line:
+            parts = line.strip().split(':')
+            if len(parts) == 2:
+                key = parts[0].strip()
+                try:
+                    value = int(parts[1].strip())
+                    fixes[key] = value
+                except ValueError:
+                    pass
+
+    return cleaned, fixes
