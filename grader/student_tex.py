@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from .reference_ranges import Key
+from .part_normalize import normalize_part
 
 
 # Primary format: \subsection*{Question 1 ...} or \subsection*{שאלה 1 ...}
@@ -31,15 +32,15 @@ _TEX_PAGEQ_RE = re.compile(
 )
 
 
-def _normalize_part(part: str) -> str:
-    """Normalize common part markers into Hebrew א/ב."""
-
-    p = (part or "").strip()
-    if p in ("a", "A"):
-        return "א"
-    if p in ("b", "B"):
-        return "ב"
-    return p
+# def _normalize_part(part: str) -> str:
+#     """Normalize common part markers into Hebrew א/ב."""
+#
+#     p = (part or "").strip()
+#     if p in ("a", "A"):
+#         return "א"
+#     if p in ("b", "B"):
+#         return "ב"
+#     return p
 
 
 def _strip_to_solution_block(snippet: str) -> str:
@@ -98,7 +99,7 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
             dbg.append("Parsed using % Page ... - Question Na/Nb markers.")
             for i, ph in enumerate(page_hits):
                 qnum = int(ph.group(1))
-                part = _normalize_part(ph.group(2))
+                part = normalize_part(ph.group(2))
                 start = ph.end()
                 end = page_hits[i + 1].start() if i + 1 < len(page_hits) else len(body)
                 block = body[start:end]
@@ -149,7 +150,7 @@ def parse_student_tex_answers(student_tex: Path, out_dir: Path) -> Tuple[Dict[Ke
         split_points: List[Tuple[str, int]] = []
         for h in hits:
             p = h.group(2) or h.group(3) or h.group(4) or ""
-            p = _normalize_part(p)
+            p = normalize_part(p)
             if p in ("א", "ב"):
                 split_points.append((p, h.start()))
 

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple, Union
 
+from .part_normalize import normalize_part
+
 
 @dataclass(frozen=True)
 class RefPart:
@@ -15,7 +17,7 @@ class RefPart:
 
 
 _SECTION_RE = re.compile(r"\\section\*\{\s*Question\s+(\d+)\s*\}", re.IGNORECASE)
-_SUBSECTION_RE = re.compile(r"\\subsection\*\{\s*\(([\w])\)\s*([^}]*)\}", re.IGNORECASE)
+_SUBSECTION_RE = re.compile(r"\\subsection\*\{\s*\(([^)\s])\)\s*([^}]*)\}", re.IGNORECASE)
 
 
 def parse_reference_tex(tex: Union[str, Path]) -> Dict[Tuple[int, str], RefPart]:
@@ -52,7 +54,7 @@ def parse_reference_tex(tex: Union[str, Path]) -> Dict[Tuple[int, str], RefPart]
             )
 
         for j, sub in enumerate(subs):
-            part_letter = sub.group(1).lower()
+            part_letter = normalize_part(sub.group(1))
             title = (sub.group(2) or "").strip()
             body_start = sub.end()
             body_end = subs[j + 1].start() if j + 1 < len(subs) else len(q_block)
