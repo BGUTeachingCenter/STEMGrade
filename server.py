@@ -20,8 +20,15 @@ from grader.ai_grading.graded_pdf import build_graded_pdf
 import traceback
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+import tempfile
+
+RUNS_DIR = Path.cwd() / "runs"
+RUNS_DIR.mkdir(exist_ok=True)
+
+tmp_root = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_DIR)))
+
 
 
 DEBUG_DIR = Path.cwd() / "debug_logs"

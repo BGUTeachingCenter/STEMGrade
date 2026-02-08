@@ -36,28 +36,13 @@ _UNICODE_REPL = {
 }
 
 # Heuristic: fragments likely to be math (contains these tokens/patterns)
-_MATHY_TOKEN_RE = re.compile(
-    r"""
-    (                           # start group
-      \\(frac|int|sum|lim|max|min|sup|inf|cdot|to|infty|Delta|delta|epsilon|lambda|pi|theta|alpha|beta|gamma)\b
-      |
-      [A-Za-z]\w*\s*\([^)]*\)   # f(x), S(...), lim(...)
-      |
-      [A-Za-z]\w*_\{[^}]+\}     # x_{i+1}
-      |
-      [A-Za-z]\w*\^\{[^}]+\}    # x^{2}
-      |
-      [A-Za-z]\w*_[A-Za-z0-9]+  # x_i
-      |
-      [A-Za-z]\w*\^[A-Za-z0-9]+ # x^2
-      |
-      \b\d+\s*/\s*\d+\b         # 2/3
-      |
-      [=<>]=?|\\leq|\\geq|\\neq # comparisons
-    )
-    """,
-    re.VERBOSE,
+# - $$...$$ : starts with $$ not preceded by backslash
+# - $...$   : starts with single $ not preceded by backslash, and not $$.
+_MATH_TOKEN_RE = re.compile(
+    r"(?<!\\)\$\$(.*?)\$\$|(?<!\\)\$(?!\$)(.*?)(?<!\\)\$",
+    re.DOTALL
 )
+
 
 # Split long text into smaller chunks for wrapping (avoid wrapping whole paragraphs)
 # We wrap only inside these fragments found by _MATHY_TOKEN_RE.
@@ -70,7 +55,7 @@ def _wrap_math_fragments(text: str) -> str:
         return f"${frag}$"
 
     # Wrap mathy tokens that aren't already within $..$ (we call this only on non-math segments)
-    return _MATHY_TOKEN_RE.sub(repl, text)
+    return _MATH_TOKEN_RE.sub(repl, text)
 
 
 def normalize_math_text(s: str) -> str:
