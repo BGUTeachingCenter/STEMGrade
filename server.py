@@ -145,16 +145,22 @@ async def _prepare_inputs(reference_pdf: UploadFile, student_tex: UploadFile) ->
     return tmp_dir, ref_path, tex_path
 
 
+# def _file_response_with_cleanup(path: Path, download_name: str, tmp_dir: Path) -> FileResponse:
+#     """Return a FileResponse and delete tmp_dir after streaming completes."""
+#     cleanup = BackgroundTask(shutil.rmtree, tmp_dir, ignore_errors=True)
+#     return FileResponse(
+#         path=str(path),
+#         media_type="application/pdf",
+#         filename=download_name,
+#         background=cleanup,
+#     )
+
 def _file_response_with_cleanup(path: Path, download_name: str, tmp_dir: Path) -> FileResponse:
-    """Return a FileResponse and delete tmp_dir after streaming completes."""
-    cleanup = BackgroundTask(shutil.rmtree, tmp_dir, ignore_errors=True)
     return FileResponse(
         path=str(path),
         media_type="application/pdf",
         filename=download_name,
-        background=cleanup,
     )
-
 
 @app.post("/api/generate")
 async def generate_bundle_api(

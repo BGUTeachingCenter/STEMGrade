@@ -9,6 +9,74 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Tuple
 import re
 
+_LEFT_RE = re.compile(r"\\left\s*")
+_RIGHT_RE = re.compile(r"\\right\s*")
+
+def _fix_unmatched_left_right(math: str) -> Tuple[str, int]:
+    """
+    Fix LaTeX errors: 'Extra \\right.' or 'Extra \\left.'
+    Strategy:
+      - Token-scan for \\left and \\right
+      - If \\right appears with no open \\left, drop the \\right (keep the delimiter char)
+      - If \\left remains unmatched at the end, drop those \\left tokens (keep delimiter char)
+    This preserves delimiters like '{' '}' '(' ')' while removing the fragile sizing commands.
+    """
+    if not math:
+        return math, 0
+
+    # Find all \left and \right occurrences
+    # We'll scan left-to-right and build output while tracking unmatched \left tokens.
+    fixes = 0
+    out = []
+    i = 0
+    n = len(math)
+
+    stack = 0  # count of open \left not yet matched by \right
+
+    while i < n:
+        mL = _LEFT_RE.match(math, i)
+        if mL:
+            # Tentatively include \left, but we may drop unmatched later.
+            out.append(mL.group(0))
+            stack += 1
+            i = mL.end()
+            continue
+
+        mR = _RIGHT_RE.match(math, i)
+        if mR:
+            if stack <= 0:
+                # Unmatched \right -> drop it
+                fixes += 1
+                # do not append anything; the delimiter char follows and will remain
+            else:
+                out.append(mR.group(0))
+                stack -= 1
+            i = mR.end()
+            continue
+
+        out.append(math[i])
+        i += 1
+
+    fixed = "".join(out)
+
+    # If there are still unmatched \left tokens, remove that many from the left-to-right stream.
+    # Easiest: remove ALL \left tokens if no \right exists; otherwise remove extra \left from the end.
+    if stack > 0:
+        # remove the last `stack` occurrences of \left (keep delimiters)
+        parts = list(_LEFT_RE.finditer(fixed))
+        if parts:
+            fixes += stack
+            # remove from the end
+            to_remove = parts[-stack:]
+            mask = [True] * len(fixed)
+            for m in to_remove:
+                for j in range(m.start(), m.end()):
+                    mask[j] = False
+            fixed = "".join(ch for ch, keep in zip(fixed, mask) if keep)
+
+    return fixed, fixes
+
+
 _ESCAPED_DOLLAR = re.compile(r"\\\$")
 _MATH_ENV_NAMES = {
     "equation", "equation*", "align", "align*", "gather", "gather*",
@@ -448,6 +516,10 @@ def _clean_math_content(math_content: str) -> str:
 
     # Escape % to prevent comments
     content = content.replace("%", r"\%")
+
+    # Fix unmatched \left/\right that would crash XeLaTeX
+    content, _n_lr = _fix_unmatched_left_right(content)
+
 
     return content
 

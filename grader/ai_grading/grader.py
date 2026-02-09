@@ -127,6 +127,7 @@ def grade_bundle_pdf(
 
     grades_json = out_dir / "grades.json"
     grades_json.write_text(json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Saved grades JSON to: {grades_json}")
 
     grades_tex = out_dir / "graded_feedback.tex"
     grades_tex.write_text(render_feedback_tex(bundle, bundle_pdf.name), encoding="utf-8")
