@@ -160,6 +160,47 @@ def _file_response_with_cleanup(path: Path, download_name: str, tmp_dir: Path) -
         filename=download_name,
     )
 
+# New route for tex upload
+@app.post("/api/generate_tex")
+async def generate_bundle_from_reference_tex_api(
+    reference_tex: UploadFile = File(...),
+    student_tex: UploadFile = File(...),
+):
+    """
+    Generate the bundle PDF (questions + official solutions + student answers)
+    using reference .tex (exam+solution) + student .tex.
+
+    Output: qa_bundle.pdf download.
+    """
+    tmp_dir = None
+    try:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_"))
+        out_dir = tmp_dir / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        ref_path = tmp_dir / reference_tex.filename
+        tex_path = tmp_dir / student_tex.filename
+        ref_path.write_bytes(await reference_tex.read())
+        tex_path.write_bytes(await student_tex.read())
+
+        outputs = generate_qa_bundle_from_reference_tex(
+            reference_tex=ref_path,
+            student_tex=tex_path,
+            out_dir=out_dir,
+            font_name=FIXED_FONT,
+        )
+
+        bundle_pdf = _pick_pdf_output(outputs) or _find_newest_pdf(out_dir)
+        if not bundle_pdf or not bundle_pdf.exists():
+            produced = [p.name for p in out_dir.glob("*")]
+            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
+
+        return _file_response_with_cleanup(bundle_pdf, "qa_bundle.pdf", tmp_dir)
+
+    except Exception as e:
+        log_path = write_debug_log("generate_tex", e)
+        raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
+
 @app.post("/api/generate")
 async def generate_bundle_api(
     reference_pdf: UploadFile = File(...),

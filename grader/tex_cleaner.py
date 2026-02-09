@@ -768,6 +768,10 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
 
     # Phase 2: dangerous sequences / malformed envs
 
+    # Phase 2: Fix dangerous sequences
+    tex, n = _fix_double_escaped_underscore(tex)
+    if n: fixes["double_escaped_underscore_fixed"] = n
+
     tex, n = _fix_newline_underscore_in_text_mode(tex)
     if n: fixes["newline_underscore_textmode_fixed"] = n
 

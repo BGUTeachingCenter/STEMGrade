@@ -194,7 +194,7 @@ def _generate_from_reference_pdf(
         texinputs=[student_tex.parent],
     ).pdf
 
-    answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
+    answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name, clean=True)
     answer_pdfs = { _norm_key(k): v for k, v in answer_pdfs.items() }
 
     bundle_tex = out_dir / f"{bundle_stem}.tex"

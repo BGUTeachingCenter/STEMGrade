@@ -85,46 +85,48 @@ def _save_answer_compile_error(ans_dir: Path, stem: str, exc: Exception) -> None
     )
 
 
+
 def compile_student_answer_pdfs(
-    student_answers: Dict[Key, str],
+    answers: Dict[Key, str],
     out_dir: Path,
     font_name: str,
+    *,
+    clean: bool = True,   # default clean for robustness
+    passes: int = 1,
 ) -> Dict[Key, Optional[Path]]:
-    """Compile each answer snippet into its own PDF.
+    """
+    Compile each student's answer (per question/part) into its own PDF.
 
-    Args:
-        student_answers: Mapping (qnum, part) -> LaTeX snippet.
-        out_dir: Base output directory.
-        font_name: Font used for Hebrew RTL typesetting.
-
-    Returns:
-        Mapping (qnum, part) -> compiled PDF path, or None if that part failed.
+    IMPORTANT:
+      - Student answer snippets are messy (OCR/LLM/student), so clean=True by default.
+      - Bundle compilation can still choose clean=False separately.
     """
 
     ans_dir = out_dir / "student_answers"
     ans_dir.mkdir(parents=True, exist_ok=True)
 
-    out: Dict[Key, Optional[Path]] = {}
-    for (qnum, part), snippet in student_answers.items():
-        stem = f"student_ans_Q{qnum}" + (f"_{part}" if part else "")
+    result: Dict[Key, Optional[Path]] = {}
+
+    for (qnum, part), answer_latex in answers.items():
+        part = part or ""  # normalize None -> ""
+        stem = f"answer_q{qnum}{part}"
         tex_path = ans_dir / f"{stem}.tex"
-        pdf_path = ans_dir / f"{stem}.pdf"
 
-        tex_path.write_text(make_answer_tex(qnum, part, snippet, font_name), encoding="utf-8")
+        # ✅ correct call: (qnum, part, answer_latex)
+        tex_src = make_answer_tex(qnum, part, answer_latex, font_name=font_name)
+        tex_path.write_text(tex_src, encoding="utf-8")
 
-        # inside the loop:
         try:
-            compiled = compile_tex_to_pdf(tex_path, ans_dir, clean=False, font_name=font_name, passes=2)
-            produced = compiled.pdf
-            if produced.exists() and produced != pdf_path:
-                try:
-                    produced.replace(pdf_path)
-                    produced = pdf_path
-                except Exception:
-                    pass
-            out[(qnum, part)] = produced if produced.exists() else None
-        except Exception as e:
-            _save_answer_compile_error(ans_dir, stem, e)
-            out[(qnum, part)] = None
+            pdf = compile_tex_to_pdf(
+                tex_path,
+                ans_dir,
+                clean=clean,
+                font_name=font_name,
+                passes=passes,
+                texinputs=[ans_dir, tex_path.parent],
+            ).pdf
+            result[(qnum, part)] = pdf
+        except Exception:
+            result[(qnum, part)] = None
 
-    return out
+    return result

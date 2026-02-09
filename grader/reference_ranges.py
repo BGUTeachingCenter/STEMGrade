@@ -67,7 +67,7 @@ def _extract_parts(text: str) -> List[str]:
     for m in _REF_PART_PAREN_RE.finditer(text):
         parts.append(_normalize_part(m.group(1)))
 
-    parts = [p for p in parts if p in ("א", "ב")]
+    parts = [p for p in parts if p in ("א", "ב", "ג")]
     seen = set()
     out: List[str] = []
     for p in parts:
