@@ -19,20 +19,10 @@ class RefPart:
 
 _SECTION_RE = re.compile(r"\\section\*\{\s*Question\s+(\d+)\s*\}", re.IGNORECASE)
 # Accepts: \subsection*{(a) ...} or \subsection*{(א) ...}  (with optional title)
-_SUBSECTION_RE = re.compile(r"\\subsection\*\{\s*\(([^)\s])\)\s*([^}]*)\}", re.IGNORECASE)
+_SUBSECTION_RE = re.compile(r"\\subsection\*\{\s*\(([^)]{1,4})\)\s*([^}]*)\}", re.IGNORECASE)
 
 
 def parse_reference_tex(tex: Union[str, Path]) -> Dict[Tuple[int, str], RefPart]:
-    """
-    Parse a reference TeX document with the structure:
-      \\section*{Question 1}
-      \\subsection*{(a) ...}
-      <latex...>
-      \\subsection*{(b) ...}
-      <latex...>
-
-    Returns: dict[(qnum, part)] -> RefPart, where part is canonicalized to latin ("a","b",...)
-    """
     if isinstance(tex, Path):
         tex = tex.read_text(encoding="utf-8", errors="replace")
 
@@ -64,14 +54,15 @@ def parse_reference_tex(tex: Union[str, Path]) -> Dict[Tuple[int, str], RefPart]
             part_letter = normalize_part(sub.group(1))
             title = (sub.group(2) or "").strip()
             body_start = sub.end()
-            body_end = subs[j + 1].start() if j + 1 < len(subs) else len(q_block)
+            body_end = subs[j + 1].start() if j + 1 < len(subs) else len(q_block)  # ✅ FIX
             body = q_block[body_start:body_end].strip()
 
             results[(qnum, part_letter)] = RefPart(
                 qnum=qnum,
                 part=part_letter,
                 title=title,
-                latex_body=body.strip(),
+                latex_body=body,
             )
 
     return results
+
