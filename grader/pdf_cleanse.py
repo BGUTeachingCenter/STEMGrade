@@ -13,7 +13,7 @@ inside a Q/A bundle:
 This module provides `cleanse_test_pdf()` which produces a cleaned PDF and a
 small debug report explaining what was removed.
 """
-
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -35,7 +35,6 @@ def _extract_first_question_like(text: str) -> Optional[int]:
     We intentionally keep this local (instead of importing qa_bundle)
     so this module can be used independently.
     """
-    import re
 
     # Common styles we see in these PDFs:
     #  1) ".1 (35 נקודות)"  or  "1. (35 נקודות)"

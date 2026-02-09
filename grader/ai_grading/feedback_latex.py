@@ -78,8 +78,6 @@ def preserve_hebrew_in_latex(text: str) -> str:
 
 def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
     """Generate LaTeX source for feedback PDF with proper Hebrew support."""
-    total_score = float(data.get("total_score", 0.0))
-    total_max = float(data.get("total_max", 0.0))
 
     lines = [
         r"\documentclass[12pt]{article}",
@@ -101,7 +99,6 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
         # Use Hebrew title as-is - XeLaTeX will handle it
         rf"{{\LARGE {title}\par}}",
         r"\vspace{0.3cm}",
-        rf"{{\large ציון כולל: {total_score:.1f} / {total_max:.1f}\par}}",
         r"\vspace{0.6cm}",
         "",
     ]
@@ -109,12 +106,10 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
     for q in data.get("questions", []):
         # Preserve original question ID - don't translate
         qid = str(q.get("qid", "Q?"))
-        score = float(q.get("score", 0.0))
-        max_points = float(q.get("max_points", 0.0))
 
         lines.extend([
             r"\hrule\vspace{0.35cm}",
-            rf"{{\Large {preserve_hebrew_in_latex(qid)} ({score:.1f}/{max_points:.1f})\par}}",
+            rf"{{\Large {preserve_hebrew_in_latex(qid)}",
             r"\vspace{0.2cm}",
         ])
 
