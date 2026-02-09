@@ -5,9 +5,193 @@ Handles all common issues with AI-generated LaTeX content.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Tuple
+import re
+
+_ESCAPED_DOLLAR = re.compile(r"\\\$")
+_MATH_ENV_NAMES = {
+    "equation", "equation*", "align", "align*", "gather", "gather*",
+    "multline", "multline*", "flalign", "flalign*", "alignat", "alignat*",
+}
+
+_BEGIN_ENV_RE = re.compile(r"\\begin\{([a-zA-Z*]+)\}")
+_END_ENV_RE   = re.compile(r"\\end\{([a-zA-Z*]+)\}")
+
+def _looks_like_display(math_text: str) -> bool:
+    """Heuristic: decide if content is display-ish."""
+    t = math_text.strip()
+    if not t:
+        return False
+    # Any explicit line breaks / alignment / big operators tends to be display
+    if r"\\" in t or "&" in t:
+        return True
+    if any(cmd in t for cmd in (r"\sum", r"\int", r"\prod", r"\lim", r"\frac", r"\begin")):
+        return True
+    # Long-ish expressions are safer as display
+    if len(t) > 45:
+        return True
+    return False
+
+def _balance_math_delimiters(
+    tex: str,
+    *,
+    prefer_paren_bracket: bool = True,   # convert $..$ -> \(...\), $$..$$ -> \[...\]
+    force_inline_on_mismatch: bool = True # when $$...$ happens, treat as inline
+) -> Tuple[str, int]:
+    """
+    Walk the document and normalize $ / $$ delimiters with a small state machine.
+    Fixes $$...$ and $...$$ mismatches + unclosed math.
+    Returns (new_tex, fixes_count).
+    """
+    if not tex:
+        return tex, 0
+
+    i = 0
+    n = len(tex)
+    out = []
+    fixes = 0
+
+    # states: "text", "inline", "display"
+    state = "text"
+    opener = None  # "$" or "$$"
+    math_buf = []  # collect math content when in math state
+
+    # Track whether we are inside environments where $ should be left alone
+    # (verbatim-ish). Extend if you use minted/listings.
+    verbatim_env_stack = []
+    VERBATIM_ENVS = {"verbatim", "Verbatim", "lstlisting", "minted"}
+
+    def flush_math(close_as: str):
+        nonlocal fixes
+        content = "".join(math_buf)
+        math_buf.clear()
+
+        # Optionally convert to \(...\) / \[...\] for robustness
+        if prefer_paren_bracket:
+            if close_as == "$":
+                out.append(r"\(" + content + r"\)")
+            else:
+                out.append(r"\[" + content + r"\]")
+        else:
+            out.append(close_as + content + close_as)
+
+    while i < n:
+        ch = tex[i]
+
+        # --- environment tracking (very lightweight) ---
+        if state == "text":
+            m = _BEGIN_ENV_RE.match(tex, i)
+            if m:
+                env = m.group(1)
+                out.append(m.group(0))
+                i += len(m.group(0))
+                if env in VERBATIM_ENVS:
+                    verbatim_env_stack.append(env)
+                continue
+            m = _END_ENV_RE.match(tex, i)
+            if m:
+                env = m.group(1)
+                out.append(m.group(0))
+                i += len(m.group(0))
+                if verbatim_env_stack and verbatim_env_stack[-1] == env:
+                    verbatim_env_stack.pop()
+                continue
+
+        # If we're in verbatim-like env, do not touch dollars at all
+        if verbatim_env_stack:
+            out.append(ch)
+            i += 1
+            continue
+
+        # Handle escaped dollar
+        if tex.startswith(r"\$", i):
+            if state == "text":
+                out.append(r"\$")
+            else:
+                math_buf.append(r"\$")
+            i += 2
+            continue
+
+        # Detect $$ or $
+        if ch == "$":
+            is_double = (i + 1 < n and tex[i + 1] == "$")
+            token = "$$" if is_double else "$"
+
+            if state == "text":
+                # open math
+                state = "display" if is_double else "inline"
+                opener = token
+                if not prefer_paren_bracket:
+                    out.append(token)
+                i += 2 if is_double else 1
+                continue
+
+            # If we are in inline math and see $$, this is likely corruption: $ ... $$
+            if state == "inline" and token == "$$":
+                # Close inline math first
+                flush_math("$")
+                fixes += 1
+                state = "text"
+                opener = None
+                i += 2
+                continue
+
+            # If we are in display math and see single $, this is likely corruption: $$ ... $
+            if state == "display" and token == "$":
+                content = "".join(math_buf)
+                if force_inline_on_mismatch and not _looks_like_display(content):
+                    # Treat it as inline: $$ content $  -> inline
+                    flush_math("$")
+                else:
+                    # Upgrade closing $ to $$ (i.e., keep display)
+                    flush_math("$$")
+                fixes += 1
+                state = "text"
+                opener = None
+                i += 1
+                continue
+
+            # Normal closing
+            if state == "inline" and token == "$":
+                flush_math("$")
+                state = "text"
+                opener = None
+                i += 1
+                continue
+
+            if state == "display" and token == "$$":
+                flush_math("$$")
+                state = "text"
+                opener = None
+                i += 2
+                continue
+
+            # Any other weird combo: force-close in the safest way
+            if state in ("inline", "display"):
+                close_as = "$" if state == "inline" else "$$"
+                flush_math(close_as)
+                fixes += 1
+                state = "text"
+                opener = None
+                i += 2 if is_double else 1
+                continue
+
+        # Regular character
+        if state == "text":
+            out.append(ch)
+        else:
+            math_buf.append(ch)
+        i += 1
+
+    # If file ends while math is still open, close it
+    if state in ("inline", "display"):
+        close_as = "$" if state == "inline" else "$$"
+        flush_math(close_as)
+        fixes += 1
+
+    return "".join(out), fixes
+
 
 
 @dataclass(frozen=True)
@@ -88,6 +272,79 @@ _MATH_UNESCAPE_MAP = {
 # =============================================
 # CORE CLEANING FUNCTIONS
 # =============================================
+
+_ITEMIZE_BLOCK_RE = re.compile(
+    r"\\begin\{itemize\}(.*?)\\end\{itemize\}",
+    re.DOTALL | re.IGNORECASE
+)
+
+def _fix_itemize_blocks(text: str) -> Tuple[str, int]:
+    """
+    Make itemize environments compile-safe:
+    - Convert bullet-ish lines ("-", "*", "•") into \item
+    - If an itemize block has no \item at all, wrap the whole content as one \item
+    - Remove empty itemize blocks
+    """
+    fixes = 0
+
+    def _repair_block(m: re.Match) -> str:
+        nonlocal fixes
+        inner = m.group(1)
+
+        # Normalize line endings inside block
+        lines = inner.splitlines()
+
+        new_lines: List[str] = []
+        saw_item = False
+        for line in lines:
+            raw = line.rstrip()
+
+            # Keep blank lines, but don't let them be the only content
+            if not raw.strip():
+                new_lines.append(raw)
+                continue
+
+            s = raw.lstrip()
+
+            # Already a proper item
+            if s.startswith(r"\item"):
+                saw_item = True
+                new_lines.append(raw)
+                continue
+
+            # Common LLM bullet formats -> \item
+            if s.startswith(("-", "*", "•", "–", "—")):
+                # remove the bullet marker
+                content = s[1:].lstrip()
+                saw_item = True
+                new_lines.append(r"\item " + content)
+                fixes += 1
+                continue
+
+            # If line begins with \textbf{...}: treat as item content if we are in list
+            # (many models output headings without \item)
+            # We'll only convert to \item if we haven't seen any item yet OR previous nonblank was an \item
+            # Safer rule: if no \item exists in whole block, we'll wrap later.
+            new_lines.append(raw)
+
+        repaired_inner = "\n".join(new_lines).strip()
+
+        # Remove completely empty lists
+        if not repaired_inner:
+            fixes += 1
+            return ""  # delete block
+
+        # If still no \item anywhere, wrap entire content as one item
+        if r"\item" not in repaired_inner:
+            fixes += 1
+            return "\\begin{itemize}\n\\item " + repaired_inner + "\n\\end{itemize}"
+
+        return "\\begin{itemize}\n" + repaired_inner + "\n\\end{itemize}"
+
+    new_text, n = _ITEMIZE_BLOCK_RE.subn(_repair_block, text)
+    fixes += n  # counts blocks touched (roughly)
+    return new_text, fixes
+
 
 def _normalize_line_endings(text: str) -> str:
     """Normalize all line endings to Unix style."""
@@ -346,8 +603,8 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
     tex, n = _fix_multi_dollars(tex)
     if n: fixes["multi_dollars_fixed"] = n
 
-    tex, n = _convert_bracket_math(tex)
-    if n: fixes["bracket_math_converted"] = n
+    tex, n = _balance_math_delimiters(tex, prefer_paren_bracket=True)
+    if n: fixes["math_delimiters_balanced"] = n
 
     # Phase 4: Content cleaning
     tex, n = _fix_undefined_commands(tex)
@@ -355,6 +612,9 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
 
     tex, n = _fix_invalid_delimiters(tex)
     if n: fixes["invalid_delimiters_fixed"] = n
+
+    tex, n = _fix_itemize_blocks(tex)
+    if n: fixes["itemize_blocks_fixed"] = n
 
     # Phase 5: Math block sanitization
     tex, n = _sanitize_math_blocks(tex)
