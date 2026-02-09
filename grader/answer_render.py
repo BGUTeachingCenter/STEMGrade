@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, Optional
+import traceback
+from datetime import datetime
 
 from .compile_tex import compile_tex_to_pdf
 from .reference_ranges import Key
@@ -73,6 +75,15 @@ def make_answer_tex(qnum: int, part: str, answer_latex: str, font_name: str) -> 
         "\\end{document}\n"
     )
 
+def _save_answer_compile_error(ans_dir: Path, stem: str, exc: Exception) -> None:
+    dbg = ans_dir / "debug_answer_compile"
+    dbg.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    (dbg / f"{stem}_{ts}.traceback.txt").write_text(
+        "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        encoding="utf-8",
+    )
+
 
 def compile_student_answer_pdfs(
     student_answers: Dict[Key, str],
@@ -101,20 +112,19 @@ def compile_student_answer_pdfs(
 
         tex_path.write_text(make_answer_tex(qnum, part, snippet, font_name), encoding="utf-8")
 
+        # inside the loop:
         try:
             compiled = compile_tex_to_pdf(tex_path, ans_dir, clean=False, font_name=font_name, passes=2)
             produced = compiled.pdf
-
-            # Normalize filename (compile_tex adds _clean by default when clean=True).
             if produced.exists() and produced != pdf_path:
                 try:
                     produced.replace(pdf_path)
                     produced = pdf_path
                 except Exception:
                     pass
-
             out[(qnum, part)] = produced if produced.exists() else None
-        except Exception:
+        except Exception as e:
+            _save_answer_compile_error(ans_dir, stem, e)
             out[(qnum, part)] = None
 
     return out
