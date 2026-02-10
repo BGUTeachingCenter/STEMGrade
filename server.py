@@ -250,7 +250,7 @@ async def grade_bundle_api(
 
     Output: graded_test.pdf (bundle + feedback pages).
     """
-    tmp_dir = None
+    tmp_dir = "C:/Users/alinag/PycharmProjects/MathTest/runs"
     try:
         tmp_dir, ref_path, tex_path = await _prepare_inputs(reference_pdf, student_tex)
         out_dir = tmp_dir / "out"

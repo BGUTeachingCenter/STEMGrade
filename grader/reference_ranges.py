@@ -104,7 +104,7 @@ def find_reference_ranges(reference_pdf: Path, out_dir: Path) -> Dict[Key, Tuple
         text = doc[i].get_text("text") or ""
 
         debug_lines.append(f"--- PAGE {i + 1} ---")
-        debug_lines.append(text[:2500])
+        debug_lines.append(text[:4500])
         debug_lines.append("")
 
         q = _extract_qnum(text)

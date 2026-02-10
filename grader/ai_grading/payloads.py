@@ -479,3 +479,14 @@ def build_payloads_from_reference_tex(
     manifest_path = out_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest_path, items
+
+
+def build_reference_snippets_from_payloads(payloads) -> dict[tuple[int,str], str]:
+    ref_snips = {}
+    for p in payloads:
+        q = (p.reference.get("question_text") or "").strip()
+        sol = (p.reference.get("solution_text") or "").strip()
+        block = "\n\n".join([x for x in [q, sol] if x]).strip()
+        ref_snips[p.key] = block
+    return ref_snips
+

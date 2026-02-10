@@ -161,3 +161,61 @@ To change feedback style/tone/rules, edit:
 - `grading_prompt_he_math.txt`
 
 This file is loaded at runtime from the same directory as the grading module, so you do not need to redeploy code to refine feedback instructions—only update the TXT.
+
+flowchart TD
+  %% =========================
+  %% API ENTRY
+  %% =========================
+  A[server.py<br/>grade_bundle_from_reference_tex_api()] --> B[grader/qa_bundle.py<br/>generate_qa_bundle_from_reference_tex()]
+  B --> C[grader/bundler.py<br/>generate_bundle(reference=.tex, student_tex)]
+
+  %% =========================
+  %% BUNDLE GENERATION (Reference TeX mode)
+  %% =========================
+  C --> D[grader/bundler.py<br/>_generate_from_reference_tex()]
+
+  D --> E[grader/reference_tex.py<br/>parse_reference_tex(reference_tex)]
+  E --> E1[(reference_snippets: dict[(q,part)->latex])]
+
+  D --> F[grader/student_tex.py<br/>parse_student_tex_answers(student_tex)]
+  F --> F1[(student_answers: dict[(q,part)->latex])]
+
+  %% Student full PDF (optional but you do it)
+  D --> G[grader/compile_tex.py<br/>compile_tex_to_pdf(student_tex, clean=True)]
+  G --> G1[(student_clean_pdf)]
+
+  %% Per-answer PDFs (render each part)
+  D --> H[grader/answer_render.py<br/>compile_student_answer_pdfs(student_answers)]
+  H --> H1[answer_render.py<br/>make_answer_tex(part, answer_latex, font_name)]
+  H1 --> H2[grader/compile_tex.py<br/>compile_tex_to_pdf(answer_part.tex, clean=True)]
+  H2 --> H3[(student_answer_pdfs: dict[(q,part)->pdf])]
+
+  %% Bundle TeX that includes reference snippets + answer PDFs
+  D --> I[grader/bundler.py<br/>_write_bundle_tex(... reference_snippets, answer_pdfs ...)]
+  I --> I1[(bundle_tex)]
+
+  %% Bundle PDF (you currently call clean=False here)
+  I1 --> J[grader/compile_tex.py<br/>compile_tex_to_pdf(bundle_tex, clean=FALSE)]
+  J --> J1[(bundle_pdf)]
+
+  %% =========================
+  %% AI GRADING ON THE BUNDLE PDF
+  %% =========================
+  A --> K[grader/ai_grading/grader.py<br/>grade_bundle_pdf(bundle_pdf)]
+  K --> L[grader/pdf_extract.py<br/>split_bundle_pdf_into_questions(bundle_pdf)]
+  L --> L1[(per-question payloads)]
+  K --> M[grader/prompting.py<br/>load_grading_prompt()]
+  K --> N[grader/ollama_client.py<br/>OllamaClient.chat_json(...schema...)]
+  N --> O[(grades.json / BundleGrades)]
+
+  %% =========================
+  %% FEEDBACK PDF + FINAL MERGE
+  %% =========================
+  A --> P[grader/ai_grading/graded_pdf.py<br/>build_graded_pdf(grades, bundle_pdf)]
+  P --> Q[grader/ai_grading/feedback_latex.py<br/>render_feedback_tex(grades)]
+  Q --> R[grader/compile_tex.py<br/>compile_tex_to_pdf(feedback.tex, clean=True)]
+  R --> R1[(feedback_pdf)]
+
+  P --> S[graded_pdf.py<br/>merge_pdfs(feedback_pdf + bundle_pdf)]
+  S --> T[(final graded_test.pdf)]
+

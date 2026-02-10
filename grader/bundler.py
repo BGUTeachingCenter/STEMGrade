@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+import json
 
+from .ai_grading.payloads import build_payloads_from_reference_tex
 from .answer_render import compile_student_answer_pdfs
 from .compile_tex import compile_tex_to_pdf
 from .pdf_cleanse import CleanseReport, cleanse_test_pdf
 from .reference_ranges import Key, find_reference_ranges
-from .reference_tex import parse_reference_tex
 from .student_tex import parse_student_tex_answers
 from .part_normalize import normalize_part
 
@@ -247,29 +248,38 @@ def _generate_from_reference_tex(
     bundle_stem: str,
     font_name: str,
 ) -> QABundleOutputs:
-    ref_parts = parse_reference_tex(reference_tex)
-    if not ref_parts:
-        raise RuntimeError(
-            "Could not parse any reference parts from the TeX. "
-            "Expected headings like \\section*{Question N} and \\subsection*{(a)}."
-        )
+    # 1) Build payloads in a dedicated folder (avoid clobbering ai_grade/payloads)
+    payload_out = out_dir / "bundle_payloads"
+    manifest_path, items = build_payloads_from_reference_tex(
+        reference_tex=reference_tex,
+        student_tex=student_tex,
+        out_dir=payload_out,
+        default_max_points=0.0,
+    )
 
+    # 2) Load payload JSONs -> canonical reference snippets + student answers
     reference_snippets: Dict[Key, str] = {}
-    for k, v in ref_parts.items():
-        nk = _norm_key(k)
-        block = (f"\\textbf{{{v.title}}}\\par\n\n{v.latex_body}".strip() if v.title else (v.latex_body or "").strip())
-        reference_snippets[nk] = block
+    student_answers: Dict[Key, str] = {}
+    student_ranges: Dict[Key, Tuple[int, int]] = {}  # keep empty unless you want to add ranges to payloads
 
-    student_answers, student_ranges = parse_student_tex_answers(student_tex, out_dir)
-    student_answers = { _norm_key(k): v for k, v in student_answers.items() }
-    student_ranges = { _norm_key(k): v for k, v in student_ranges.items() }
+    for it in items:
+        data = json.loads(it.payload_path.read_text(encoding="utf-8"))
+        k = _norm_key((data["key"]["qnum"], data["key"]["part"]))
+
+        q = (data.get("reference", {}).get("question_text") or "").strip()
+        sol = (data.get("reference", {}).get("solution_text") or "").strip()
+
+        # Build the exact "reference (question+solution)" block the bundle uses
+        ref_block = "\n\n".join([x for x in [q, sol] if x]).strip()
+        reference_snippets[k] = ref_block
+
+        s = (data.get("student", {}).get("latex_raw") or "").strip()
+        student_answers[k] = s
 
     if not student_answers:
-        raise RuntimeError(
-            "Could not parse any student answers from the TeX. "
-            "Check build/debug_student_tex_parts.txt."
-        )
+        raise RuntimeError("No student answers found in generated payloads (reference_tex path).")
 
+    # 3) Optional: still compile whole student tex for debugging/inspection
     student_clean_pdf = compile_tex_to_pdf(
         student_tex,
         out_dir,
@@ -279,9 +289,11 @@ def _generate_from_reference_tex(
         texinputs=[student_tex.parent],
     ).pdf
 
+    # 4) Render per-part student answer PDFs from the SAME student_latex used for grading
     answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
     answer_pdfs = { _norm_key(k): v for k, v in answer_pdfs.items() }
 
+    # 5) Write + compile the bundle as usual
     bundle_tex = out_dir / f"{bundle_stem}.tex"
     _write_bundle_tex(
         bundle_tex,
@@ -331,3 +343,4 @@ def _generate_from_reference_tex(
         student_ranges=student_ranges,
         student_answer_pdfs=answer_pdfs,
     )
+
