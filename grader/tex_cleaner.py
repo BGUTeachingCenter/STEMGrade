@@ -7,6 +7,7 @@ All cleaning lives here. The compiler should ONLY compile.
 from __future__ import annotations
 
 import re
+import os
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
@@ -14,6 +15,101 @@ from typing import Dict, List, Tuple
 # ============================================================
 # Helpers: safe brace and delimiter repairs inside MATH only
 # ============================================================
+def _close_unbalanced_inline_paren_math_per_line(tex: str) -> tuple[str, int]:
+    """
+    Fix lines that contain '\\(' but not '\\)' by appending '\\)' to the SAME LINE.
+    This prevents leaking math mode into environments (e.g., itemize).
+    """
+    if not tex:
+        return tex, 0
+
+    fixes = 0
+    out_lines: list[str] = []
+
+    for line in tex.splitlines():
+        if r"\(" in line and r"\)" not in line:
+            # Don't touch lines that already have an explicit environment boundary
+            # (but item lines are safe to close).
+            out_lines.append(line + r"\)")
+            fixes += 1
+        else:
+            out_lines.append(line)
+
+    return "\n".join(out_lines), fixes
+
+
+def _wrap_mathy_item_lines(tex: str) -> tuple[str, int]:
+    """
+    Wrap \\item lines that contain obvious LaTeX math commands/fragments
+    into \\( ... \\) if they are not already delimited.
+
+    This prevents 'Missing $ inserted' and keeps _/^ legal.
+    """
+    if not tex:
+        return tex, 0
+
+    # Heuristic: looks like math if it contains key commands OR _/^ patterns OR '=' with digits
+    mathy_re = re.compile(
+        r"(\\(int|sum|prod|frac|sqrt|lim|cdot|to|infty|Delta|delta|epsilon|lambda|pi|theta|alpha|beta|gamma)\b|"
+        r"[_^]\{?[\w\d]|"
+        r"\d\s*[=<>]\s*\d|"
+        r"\\leq|\\geq|\\neq)"
+    )
+
+    item_re = re.compile(r"^(?P<pre>\s*\\item\s+)(?P<body>.+)$", re.MULTILINE)
+
+    def repl(m: re.Match) -> str:
+        pre = m.group("pre")
+        body = m.group("body").rstrip()
+
+        # If already has explicit math delimiters, do nothing.
+        if (r"\(" in body) or (r"\[" in body) or ("$" in body):
+            return m.group(0)
+
+        # Only wrap if it looks mathy
+        if not mathy_re.search(body):
+            return m.group(0)
+
+        return pre + r"\(" + body + r"\)"
+
+    new_tex, n = item_re.subn(repl, tex)
+    return new_tex, n
+
+
+def _wrap_item_math_lines(tex: str) -> tuple[str, int]:
+    """
+    If an item line begins with a common math command (\\int, \\sum, \\frac, etc.)
+    in TEXT MODE, wrap the rest of the line in \\( ... \\).
+
+    This prevents: "Missing $ inserted" and avoids escaping _/^ as text.
+    We only touch lines that:
+      - start with \\item
+      - contain one of the math commands early
+      - do NOT already contain \\(, \\[, or $ on that line
+    """
+    if not tex:
+        return tex, 0
+
+    math_cmd = r"(?:\\int|\\sum|\\prod|\\lim|\\frac|\\sqrt|\\log|\\ln|\\sin|\\cos|\\tan)"
+    rx = re.compile(
+        rf"^(?P<prefix>\s*\\item\s+)(?P<body>{math_cmd}\b.*)$",
+        flags=re.MULTILINE
+    )
+
+    def repl(m: re.Match) -> str:
+        prefix = m.group("prefix")
+        body = m.group("body")
+
+        # If the line already has explicit math delimiters, do nothing.
+        if (r"\(" in body) or (r"\[" in body) or ("$" in body):
+            return m.group(0)
+
+        # Wrap the whole remainder of the item line in inline math
+        return prefix + r"\(" + body.rstrip() + r"\)"
+
+    new_tex, n = rx.subn(repl, tex)
+    return new_tex, n
+
 
 def _final_fix_double_backslash_underscore_in_text(tex: str) -> tuple[str, int]:
     """
@@ -743,6 +839,43 @@ def _handle_font_setup(tex: str, font_name: str) -> str:
 
     return tex
 
+def _ensure_hebrew_monospace(tex: str, mono_font: str = "Courier New") -> tuple[str, int]:
+    """
+    Polyglossia + Hebrew requires a monospace font that contains Hebrew
+    if \\texttt or \\verb is used. Define \\hebrewfonttt.
+    Returns (tex, fixes_count).
+    """
+    if not tex:
+        return tex, 0
+
+    # If already defined, do nothing
+    if re.search(r"\\newfontfamily\\hebrewfonttt\{", tex):
+        return tex, 0
+
+    insert = f"\\newfontfamily\\hebrewfonttt{{{mono_font}}}\n"
+
+    # Prefer inserting after polyglossia
+    m = re.search(r"(\\usepackage(?:\[[^\]]*\])?\{polyglossia\}\s*)", tex)
+    if m:
+        at = m.end()
+        return tex[:at] + insert + tex[at:], 1
+
+    # Otherwise after fontspec
+    m = re.search(r"(\\usepackage(?:\[[^\]]*\])?\{fontspec\}\s*)", tex)
+    if m:
+        at = m.end()
+        return tex[:at] + insert + tex[at:], 1
+
+    # Otherwise after \documentclass
+    m = re.search(r"(\\documentclass(?:\[[^\]]*\])?\{[^}]+\}\s*)", tex)
+    if m:
+        at = m.end()
+        return tex[:at] + insert + tex[at:], 1
+
+    # Fallback: prepend
+    return insert + tex, 1
+
+
 
 def _final_cleanup(text: str) -> str:
     lines = [line.rstrip() for line in text.splitlines()]
@@ -765,8 +898,6 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
 
     # Phase 1: normalize
     tex = _normalize_line_endings(tex)
-
-    # Phase 2: dangerous sequences / malformed envs
 
     # Phase 2: Fix dangerous sequences
     tex, n = _fix_double_escaped_underscore(tex)
@@ -825,11 +956,25 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
     tex, n = _fix_itemize_blocks(tex)
     if n: fixes["itemize_blocks_fixed"] = n
 
+    # NEW: close any leaked \( ... before environments end
+    tex, n = _close_unbalanced_inline_paren_math_per_line(tex)
+    if n: fixes["inline_paren_math_closed_per_line"] = n
+
+    # NEW: wrap mathy \item lines so _/^ don't break
+    tex, n = _wrap_mathy_item_lines(tex)
+    if n: fixes["mathy_item_lines_wrapped"] = n
+
     # Phase 6: fonts + text-mode escaping
     tex = _handle_font_setup(tex, font_name)
 
     tex, n = _escape_caret_underscore_everywhere_outside_math(tex)
     if n: fixes["text_caret_underscore_escaped"] = n
+
+    tex, n = _ensure_hebrew_monospace(tex, mono_font=os.getenv("MATHGRADE_MONO_FONT", "Courier New"))
+    if n: fixes["hebrew_monospace_defined"] = n
+
+    tex, n = _wrap_item_math_lines(tex)
+    if n: fixes["item_math_lines_wrapped"] = n
 
     tex, n = _force_close_unclosed_bracket_math(tex)
     if n: fixes["unclosed_bracket_math_closed"] = n
@@ -837,9 +982,6 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
     # FINAL safety: guarantee no "\\_" survives in text mode
     tex, n = _final_fix_double_backslash_underscore_in_text(tex)
     if n: fixes["final_double_backslash_underscore_fixed"] = n
-
-    tex = _final_cleanup(tex)
-
 
     # Phase 7: final
     tex = _final_cleanup(tex)

@@ -52,28 +52,21 @@ def escape_for_latex(text: str) -> str:
     return result
 
 
+import re
+
+_MATH_DELIMS = (r"\(", r"\)", r"\[", r"\]", "$")
+
 def preserve_hebrew_in_latex(text: str) -> str:
     """
-    Ensure Hebrew text is properly preserved for XeLaTeX.
-    XeLaTeX with fontspec and bidi should handle Hebrew automatically.
+    Minimal escaping ONLY. No math fixing here.
+    tex_cleaner.py is responsible for robustness.
     """
     if not text:
         return ""
-
-    # Just escape the essential LaTeX special characters
-    # Let XeLaTeX handle Hebrew rendering with fontspec + bidi
-    essential_escapes = {
-        "&": r"\&",
-        "%": r"\%",
-        "#": r"\#",
-        "_": r"\_",
-    }
-
-    result = text
-    for char, escape in essential_escapes.items():
-        result = result.replace(char, escape)
-
-    return result
+    s = str(text)
+    # Keep backslashes intact (LaTeX commands), escape only truly dangerous text chars.
+    s = s.replace("&", r"\&").replace("%", r"\%").replace("#", r"\#")
+    return s
 
 
 def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
@@ -95,6 +88,7 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
         r"\setlength{\parskip}{0.5em}",
         "",
         r"\begin{document}",
+        r"\small",
         "",
         # Use Hebrew title as-is - XeLaTeX will handle it
         rf"{{\LARGE {title}\par}}",
@@ -141,9 +135,19 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
         good = q.get("what_was_correct", []) or []
         if good:
             lines.append(r"\textbf{מה עשית נכון:}")
-            lines.append(r"\begin{itemize}[rightmargin=2cm]")
+            lines.append(r"\begin{itemize}")
             for item in good[:10]:
                 if item:  # Skip empty items
+                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
+            lines.append(r"\end{itemize}")
+
+        # Evidence (correct)
+        ev_ok = q.get("evidence_correct", []) or []
+        if ev_ok:
+            lines.append(r"\textbf{ראיות למה שנכון (ציטוט קצר):}")
+            lines.append(r"\begin{itemize}")
+            for item in ev_ok[:4]:
+                if item:
                     lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
             lines.append(r"\end{itemize}")
 
@@ -151,9 +155,19 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
         mistakes = q.get("main_mistakes", []) or []
         if mistakes:
             lines.append(r"\textbf{טעויות עיקריות:}")
-            lines.append(r"\begin{itemize}[rightmargin=2cm]")
+            lines.append(r"\begin{itemize}")
             for item in mistakes[:10]:
                 if item:  # Skip empty items
+                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
+            lines.append(r"\end{itemize}")
+
+        # Evidence (mistakes)
+        ev_bad = q.get("evidence_mistakes", []) or []
+        if ev_bad:
+            lines.append(r"\textbf{ראיות לטעויות (ציטוט קצר):}")
+            lines.append(r"\begin{itemize}")
+            for item in ev_bad[:6]:
+                if item:
                     lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
             lines.append(r"\end{itemize}")
 
@@ -161,7 +175,7 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
         improve = q.get("how_to_improve", []) or []
         if improve:
             lines.append(r"\textbf{איך להשתפר:}")
-            lines.append(r"\begin{itemize}[rightmargin=2cm]")
+            lines.append(r"\begin{itemize}")
             for item in improve[:10]:
                 if item:  # Skip empty items
                     lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")

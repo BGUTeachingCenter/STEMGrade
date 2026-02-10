@@ -4,15 +4,11 @@ from typing import Any, Dict
 
 
 def grading_response_schema() -> Dict[str, Any]:
-    """JSON Schema for model output (Option B).
+    """JSON schema for the model's response.
 
-    We keep the original fields for compatibility with the feedback PDF renderer,
-    and add richer feedback signals:
-      - mismatch detection (student solved a different object)
-      - common error tags
-      - a single concrete "next step" suggestion
+    We keep this strict (additionalProperties=False) to prevent the model from
+    drifting. If you add fields, add them here too.
     """
-
     return {
         "type": "object",
         "additionalProperties": False,
@@ -24,6 +20,11 @@ def grading_response_schema() -> Dict[str, Any]:
             "what_was_correct": {"type": "array", "items": {"type": "string"}},
             "main_mistakes": {"type": "array", "items": {"type": "string"}},
             "how_to_improve": {"type": "array", "items": {"type": "string"}},
+
+            # NEW: force evidence-based feedback (short quotes)
+            "evidence_correct": {"type": "array", "items": {"type": "string"}},
+            "evidence_mistakes": {"type": "array", "items": {"type": "string"}},
+
             "confidence": {"type": "number"},
             "mismatch": {
                 "type": "object",
@@ -34,12 +35,7 @@ def grading_response_schema() -> Dict[str, Any]:
                     "student_target": {"type": "string"},
                     "explanation_he": {"type": "string"},
                 },
-                "required": [
-                    "is_mismatch",
-                    "reference_target",
-                    "student_target",
-                    "explanation_he",
-                ],
+                "required": ["is_mismatch", "reference_target", "student_target", "explanation_he"],
             },
             "common_errors_detected": {"type": "array", "items": {"type": "string"}},
             "suggested_next_step_he": {"type": "string"},
@@ -52,6 +48,8 @@ def grading_response_schema() -> Dict[str, Any]:
             "what_was_correct",
             "main_mistakes",
             "how_to_improve",
+            "evidence_correct",
+            "evidence_mistakes",
             "confidence",
             "mismatch",
             "common_errors_detected",

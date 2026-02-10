@@ -401,7 +401,7 @@ def build_payloads_from_reference_tex(
     reference_tex: Path,
     student_tex: Path,
     out_dir: Path,
-    default_max_points: float = 0.0,
+    default_max_points: float = 100.0,
 ) -> Tuple[Path, List[PayloadItem]]:
     """Create payloads from a reference .tex (questions/solutions) + student .tex.
 

@@ -11,6 +11,7 @@ the model sees them.
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import List
 
@@ -18,6 +19,30 @@ from .grader import BundleGrades, QuestionGrade, infer_max_points
 from .ollama_client import OllamaClient
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema
+
+
+_WS_RE = re.compile(r"\s+")
+
+
+def _clip(s: str, limit: int) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    return s if len(s) <= limit else (s[:limit] + " …")
+
+
+def _is_effectively_empty_latex(tex: str) -> bool:
+    """Conservative: treat as empty only if there's essentially no content."""
+    t = (tex or "").strip()
+    if not t:
+        return True
+    # Strip comments
+    t = re.sub(r"(?m)%.*?$", "", t)
+    # Remove common no-content commands
+    t = re.sub(r"\\(label|ref|cite|hfill|vspace|smallskip|medskip|bigskip)\b(\{[^}]*\})?", "", t)
+    # Collapse whitespace and remove braces
+    t = _WS_RE.sub("", t).replace("{", "").replace("}", "")
+    return t == ""
 
 
 def grade_payload_manifest(
@@ -49,7 +74,12 @@ def grade_payload_manifest(
     schema = grading_response_schema()
     system = load_grading_prompt()
 
-    use_ai_input = os.getenv("MATHGRADE_USE_AI_INPUT", "0") == "1"
+    # Optional clipping limits to reduce LLM confusion
+    ref_q_limit = int(os.getenv("MATHGRADE_REF_Q_LIMIT", "4500"))
+    ref_sol_limit = int(os.getenv("MATHGRADE_REF_SOL_LIMIT", "6500"))
+    stu_limit = int(os.getenv("MATHGRADE_STU_LIMIT", "6500"))
+    stu_clean_limit = int(os.getenv("MATHGRADE_STU_CLEAN_LIMIT", "3500"))
+    temperature = float(os.getenv("MATHGRADE_TEMPERATURE", "0.15"))
 
     graded: List[QuestionGrade] = []
 
@@ -61,27 +91,65 @@ def grade_payload_manifest(
         # Stable QID: do NOT trust model for this
         qid = payload.get("qid") or payload.get("question_id") or payload_path.stem
 
-        # Decide what we send to the model
-        to_send = payload.get("ai_input") if use_ai_input else payload
-        if not to_send:
-            to_send = payload
+        ref_block = payload.get("reference", {}) or {}
+        stu_block = payload.get("student", {}) or {}
+        rubric_block = payload.get("rubric", {}) or {}
 
         # Determine max_points from payload (never trust model)
-        max_points = float(to_send.get("max_points") or payload.get("max_points") or 0.0)
+        max_points = float(payload.get("max_points") or 0.0)
         if not max_points:
-            max_points = float((payload.get("rubric", {}) or {}).get("score_max") or 0.0)
+            max_points = float(rubric_block.get("score_max") or 0.0)
 
-        # Last resort: infer from any reference text
+        # Last resort: infer from reference text
         if not max_points:
-            ref_block = payload.get("reference", {}) or {}
             combined_text = ref_block.get("text") or ""
             solution_text = ref_block.get("solution_text") or ""
             max_points = infer_max_points(combined_text or solution_text, default_max=0.0)
 
-        # Send ONLY the chosen object
-        user = json.dumps(to_send, ensure_ascii=False, indent=2)
+        student_raw = str(stu_block.get("latex_raw") or "")
+        no_submission = ("לא לבדיקה" in student_raw) or _is_effectively_empty_latex(student_raw)
 
-        resp = client.chat_json(system=system, user=user, schema=schema, temperature=0.2)
+        # Deterministic no-submission (do NOT call model)
+        if no_submission:
+            graded.append(
+                QuestionGrade(
+                    qid=qid,
+                    max_points=max_points,
+                    score=0.0,
+                    summary="אין תשובה לבדיקה. לא הוגשה תשובה.",
+                    what_was_correct=[],
+                    main_mistakes=["לא הוגשה תשובה לבדיקה."],
+                    how_to_improve=["להגיש פתרון מלא.", "לכתוב את שלבי הפתרון בצורה ברורה."],
+                    mismatch={"is_mismatch": False, "reference_target": "", "student_target": "", "explanation_he": ""},
+                    common_errors_detected=["no_submission"],
+                    suggested_next_step_he="להגיש פתרון מלא לשאלה.",
+                    confidence=1.0,
+                    evidence_correct=[],
+                    evidence_mistakes=[]
+                )
+            )
+            continue
+
+        # IMPORTANT: Always send the exact shape the prompt describes
+        model_input = {
+            "question_id": qid,
+            "reference": {
+                "question_text": _clip(str(ref_block.get("question_text") or ""), ref_q_limit),
+                "solution_text": _clip(str(ref_block.get("solution_text") or ""), ref_sol_limit),
+            },
+            "student": {
+                "latex_raw": _clip(student_raw, stu_limit),
+                "latex_clean": _clip(str(stu_block.get("latex_clean") or ""), stu_clean_limit),
+            },
+            "rubric": {
+                "score_max": float(rubric_block.get("score_max") or max_points or 0.0),
+                "key_points": list(rubric_block.get("key_points") or []),
+            },
+        }
+
+        user = json.dumps(model_input, ensure_ascii=False, indent=2)
+
+        resp = client.chat_json(system=system, user=user, schema=schema, temperature=temperature)
 
         score = float(resp.get("score", 0.0))
         if max_points > 0:
@@ -102,6 +170,8 @@ def grade_payload_manifest(
                 common_errors_detected=list(resp.get("common_errors_detected") or []),
                 suggested_next_step_he=str(resp.get("suggested_next_step_he") or ""),
                 confidence=confidence,
+                evidence_correct=list(resp.get("evidence_correct") or []),
+                evidence_mistakes=list(resp.get("evidence_mistakes") or [])
             )
         )
 
