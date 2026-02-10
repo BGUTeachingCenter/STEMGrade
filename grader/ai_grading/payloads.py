@@ -79,6 +79,32 @@ _MATHY_RE = re.compile(
     r"[=<>]=?|\\leq|\\geq|\\neq)"           # comparisons
 )
 
+# --- TeX fragment cleanup (prevents \end{document} from killing qa_bundle.tex) ---
+
+_DOC_WRAPPER_RX = re.compile(
+    r"(?is)"                       # i=ignorecase, s=dot matches newline
+    r"(\\documentclass\b.*?\n)"    # \documentclass ... (up to newline)
+    r"|"
+    r"(\\begin\{document\})"
+    r"|"
+    r"(\\end\{document\})"
+)
+
+def strip_tex_document_wrappers(tex: str) -> str:
+    """Remove TeX document wrapper commands from a fragment.
+
+    This prevents reference snippets (especially the last part) from containing
+    \end{document}, which would terminate qa_bundle.tex early.
+    """
+    if not tex:
+        return ""
+    t = tex.replace("\r\n", "\n").replace("\r", "\n")
+    t = _DOC_WRAPPER_RX.sub("", t)
+    # Extra safety: remove any stragglers
+    t = t.replace(r"\end{document}", "").replace(r"\begin{document}", "")
+    return t.strip()
+
+
 
 @dataclass(frozen=True)
 class PayloadItem:
@@ -415,9 +441,13 @@ def build_payloads_from_reference_tex(
         qid = qid_from_key(key)
 
         ref = ref_parts.get(key)
-        question_tex = (ref.title if ref else "").strip()
-        solution_tex = (ref.latex_body if ref else "").strip()
+        question_tex = strip_tex_document_wrappers((ref.title if ref else "").strip())
+        solution_tex = strip_tex_document_wrappers((ref.latex_body if ref else "").strip())
         reference_block = (question_tex + "\n\n" + solution_tex).strip() if (question_tex or solution_tex) else ""
+
+        # Guardrail: never allow document terminators into downstream TeX
+        if r"\end{document}" in reference_block or r"\begin{document}" in reference_block:
+            raise RuntimeError(f"Reference TeX fragment for {qid} still contains document wrapper commands.")
 
         student_latex = (student_answers.get(key) or "").strip()
 
@@ -480,13 +510,4 @@ def build_payloads_from_reference_tex(
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest_path, items
 
-
-def build_reference_snippets_from_payloads(payloads) -> dict[tuple[int,str], str]:
-    ref_snips = {}
-    for p in payloads:
-        q = (p.reference.get("question_text") or "").strip()
-        sol = (p.reference.get("solution_text") or "").strip()
-        block = "\n\n".join([x for x in [q, sol] if x]).strip()
-        ref_snips[p.key] = block
-    return ref_snips
 

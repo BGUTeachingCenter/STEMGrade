@@ -25,9 +25,11 @@ import tempfile
 RUNS_DIR = Path.cwd() / "runs"
 RUNS_DIR.mkdir(exist_ok=True)
 
-tmp_root = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_DIR)))
+# tmp_root = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_DIR)))
 
 
+RUNS_ROOT = Path(r"C:\Users\alinag\PycharmProjects\MathTest\runs")
+RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 
 DEBUG_DIR = Path.cwd() / "debug_logs"
 DEBUG_DIR.mkdir(exist_ok=True)
@@ -160,176 +162,46 @@ def _file_response_with_cleanup(path: Path, download_name: str, tmp_dir: Path) -
         filename=download_name,
     )
 
-# New route for tex upload
-@app.post("/api/generate_tex")
-async def generate_bundle_from_reference_tex_api(
-    reference_tex: UploadFile = File(...),
-    student_tex: UploadFile = File(...),
-):
-    """
-    Generate the bundle PDF (questions + official solutions + student answers)
-    using reference .tex (exam+solution) + student .tex.
-
-    Output: qa_bundle.pdf download.
-    """
-    tmp_dir = None
-    try:
-        tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_"))
-        out_dir = tmp_dir / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        ref_path = tmp_dir / reference_tex.filename
-        tex_path = tmp_dir / student_tex.filename
-        ref_path.write_bytes(await reference_tex.read())
-        tex_path.write_bytes(await student_tex.read())
-
-        outputs = generate_qa_bundle_from_reference_tex(
-            reference_tex=ref_path,
-            student_tex=tex_path,
-            out_dir=out_dir,
-            font_name=FIXED_FONT,
-        )
-
-        bundle_pdf = _pick_pdf_output(outputs) or _find_newest_pdf(out_dir)
-        if not bundle_pdf or not bundle_pdf.exists():
-            produced = [p.name for p in out_dir.glob("*")]
-            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
-
-        return _file_response_with_cleanup(bundle_pdf, "qa_bundle.pdf", tmp_dir)
-
-    except Exception as e:
-        log_path = write_debug_log("generate_tex", e)
-        raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
-
-@app.post("/api/generate")
-async def generate_bundle_api(
-    reference_pdf: UploadFile = File(...),
-    student_tex: UploadFile = File(...),
-):
-    """
-    Generate the bundle PDF (questions + official solutions + student answers).
-    Returns a PDF download.
-    """
-    tmp_dir = None
-    try:
-        tmp_dir, ref_path, tex_path = await _prepare_inputs(reference_pdf, student_tex)
-        out_dir = tmp_dir / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        outputs = generate_qa_bundle_pdf(
-            reference_pdf=ref_path,
-            student_tex=tex_path,
-            out_dir=out_dir,
-            font_name=FIXED_FONT,
-        )
-
-        candidate = _pick_pdf_output(outputs)
-        if not candidate or not candidate.exists():
-            candidate = _find_newest_pdf(out_dir)
-
-        if not candidate or not candidate.exists():
-            produced = [p.name for p in out_dir.glob("*")]
-            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
-
-        return _file_response_with_cleanup(candidate, "qa_bundle.pdf", tmp_dir)
-
-    except Exception as e:
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        return JSONResponse(status_code=500, content={"error": "Bundle generation failed", "detail": str(e)})
-
-
-@app.post("/api/grade")
-async def grade_bundle_api(
-    reference_pdf: UploadFile = File(...),
-    student_tex: UploadFile = File(...),
-):
-    """
-    Grade using *source-of-truth* inputs (reference PDF + student TeX) and only
-    then compile the final PDFs.
-
-    Output: graded_test.pdf (bundle + feedback pages).
-    """
-    tmp_dir = "C:/Users/alinag/PycharmProjects/MathTest/runs"
-    try:
-        tmp_dir, ref_path, tex_path = await _prepare_inputs(reference_pdf, student_tex)
-        out_dir = tmp_dir / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        # 1) AI grade via Ollama (from JSON payloads built from sources)
-        ai_dir = out_dir / "ai_grade"
-        ai_dir.mkdir(parents=True, exist_ok=True)
-
-        # Prefer grading from *source-of-truth* inputs (reference PDF text + student LaTeX),
-        # because extracting the student's math from the rendered bundle PDF often degrades.
-        try:
-            grades_json, _student_answers_unused = grade_reference_and_student_tex(
-                reference_pdf=ref_path,
-                student_tex=tex_path,
-                out_dir=ai_dir,
-                ollama_base_url=OLLAMA_BASE_URL,
-                model=OLLAMA_MODEL,
-            )
-        except Exception:
-            # Fallback: generate the bundle and grade by extracting text from the rendered PDF.
-            outputs_fallback = generate_qa_bundle_pdf(
-                reference_pdf=ref_path,
-                student_tex=tex_path,
-                out_dir=out_dir,
-                font_name=FIXED_FONT,
-            )
-
-            bundle_pdf_fallback = _pick_pdf_output(outputs_fallback) or _find_newest_pdf(out_dir)
-            if not bundle_pdf_fallback or not bundle_pdf_fallback.exists():
-                produced = [p.name for p in out_dir.glob("*")]
-                raise RuntimeError(f"No bundle PDF produced (fallback). Files in out/: {produced}")
-
-            grades_json, _feedback_tex_unused = grade_bundle_pdf(
-                bundle_pdf=bundle_pdf_fallback,
-                out_dir=ai_dir,
-                ollama_base_url=OLLAMA_BASE_URL,
-                model=OLLAMA_MODEL,
-            )
-
-        # 2) Create bundle *after* grading (so grading never depends on PDF extraction)
-        outputs = generate_qa_bundle_pdf(
-            reference_pdf=ref_path,
-            student_tex=tex_path,
-            out_dir=out_dir,
-            font_name=FIXED_FONT,
-        )
-
-        bundle_pdf = _pick_pdf_output(outputs)
-        if not bundle_pdf or not bundle_pdf.exists():
-            bundle_pdf = _find_newest_pdf(out_dir)
-
-        if not bundle_pdf or not bundle_pdf.exists():
-            produced = [p.name for p in out_dir.glob("*")]
-            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
-
-        # 3) Compile graded PDF (bundle + feedback)
-
-        # Optional: pass a TTF font if you want strong Hebrew/Unicode support.
-        # Example Windows path (adjust if needed):
-        font_path = Path(r"C:\Windows\Fonts\arial.ttf")
-
-        graded_pdf = build_graded_pdf(
-            bundle_pdf=bundle_pdf,
-            grades_json=grades_json,
-            out_dir=ai_dir,
-            font_path=font_path,
-        )
-
-        if not graded_pdf.exists():
-            produced = [p.name for p in ai_dir.glob("*")]
-            raise RuntimeError(f"Graded PDF was not created. Files in ai_grade/: {produced}")
-
-        return _file_response_with_cleanup(graded_pdf, "graded_test.pdf", tmp_dir)
-
-    except Exception as e:
-        log_path = write_debug_log("grade_tex", e)
-        raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
-        return JSONResponse(status_code=500, content={"error": "Grading failed", "detail": str(e)})
+# # New route for tex upload
+# @app.post("/api/generate_tex")
+# async def generate_bundle_from_reference_tex_api(
+#     reference_tex: UploadFile = File(...),
+#     student_tex: UploadFile = File(...),
+# ):
+#     """
+#     Generate the bundle PDF (questions + official solutions + student answers)
+#     using reference .tex (exam+solution) + student .tex.
+#
+#     Output: qa_bundle.pdf download.
+#     """
+#     tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_"))
+#     try:
+#         tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_"))
+#         out_dir = tmp_dir / "out"
+#         out_dir.mkdir(parents=True, exist_ok=True)
+#
+#         ref_path = tmp_dir / reference_tex.filename
+#         tex_path = tmp_dir / student_tex.filename
+#         ref_path.write_bytes(await reference_tex.read())
+#         tex_path.write_bytes(await student_tex.read())
+#
+#         outputs = generate_qa_bundle_from_reference_tex(
+#             reference_tex=ref_path,
+#             student_tex=tex_path,
+#             out_dir=out_dir,
+#             font_name=FIXED_FONT,
+#         )
+#
+#         bundle_pdf = _pick_pdf_output(outputs) or _find_newest_pdf(out_dir)
+#         if not bundle_pdf or not bundle_pdf.exists():
+#             produced = [p.name for p in out_dir.glob("*")]
+#             raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
+#
+#         return _file_response_with_cleanup(bundle_pdf, "qa_bundle.pdf", tmp_dir)
+#
+#     except Exception as e:
+#         log_path = write_debug_log("generate_tex", e)
+#         raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
 
 
 @app.post("/api/grade_tex")
@@ -345,7 +217,7 @@ async def grade_bundle_from_reference_tex_api(
     """
     tmp_dir = None
     try:
-        tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_"))
+        tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_ROOT)))
         out_dir = tmp_dir / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
 

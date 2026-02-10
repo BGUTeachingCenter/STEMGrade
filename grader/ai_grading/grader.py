@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from .ollama_client import OllamaClient
-from .pdf_extract import split_bundle_pdf_into_questions
+# from .pdf_extract import split_bundle_pdf_into_questions
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema
 from .latex_render import render_feedback_tex  # uses math normalization internally
