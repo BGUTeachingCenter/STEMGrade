@@ -73,7 +73,7 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
     """Generate LaTeX source for feedback PDF with proper Hebrew support."""
 
     lines = [
-        r"\documentclass[12pt]{article}",
+        r"\documentclass[10pt]{article}",
         r"\usepackage[a4paper,margin=2cm]{geometry}",
         r"\usepackage{fontspec}",
         r"\setmainfont{Arial}",  # This will be updated by tex_cleanup.py

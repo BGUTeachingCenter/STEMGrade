@@ -13,15 +13,72 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Protocol, Any, Dict, Optional
 
 from .grader import BundleGrades, QuestionGrade, infer_max_points
+
 from .ollama_client import OllamaClient
+from .google_client import GoogleClient
+
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema
 
 
 _WS_RE = re.compile(r"\s+")
+
+def _schema_for_google(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert a normal JSON Schema (draft-ish) into something Gemini AI Studio accepts
+    for generation_config.response_schema.
+
+    Gemini rejects keys like: additionalProperties, $schema, title, default, definitions, $defs.
+    It also doesn't like some JSON Schema constructs; we do a conservative prune.
+    """
+
+    DROP_KEYS = {
+        "$schema",
+        "title",
+        "default",
+        "examples",
+        "definitions",
+        "$defs",
+        "additionalProperties",  # <- the one that broke you
+    }
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            out: Dict[str, Any] = {}
+            for k, v in node.items():
+                if k in DROP_KEYS:
+                    continue
+
+                # Gemini supports: type, properties, required, items, enum, description
+                # It may accept: min/max, minItems, maxItems, pattern (usually ok)
+                # We'll keep most validation keys except the known bad ones above.
+                out[k] = walk(v)
+
+            # If schema says "type": "object" but has no properties, Gemini can be picky.
+            # Keep it as-is; your schema likely has properties.
+            return out
+
+        if isinstance(node, list):
+            return [walk(x) for x in node]
+
+        return node
+
+    return walk(schema)
+
+
+
+class ChatJsonClient(Protocol):
+    def chat_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        schema: Dict[str, Any],
+        temperature: float = 0.15,
+    ) -> dict: ...
 
 
 def _clip(s: str, limit: int) -> str:
@@ -45,23 +102,31 @@ def _is_effectively_empty_latex(tex: str) -> bool:
     return t == ""
 
 
+def _make_client(
+    *,
+    provider: str,
+):
+    provider = (provider or "ollama").strip().lower()
+
+    if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
+        client = GoogleClient()   # ✅ reads env only inside google_client.py
+    else:
+        client = OllamaClient()  # ✅ reads env only inside ollama_client.py
+
+    return client
+
+
 def grade_payload_manifest(
     *,
     manifest_json: Path,
     out_dir: Path,
-    ollama_base_url: str | None = None,
-    model: str | None = None,
+    model: str = "ollama",
 ) -> Path:
     """Read manifest.json and grade each payload.
 
     Returns grades.json path.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    if ollama_base_url is None:
-        ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    if model is None:
-        model = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 
     manifest = json.loads(manifest_json.read_text(encoding="utf-8"))
     payload_dir = manifest_json.parent / "payloads"
@@ -70,9 +135,13 @@ def grade_payload_manifest(
     if not items:
         raise RuntimeError("Manifest has no items to grade.")
 
-    client = OllamaClient(base_url=ollama_base_url, model=model)
+    client = _make_client(provider=model)
     schema = grading_response_schema()
     system = load_grading_prompt()
+
+    provider = (os.getenv("MATHGRADE_PROVIDER") or "ollama").strip().lower()
+    if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
+        schema = _schema_for_google(schema)
 
     # Optional clipping limits to reduce LLM confusion
     ref_q_limit = int(os.getenv("MATHGRADE_REF_Q_LIMIT", "4500"))
@@ -125,7 +194,7 @@ def grade_payload_manifest(
                     suggested_next_step_he="להגיש פתרון מלא לשאלה.",
                     confidence=1.0,
                     evidence_correct=[],
-                    evidence_mistakes=[]
+                    evidence_mistakes=[],
                 )
             )
             continue
@@ -151,27 +220,84 @@ def grade_payload_manifest(
 
         resp = client.chat_json(system=system, user=user, schema=schema, temperature=temperature)
 
+        # ---------------------------
+        # Post-process / guardrails
+        # ---------------------------
+        student_raw2 = ((payload.get("student") or {}).get("latex_raw") or "").strip()
+        has_student = len(student_raw2) > 0
+
         score = float(resp.get("score", 0.0))
+
+        summary = str(resp.get("summary", "")).strip()
+        what_was_correct = list(resp.get("what_was_correct") or [])
+        main_mistakes = list(resp.get("main_mistakes") or [])
+        how_to_improve = list(resp.get("how_to_improve") or [])
+        common_errors = list(resp.get("common_errors_detected") or [])
+        mismatch = dict(resp.get("mismatch") or {})
+        suggested_next = str(resp.get("suggested_next_step_he") or "").strip()
+        confidence = max(0.0, min(float(resp.get("confidence", 0.0)), 1.0))
+
+        # Detect "no submission" language
+        no_submission_lang = (
+            ("לא הוגשה" in summary) or
+            ("אין תשובה" in summary) or
+            ("no submission" in summary.lower()) or
+            ("missing answer" in summary.lower())
+        )
+        no_submission_tag = ("no_submission" in common_errors)
+
+        if has_student and (no_submission_lang or no_submission_tag):
+            # If work exists, don't allow a bogus "missing answer" response.
+            min_partial = float(os.getenv("MATHGRADE_MIN_SCORE_IF_SUBMITTED", "0"))
+            score = max(score, min_partial)
+
+            if not summary or no_submission_lang:
+                summary = "הוגשה תשובה, אך היא אינה תואמת לשאלה/לפתרון הנדרש (ייתכן שנפתרה שאלה אחרת)."
+
+            if not main_mistakes:
+                main_mistakes = ["הפתרון מתייחס לביטוי/אינטגרל שונה מזה שבשאלה."]
+
+            if not how_to_improve:
+                how_to_improve = [
+                    "קרא/י שוב את השאלה וודא/י שהאובייקט המתמטי נכון (אינטגרל/תחום/גבולות).",
+                    "השווה/י לשלד הפתרון הרשמי: מה צריך להוכיח/לחשב בדיוק?"
+                ]
+
+            if not mismatch:
+                mismatch = {
+                    "is_mismatch": True,
+                    "reference_target": (payload.get("reference") or {}).get("solution_text", "")[:500],
+                    "student_target": student_raw2[:500],
+                    "explanation_he": "הוגשה תשובה אך היא אינה תואמת את הדרישה; ייתכן שהסטודנט חישב משהו אחר."
+                }
+            else:
+                mismatch.setdefault("is_mismatch", True)
+
+            common_errors = [e for e in common_errors if e != "no_submission"]
+            if "irrelevant_solution" not in common_errors:
+                common_errors.append("irrelevant_solution")
+
+            confidence = max(confidence, 0.4)
+
+        # Clamp score
         if max_points > 0:
             score = max(0.0, min(score, max_points))
-
-        confidence = max(0.0, min(float(resp.get("confidence", 0.0)), 1.0))
 
         graded.append(
             QuestionGrade(
                 qid=qid,
                 max_points=max_points,
                 score=score,
-                summary=str(resp.get("summary", "")),
-                what_was_correct=list(resp.get("what_was_correct") or []),
-                main_mistakes=list(resp.get("main_mistakes") or []),
-                how_to_improve=list(resp.get("how_to_improve") or []),
-                mismatch=dict(resp.get("mismatch") or {}),
-                common_errors_detected=list(resp.get("common_errors_detected") or []),
-                suggested_next_step_he=str(resp.get("suggested_next_step_he") or ""),
+                summary=summary,
+                what_was_correct=what_was_correct,
+                main_mistakes=main_mistakes,
+                how_to_improve=how_to_improve,
+                mismatch=mismatch,
+                common_errors_detected=common_errors,
+                suggested_next_step_he=suggested_next,
                 confidence=confidence,
                 evidence_correct=list(resp.get("evidence_correct") or []),
-                evidence_mistakes=list(resp.get("evidence_mistakes") or [])
+                evidence_mistakes=list(resp.get("evidence_mistakes") or []),
             )
         )
 

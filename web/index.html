@@ -13,6 +13,12 @@
       --good:#22c55e;
       --bad:#ef4444;
       --warn:#f59e0b;
+
+      /* solid button colors */
+      --btnBundle:#38bdf8;  /* blue */
+      --btnOllama:#a78bfa;  /* violet */
+      --btnGoogle:#22c55e;  /* green */
+      --btnText:#06101f;
     }
 
     *{box-sizing:border-box}
@@ -126,26 +132,34 @@
 
     .row{display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:16px; flex-wrap:wrap;}
 
+    /* Buttons */
+    .btnRow{display:flex; gap:10px; flex-wrap:wrap;}
     button{
       appearance:none;
       border:0;
       border-radius: 14px;
-      padding: 12px 16px;
+      padding: 12px 14px;
       cursor:pointer;
       font-weight: 800;
-      color:#07101f;
-      background: linear-gradient(90deg, #38bdf8, #a78bfa, #22c55e);
-      box-shadow: 0 10px 30px rgba(56,189,248,.18);
+      color: var(--btnText);
+      box-shadow: 0 10px 30px rgba(0,0,0,.18);
       transition: transform .1s ease, filter .15s ease, opacity .15s ease;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
     }
-    button:hover{filter: brightness(1.05)}
+    button:hover{filter: brightness(1.06)}
     button:active{transform: translateY(1px)}
     button:disabled{opacity:.55; cursor:not-allowed}
 
-    .secondary{
-      background: linear-gradient(90deg, #f59e0b, #ef4444, #a78bfa);
-      box-shadow: 0 10px 30px rgba(239,68,68,.12);
+    .btnBundle{ background: var(--btnBundle); }
+    .btnOllama{ background: var(--btnOllama); }
+    .btnGoogle{ background: var(--btnGoogle); }
+
+    .btnIcon{
+      width:18px; height:18px; display:inline-block;
     }
+    .btnIcon svg{width:18px;height:18px;display:block}
 
     .statusBox{
       margin-top:14px;
@@ -168,7 +182,7 @@
         <h1>MathGrade</h1>
         <div class="sub">
           Upload the official exam+solution <b>TeX</b> and the student's LaTeX results file.
-          Generate a bundle PDF, or generate a graded PDF with AI feedback (Ollama).
+          Generate a bundle PDF, or generate a graded PDF with AI feedback.
         </div>
       </div>
       <div class="badge">
@@ -202,12 +216,46 @@
         </div>
 
         <div class="row">
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button id="bundleBtn" disabled>Generate Bundle PDF</button>
-            <button id="gradeBtn" class="secondary" disabled>Generate Graded PDF</button>
+          <div class="btnRow">
+            <button id="bundleBtn" class="btnBundle" disabled>
+              <span class="btnIcon" aria-hidden="true">
+                <!-- document icon -->
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M7 3h7l3 3v15a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="2"/>
+                  <path d="M14 3v4h4" stroke="currentColor" stroke-width="2"/>
+                  <path d="M8 12h8M8 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </span>
+              Bundle PDF
+            </button>
+
+            <button id="gradeOllamaBtn" class="btnOllama" disabled>
+              <span class="btnIcon" aria-hidden="true">
+                <!-- llama-ish icon (simple) -->
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M7 7c0-2 2-3 5-3s5 1 5 3v4c0 4-2 7-5 7s-5-3-5-7V7Z" stroke="currentColor" stroke-width="2"/>
+                  <path d="M9 4l-1 3M15 4l1 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M10 11h.01M14 11h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+              </span>
+              Graded (Ollama)
+            </button>
+
+            <button id="gradeGoogleBtn" class="btnGoogle" disabled>
+              <span class="btnIcon" aria-hidden="true">
+                <!-- sparkle icon -->
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2l1.2 4.2L17.5 7.5l-4.3 1.3L12 13l-1.2-4.2L6.5 7.5l4.3-1.3L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M19 12l.7 2.4L22 15l-2.3.6L19 18l-.7-2.4L16 15l2.3-.6L19 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              Graded (Google)
+            </button>
           </div>
+
           <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 430px;">
-            Grading using <b id="modelName">…</b>.
+            Ollama model: <b id="ollamaModelName">…</b><br/>
+            Google: <b>AI Studio</b>
           </div>
         </div>
 
@@ -219,9 +267,10 @@
   <script>
     const API_BASE = "http://localhost:8000";
 
-    // NEW endpoints (TeX reference)
-    const ENDPOINT_BUNDLE = API_BASE + "/api/generate_tex"; // you implement on backend
-    const ENDPOINT_GRADE  = API_BASE + "/api/grade_tex";    // you implement on backend
+    // Endpoints
+    const ENDPOINT_BUNDLE       = API_BASE + "/api/generate_tex";      // bundle PDF from reference tex + student tex
+    const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex";         // graded PDF via ollama
+    const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";  // graded PDF via google ai studio
 
     const referenceTex = document.getElementById("referenceTex");
     const studentTex = document.getElementById("studentTex");
@@ -236,7 +285,8 @@
 
     const statusEl = document.getElementById("status");
     const bundleBtn = document.getElementById("bundleBtn");
-    const gradeBtn = document.getElementById("gradeBtn");
+    const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
+    const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
 
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
@@ -258,18 +308,17 @@
       else setBadge("warn", "Ready", "Select two files");
     }
 
-    async function loadModelName() {
+    async function loadHealth() {
       try {
         const res = await fetch(API_BASE + "/health");
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("health not ok");
         const j = await res.json();
-        const model = j.ollama_model || "Ollama model";
-        document.getElementById("modelName").textContent = model;
+        document.getElementById("ollamaModelName").textContent = j.ollama_model || "unknown";
       } catch (_) {
-        document.getElementById("modelName").textContent = "Ollama model";
+        document.getElementById("ollamaModelName").textContent = "unknown";
       }
     }
-    loadModelName();
+    loadHealth();
 
     function updateUI() {
       const ref = referenceTex.files[0];
@@ -283,9 +332,10 @@
 
       const ready = !!(ref && stu);
       bundleBtn.disabled = !ready;
-      gradeBtn.disabled = !ready;
+      gradeOllamaBtn.disabled = !ready;
+      gradeGoogleBtn.disabled = !ready;
 
-      if (ready) setBadge("ok", "Ready", "Choose Bundle or Graded");
+      if (ready) setBadge("ok", "Ready", "Choose Bundle / Ollama / Google");
       else setBadge("warn", "Ready", "Select two files");
     }
 
@@ -325,19 +375,27 @@
       return `[${ts}] ${stage}${extra ? " — " + extra : ""}`;
     }
 
+    function disableAll(disabled) {
+      bundleBtn.disabled = disabled || !isReady();
+      gradeOllamaBtn.disabled = disabled || !isReady();
+      gradeGoogleBtn.disabled = disabled || !isReady();
+    }
+
+    function isReady() {
+      return !!(referenceTex.files[0] && studentTex.files[0]);
+    }
+
     async function postAndDownload(url, downloadName, workLabel) {
       const ref = referenceTex.files[0];
       const stu = studentTex.files[0];
       if (!ref || !stu) return;
 
-      bundleBtn.disabled = true;
-      gradeBtn.disabled = true;
+      disableAll(true);
 
-      // Frontend “best effort” stages (true upload + wait + download).
       setStatus(
         workLabel + "\n" +
         stageLine("Uploading files") + "\n" +
-        stageLine("Waiting for server to process (grading + PDF generation)") ,
+        stageLine("Waiting for server to process") ,
         "work"
       );
 
@@ -353,7 +411,7 @@
         if (!res.ok) {
           if (contentType.includes("application/json")) {
             const j = await res.json();
-            setStatus(`Error: ${j.error}\n${j.detail || ""}`, "err");
+            setStatus(`Error: ${j.error || "request failed"}\n${j.detail || ""}`, "err");
           } else {
             const t = await res.text();
             setStatus(`Error: ${t}`, "err");
@@ -383,6 +441,7 @@
       } catch (e) {
         setStatus("Request failed: " + (e?.message || e), "err");
       } finally {
+        disableAll(false);
         updateUI();
       }
     }
@@ -391,8 +450,12 @@
       postAndDownload(ENDPOINT_BUNDLE, "qa_bundle.pdf", "Generating bundle…")
     );
 
-    gradeBtn.addEventListener("click", () =>
-      postAndDownload(ENDPOINT_GRADE, "graded_test.pdf", "Generating graded PDF (AI)…")
+    gradeOllamaBtn.addEventListener("click", () =>
+      postAndDownload(ENDPOINT_GRADE_OLLAMA, "graded_test_ollama.pdf", "Generating graded PDF (Ollama)…")
+    );
+
+    gradeGoogleBtn.addEventListener("click", () =>
+      postAndDownload(ENDPOINT_GRADE_GOOGLE, "graded_test_google.pdf", "Generating graded PDF (Google AI Studio)…")
     );
 
     updateUI();

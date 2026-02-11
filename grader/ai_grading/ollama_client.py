@@ -1,61 +1,68 @@
+# grader/ai_grading/ollama_client.py
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _safe_json_loads(s: str) -> dict:
+    if not s:
+        raise ValueError("Empty model response (expected JSON).")
+    s2 = _CONTROL_CHARS_RE.sub("", s)
+    start = s2.find("{")
+    end = s2.rfind("}")
+    candidate = s2[start : end + 1] if (start != -1 and end != -1 and end > start) else s2
+    return json.loads(candidate)
+
+
 @dataclass
 class OllamaClient:
-    """
-    Minimal client for Ollama's HTTP API.
+    base_url: str
+    model: str
 
-    Uses /api/chat with optional structured output (JSON schema).
-    Docs: https://docs.ollama.com/api/chat  (base URL is typically http://localhost:11434/api)
-    """
-    base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
-    model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "gemma3:4b"))
-    timeout_s: int = 180
+    def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None):
+        # ✅ env reading ONLY here
+        self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
+        self.model = model or os.getenv("OLLAMA_MODEL") or "gemma3:4b"
 
     def chat_json(
         self,
+        *,
         system: str,
         user: str,
         schema: Dict[str, Any],
-        temperature: float = 0.2,
-    ) -> Dict[str, Any]:
-        """
-        Send a chat request asking for STRICT JSON output matching `schema`.
-
-        Returns the parsed JSON dict.
-        Raises RuntimeError if output isn't valid JSON.
-        """
+        temperature: float = 0.15,
+        timeout_s: int = 120,
+    ) -> dict:
+        # NOTE: you already have this implemented — keep your existing request code.
+        # The key point is: it uses self.base_url and self.model.
         url = f"{self.base_url}/api/chat"
         payload = {
             "model": self.model,
-            "stream": False,
-            "format": schema,  # Ollama supports JSON schema for structured output
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {
-                "temperature": temperature,
-            },
+            "format": schema,  # or however you currently pass schema to Ollama
+            "options": {"temperature": float(temperature)},
+            "stream": False,
         }
 
-        r = requests.post(url, json=payload, timeout=self.timeout_s)
+        r = requests.post(url, json=payload, timeout=timeout_s)
         r.raise_for_status()
         data = r.json()
 
-        # Ollama returns assistant message in data["message"]["content"]
-        content = (data.get("message") or {}).get("content", "").strip()
-
+        content = (data.get("message") or {}).get("content") or ""
         try:
-            return json.loads(content)
+            return _safe_json_loads(content)
         except Exception as e:
             raise RuntimeError(
                 f"Ollama returned non-JSON content. First 500 chars:\n{content[:500]}"

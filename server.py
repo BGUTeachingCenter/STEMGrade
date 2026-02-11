@@ -7,7 +7,11 @@ from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from starlette.background import BackgroundTask
+from contextlib import contextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+
 
 from grader.qa_bundle import generate_qa_bundle_pdf, generate_qa_bundle_from_reference_tex
 
@@ -21,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 import tempfile
 
+load_dotenv()  # loads .env from current working dir
+
 RUNS_DIR = Path.cwd() / "runs"
 RUNS_DIR.mkdir(exist_ok=True)
 
@@ -32,6 +38,28 @@ RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 
 DEBUG_DIR = Path.cwd() / "debug_logs"
 DEBUG_DIR.mkdir(exist_ok=True)
+
+
+
+@contextmanager
+def _temp_env(overrides: dict[str, str]):
+    """
+    Temporarily set environment variables for the duration of the context,
+    then restore the previous values.
+    """
+    old = {}
+    try:
+        for k, v in overrides.items():
+            old[k] = os.environ.get(k)
+            os.environ[k] = v
+        yield
+    finally:
+        for k, prev in old.items():
+            if prev is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = prev
+
 
 def write_debug_log(prefix: str, exc: Exception) -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -191,8 +219,7 @@ async def grade_bundle_from_reference_tex_api(
             reference_tex=ref_path,
             student_tex=tex_path,
             out_dir=ai_dir,
-            ollama_base_url=OLLAMA_BASE_URL,
-            model=OLLAMA_MODEL,
+            model="ollama",
         )
 
         outputs = generate_qa_bundle_from_reference_tex(
@@ -224,3 +251,80 @@ async def grade_bundle_from_reference_tex_api(
         log_path = write_debug_log("grade_tex", e)
         raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
         return JSONResponse(status_code=500, content={"error": "Grading failed", "detail": str(e)})
+
+@app.post("/api/grade_tex_google")
+async def grade_bundle_from_reference_tex_api_google(
+    reference_tex: UploadFile = File(...),
+    student_tex: UploadFile = File(...),
+):
+    """
+    Same as /api/grade_tex, but grading is done via Google AI Studio (Gemini)
+    using the exact same prompt + schema flow.
+    Requires env:
+      - GOOGLE_API_KEY (or GEMINI_API_KEY)
+      - optional: GOOGLE_MODEL (or GEMINI_MODEL)
+    """
+    tmp_dir = None
+    try:
+        # Ensure API key exists early with a clear error
+        google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if not google_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing GOOGLE_API_KEY (or GEMINI_API_KEY) in environment.",
+            )
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_ROOT)))
+        out_dir = tmp_dir / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        ref_path = tmp_dir / reference_tex.filename
+        tex_path = tmp_dir / student_tex.filename
+        ref_path.write_bytes(await reference_tex.read())
+        tex_path.write_bytes(await student_tex.read())
+
+        ai_dir = out_dir / "ai_grade"
+        ai_dir.mkdir(parents=True, exist_ok=True)
+
+        # Force the grading provider for THIS request only.
+        # grade_reference_tex_and_student_tex -> grade_payload_manifest -> _make_client()
+        # which will read MATHGRADE_PROVIDER.
+
+        grades_json, _student_answers_unused = grade_reference_tex_and_student_tex(
+            reference_tex=ref_path,
+            student_tex=tex_path,
+            out_dir=ai_dir,
+            model="google",
+        )
+
+        outputs = generate_qa_bundle_from_reference_tex(
+            reference_tex=ref_path,
+            student_tex=tex_path,
+            out_dir=out_dir,
+            font_name=FIXED_FONT,
+        )
+
+        bundle_pdf = _pick_pdf_output(outputs) or _find_newest_pdf(out_dir)
+        if not bundle_pdf or not bundle_pdf.exists():
+            produced = [p.name for p in out_dir.glob("*")]
+            raise RuntimeError(f"No bundle PDF produced. Files in out/: {produced}")
+
+        font_path = Path(r"C:\\Windows\\Fonts\\arial.ttf")
+        graded_pdf = build_graded_pdf(
+            bundle_pdf=bundle_pdf,
+            grades_json=grades_json,
+            out_dir=ai_dir,
+            font_path=font_path,
+        )
+
+        if not graded_pdf.exists():
+            raise RuntimeError("Graded PDF was not created.")
+
+        return _file_response_with_cleanup(graded_pdf, "graded_test.pdf", tmp_dir)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_path = write_debug_log("grade_tex_google", e)
+        raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
+

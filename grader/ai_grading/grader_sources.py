@@ -128,7 +128,6 @@ def grade_reference_tex_and_student_tex(
     reference_tex: Path,
     student_tex: Path,
     out_dir: Path,
-    ollama_base_url: str | None = None,
     model: str | None = None,
 ) -> Tuple[Path, Dict[Key, str]]:
     """Grade by pairing reference LaTeX (question/solution) with student's LaTeX snippets."""
@@ -147,8 +146,7 @@ def grade_reference_tex_and_student_tex(
     grades_json = grade_payload_manifest(
         manifest_json=manifest_json,
         out_dir=out_dir,
-        ollama_base_url=ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        model=model or os.getenv("OLLAMA_MODEL", "gemma3:4b"),
+        model=model,
     )
 
     student_answers = _parse_student_answers_for_debug(student_tex, out_dir)

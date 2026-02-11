@@ -15,6 +15,64 @@ from typing import Dict, List, Tuple
 # ============================================================
 # Helpers: safe brace and delimiter repairs inside MATH only
 # ============================================================
+def _fix_operator_set_braces_in_math(tex: str) -> tuple[str, int]:
+    """
+    Fix common model output bug inside math:
+      \\sup{ ... \\}   -> \\sup\\{ ... \\}
+      \\inf{ ... \\}   -> \\inf\\{ ... \\}
+      \\max{ ... \\}   -> \\max\\{ ... \\}
+      \\min{ ... \\}   -> \\min\\{ ... \\}
+      \\lim{ ... \\}   -> \\lim\\{ ... \\}
+
+    We only apply when the operator is followed by '{' AND there is a literal '\\}'
+    later in the SAME math block (meaning the intent was set braces).
+
+    IMPORTANT: We must allow '}' inside the block (e.g. x_{k-1}), so we use a
+    permissive lookahead (?=.*?\\}) instead of [^}]*.
+    """
+    if not tex:
+        return tex, 0
+
+    fixes = 0
+
+    # Work on inline math blocks: \( ... \)
+    rx_inline = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
+
+    def fix_block(block: str) -> str:
+        nonlocal fixes
+        for op in ("sup", "inf", "max", "min", "lim"):
+            # match \op{ ... } only if somewhere ahead there is a literal '\}'
+            pat = re.compile(rf"\\{op}\{{(?=.*?\\\}})", re.DOTALL)
+            block, n = pat.subn(rf"\\{op}\\{{", block)
+            fixes += n
+        return block
+
+    def repl_inline(m: re.Match) -> str:
+        inner = m.group(1)
+        return r"\(" + fix_block(inner) + r"\)"
+
+    tex = rx_inline.sub(repl_inline, tex)
+
+    # display math blocks: \[ ... \]
+    rx_disp = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
+
+    def repl_disp(m: re.Match) -> str:
+        inner = m.group(1)
+        return r"\[" + fix_block(inner) + r"\]"
+
+    tex = rx_disp.sub(repl_disp, tex)
+
+    # $$ ... $$ blocks
+    rx_dollars = re.compile(r"\$\$(.*?)\$\$", re.DOTALL)
+
+    def repl_dollars(m: re.Match) -> str:
+        inner = m.group(1)
+        return "$$" + fix_block(inner) + "$$"
+
+    tex = rx_dollars.sub(repl_dollars, tex)
+
+    return tex, fixes
+
 def _close_unbalanced_inline_paren_math_per_line(tex: str) -> tuple[str, int]:
     """
     Fix lines that contain '\\(' but not '\\)' by appending '\\)' to the SAME LINE.
@@ -966,6 +1024,10 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
 
     # Phase 6: fonts + text-mode escaping
     tex = _handle_font_setup(tex, font_name)
+
+    tex, n = _fix_operator_set_braces_in_math(tex)
+    if n: fixes["operator_set_braces_fixed"] = n
+
 
     tex, n = _escape_caret_underscore_everywhere_outside_math(tex)
     if n: fixes["text_caret_underscore_escaped"] = n
