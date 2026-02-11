@@ -11,10 +11,237 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
+from .ollama_proofreader import proofread_tex_with_ollama
+
 
 # ============================================================
 # Helpers: safe brace and delimiter repairs inside MATH only
 # ============================================================
+
+# Wrap patterns like: ב-\sup{ ... } / ב-\inf{ ... } that appear in TEXT mode
+# and also fix common plain-text tokens mid/in -> \mid/\in inside that wrapped chunk.
+_OP_TEXT_RE = re.compile(
+    r"""
+    (?P<prefix>ב-)\s*-\s*\\(?P<op>sup|inf|max|min|lim)\{   # "ב-\sup{"
+    (?P<body>.*?)
+    (?P<closer>\\\}|})                                   # either "\}" or "}"
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+def _wrap_operator_phrase_math_in_text(tex: str) -> tuple[str, int]:
+    """
+    Fix the very common grading-output pattern:
+      ... ב-\sup{ ... } ...
+    when it appears in TEXT MODE (outside any existing \( \) / \[ \] / $ $).
+
+    We wrap it as:
+      ... ב-\(\sup\{ ... \}\) ...
+
+    And we normalize inside the wrapped math:
+      - ' mid ' -> ' \\mid '
+      - ' in '  -> ' \\in '
+      - '\\_'   -> '_'  (underscores should not be escaped inside math)
+      - '\\f('  -> 'f(' (common hallucination/typo)
+    """
+    if not tex:
+        return tex, 0
+
+    fixes = 0
+    out = []
+    i = 0
+    n = len(tex)
+    state = "text"  # text|inline|display
+
+    def starts(s: str) -> bool:
+        return tex.startswith(s, i)
+
+    while i < n:
+        # --- math boundaries ---
+        if state == "text" and starts(r"\("):
+            state = "inline"; out.append(r"\("); i += 2; continue
+        if state == "inline" and starts(r"\)"):
+            state = "text"; out.append(r"\)"); i += 2; continue
+        if state == "text" and starts(r"\["):
+            state = "display"; out.append(r"\["); i += 2; continue
+        if state == "display" and starts(r"\]"):
+            state = "text"; out.append(r"\]"); i += 2; continue
+
+        # $ / $$ (rare, but handle)
+        if tex[i] == "$":
+            dbl = (i + 1 < n and tex[i + 1] == "$")
+            if state == "text":
+                state = "display" if dbl else "inline"
+            else:
+                if state == "inline" and not dbl: state = "text"
+                elif state == "display" and dbl: state = "text"
+            out.append("$$" if dbl else "$")
+            i += 2 if dbl else 1
+            continue
+
+        if state != "text":
+            out.append(tex[i])
+            i += 1
+            continue
+
+        # --- TEXT MODE: try to match the operator phrase from this position ---
+        m = _OP_TEXT_RE.match(tex, i)
+        if not m:
+            out.append(tex[i]); i += 1; continue
+
+        prefix = m.group("prefix")
+        op = m.group("op")
+        body = m.group("body")
+
+        # normalize within the math body
+        body = body.replace(r"\_", "_")
+        body = body.replace(r"\f(", "f(")
+        body = re.sub(r"(?<!\\)\bmid\b", r"\\mid", body)  # mid -> \mid
+        body = re.sub(r"(?<!\\)\bin\b", r"\\in", body)    # in  -> \in
+
+        # ensure set braces are explicit \{ \}
+        replacement = (
+            f"{prefix}-\\(\\{op}\\{{{body}\\}}\\)"
+        )
+
+        out.append(replacement)
+        fixes += 1
+        i = m.end()
+
+    return "".join(out), fixes
+
+def _close_unbalanced_inline_paren_math(tex: str) -> tuple[str, int]:
+    """
+    Global fix: if there are more '\\(' than '\\)', append missing '\\)' at end.
+    This prevents math-mode leaking to later environments.
+    """
+    if not tex:
+        return tex, 0
+    opens = tex.count(r"\(")
+    closes = tex.count(r"\)")
+    if opens > closes:
+        diff = opens - closes
+        return tex + ("\n" + (r"\)" * diff) + "\n"), diff
+    return tex, 0
+
+def _fix_alignment_tokens_in_math(tex: str) -> tuple[str, int]:
+    """
+    Remove/neutralize alignment tokens inside math blocks that commonly appear
+    from AI/student LaTeX snippets:
+      - '&' inside \\(...\\) or \\[...\\] -> replace with ',' (safe separator)
+      - '\\\\' inside \\(...\\) -> replace with ';\\;' (safe separator)
+    """
+    if not tex:
+        return tex, 0
+
+    fixes = 0
+
+    # Inline: \( ... \)
+    rx_inline = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
+
+    def repl_inline(m: re.Match) -> str:
+        nonlocal fixes
+        inner = m.group(1)
+        if "&" in inner:
+            inner2, n = re.subn(r"(?<!\\)&", ",", inner)  # don't touch \&
+            fixes += n
+            inner = inner2
+        if r"\\" in inner:
+            inner2, n = re.subn(r"\\\\", r";\,", inner)   # newline -> separator
+            fixes += n
+            inner = inner2
+        return r"\(" + inner + r"\)"
+
+    tex = rx_inline.sub(repl_inline, tex)
+
+    # Display: \[ ... \]
+    rx_disp = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
+
+    def repl_disp(m: re.Match) -> str:
+        nonlocal fixes
+        inner = m.group(1)
+        if "&" in inner:
+            inner2, n = re.subn(r"(?<!\\)&", ",", inner)
+            fixes += n
+            inner = inner2
+        # display math may legitimately contain \\ but if it's not in aligned,
+        # we still prefer to soften it
+        if r"\\" in inner and r"\begin" not in inner:
+            inner2, n = re.subn(r"\\\\", r"\\,", inner)
+            fixes += n
+            inner = inner2
+        return r"\[" + inner + r"\]"
+
+    tex = rx_disp.sub(repl_disp, tex)
+
+    return tex, fixes
+
+
+def _close_unbalanced_inline_paren_math_global(tex: str) -> tuple[str, int]:
+    """
+    If the document has more \\( than \\), append missing \\) at the end.
+    Conservative: does NOT try to guess where to close—just prevents leaking math mode.
+    """
+    if not tex:
+        return tex, 0
+    opens = len(re.findall(r"\\\(", tex))
+    closes = len(re.findall(r"\\\)", tex))
+    if opens > closes:
+        missing = opens - closes
+        return tex + ("\n" + (r"\)" * missing) + "\n"), missing
+    return tex, 0
+
+
+def _balance_paren_bracket_math_globally(tex: str) -> tuple[str, int]:
+    """
+    Global balancing for \\( \\) and \\[ \\].
+    This prevents 'Bad math environment delimiter' without the dangerous per-line approach.
+    Strategy:
+      - If opens > closes, append missing closes at end of document.
+      - If closes > opens, remove extra closing tokens from the end (safest).
+    """
+    if not tex:
+        return tex, 0
+
+    fixes = 0
+
+    # --- balance \( \) ---
+    opens = len(re.findall(r"\\\(", tex))
+    closes = len(re.findall(r"\\\)", tex))
+
+    if opens > closes:
+        diff = opens - closes
+        tex = tex + ("\n" + (r"\)" * diff) + "\n")
+        fixes += diff
+    elif closes > opens:
+        diff = closes - opens
+        for _ in range(diff):
+            # remove last occurrence of \)
+            tex2 = re.sub(r"(.*)\\\)(?!.*\\\))", r"\1", tex, flags=re.DOTALL)
+            if tex2 == tex:
+                break
+            tex = tex2
+            fixes += 1
+
+    # --- balance \[ \] ---
+    opens = len(re.findall(r"\\\[", tex))
+    closes = len(re.findall(r"\\\]", tex))
+
+    if opens > closes:
+        diff = opens - closes
+        tex = tex + ("\n" + (r"\]" * diff) + "\n")
+        fixes += diff
+    elif closes > opens:
+        diff = closes - opens
+        for _ in range(diff):
+            tex2 = re.sub(r"(.*)\\\](?!.*\\\])", r"\1", tex, flags=re.DOTALL)
+            if tex2 == tex:
+                break
+            tex = tex2
+            fixes += 1
+
+    return tex, fixes
+
 def _fix_operator_set_braces_in_math(tex: str) -> tuple[str, int]:
     """
     Fix common model output bug inside math:
@@ -73,27 +300,27 @@ def _fix_operator_set_braces_in_math(tex: str) -> tuple[str, int]:
 
     return tex, fixes
 
-def _close_unbalanced_inline_paren_math_per_line(tex: str) -> tuple[str, int]:
-    """
-    Fix lines that contain '\\(' but not '\\)' by appending '\\)' to the SAME LINE.
-    This prevents leaking math mode into environments (e.g., itemize).
-    """
-    if not tex:
-        return tex, 0
-
-    fixes = 0
-    out_lines: list[str] = []
-
-    for line in tex.splitlines():
-        if r"\(" in line and r"\)" not in line:
-            # Don't touch lines that already have an explicit environment boundary
-            # (but item lines are safe to close).
-            out_lines.append(line + r"\)")
-            fixes += 1
-        else:
-            out_lines.append(line)
-
-    return "\n".join(out_lines), fixes
+# def _close_unbalanced_inline_paren_math_per_line(tex: str) -> tuple[str, int]:
+#     """
+#     Fix lines that contain '\\(' but not '\\)' by appending '\\)' to the SAME LINE.
+#     This prevents leaking math mode into environments (e.g., itemize).
+#     """
+#     if not tex:
+#         return tex, 0
+#
+#     fixes = 0
+#     out_lines: list[str] = []
+#
+#     for line in tex.splitlines():
+#         if r"\(" in line and r"\)" not in line:
+#             # Don't touch lines that already have an explicit environment boundary
+#             # (but item lines are safe to close).
+#             out_lines.append(line + r"\)")
+#             fixes += 1
+#         else:
+#             out_lines.append(line)
+#
+#     return "\n".join(out_lines), fixes
 
 
 def _wrap_mathy_item_lines(tex: str) -> tuple[str, int]:
@@ -108,7 +335,8 @@ def _wrap_mathy_item_lines(tex: str) -> tuple[str, int]:
 
     # Heuristic: looks like math if it contains key commands OR _/^ patterns OR '=' with digits
     mathy_re = re.compile(
-        r"(\\(int|sum|prod|frac|sqrt|lim|cdot|to|infty|Delta|delta|epsilon|lambda|pi|theta|alpha|beta|gamma)\b|"
+        r"(\\(int|sum|prod|frac|sqrt|lim|cdot|to|infty|Delta|delta|epsilon|lambda|pi|theta|alpha|beta|gamma"
+        r"|sin|cos|tan|ln|log|exp)\b|"
         r"[_^]\{?[\w\d]|"
         r"\d\s*[=<>]\s*\d|"
         r"\\leq|\\geq|\\neq)"
@@ -993,9 +1221,19 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
     tex, n = _balance_math_delimiters(tex, prefer_paren_bracket=True)
     if n: fixes["math_delimiters_balanced"] = n
 
+    tex, n = _close_unbalanced_inline_paren_math_global(tex)
+    if n: fixes["inline_paren_math_closed_global"] = n
+
+    # After your wrapping / balancing passes:
+    tex, n = _close_unbalanced_inline_paren_math(tex)
+    if n: fixes["global_inline_paren_math_closed"] = n
+
     # Phase 4: sanitize math in the form we now prefer: \( \) and \[ \]
     tex, n = _sanitize_paren_bracket_math(tex)
     if n: fixes["paren_bracket_math_sanitized"] = n
+
+    tex, n = _fix_alignment_tokens_in_math(tex)
+    if n: fixes["alignment_tokens_in_math_fixed"] = n
 
     # Also sanitize any leftover $ / $$ blocks (rare but possible)
     tex, n = _sanitize_math_blocks(tex)
@@ -1014,9 +1252,9 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
     tex, n = _fix_itemize_blocks(tex)
     if n: fixes["itemize_blocks_fixed"] = n
 
-    # NEW: close any leaked \( ... before environments end
-    tex, n = _close_unbalanced_inline_paren_math_per_line(tex)
-    if n: fixes["inline_paren_math_closed_per_line"] = n
+    # Safer global balancing of \( \) and \[ \]
+    tex, n = _balance_paren_bracket_math_globally(tex)
+    if n: fixes["paren_bracket_math_globally_balanced"] = n
 
     # NEW: wrap mathy \item lines so _/^ don't break
     tex, n = _wrap_mathy_item_lines(tex)
@@ -1027,7 +1265,6 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
 
     tex, n = _fix_operator_set_braces_in_math(tex)
     if n: fixes["operator_set_braces_fixed"] = n
-
 
     tex, n = _escape_caret_underscore_everywhere_outside_math(tex)
     if n: fixes["text_caret_underscore_escaped"] = n
@@ -1045,6 +1282,9 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
     tex, n = _final_fix_double_backslash_underscore_in_text(tex)
     if n: fixes["final_double_backslash_underscore_fixed"] = n
 
+    tex, n = _wrap_operator_phrase_math_in_text(tex)
+    if n: fixes["wrap_operator_phrase_math_in_text"] = n
+
     # Phase 7: final
     tex = _final_cleanup(tex)
 
@@ -1060,6 +1300,49 @@ def clean_tex_robust(tex: str, font_name: str = "Arial") -> Tuple[str, str]:
 
 
 # Backwards compatibility
-def clean_tex(tex: str) -> Tuple[str, Dict]:
+# def clean_tex(tex: str) -> Tuple[str, Dict]:
+#     cleaned, report = clean_tex_robust(tex)
+#     report = {}
+#
+#     res = proofread_tex_with_ollama(tex=cleaned)
+#     report["ollama_proofread"] = {
+#         "used_ai": res.used_ai,
+#         "ok": res.ok,
+#         "reason": res.reason,
+#         "meta": res.meta,
+#     }
+#     cleaned = res.tex  # only replaced if acceptable; otherwise original returned
+#
+#     return cleaned, {"report": report}
+
+def clean_tex(tex: str, font_name: str = "Arial", *, ollama_proofread: bool = False, **kwargs):
     cleaned, report = clean_tex_robust(tex)
-    return cleaned, {"report": report}
+
+    if ollama_proofread:
+        original = cleaned  # keep for "changed" flag
+
+        res = proofread_tex_with_ollama(
+            cleaned,
+            model=kwargs.get("ollama_model"),
+            base_url=kwargs.get("ollama_base_url"),
+            timeout_s=kwargs.get("ollama_timeout_s", 300),
+            retries=kwargs.get("ollama_retries", 1),
+            num_predict=kwargs.get("ollama_num_predict", 1800),
+            max_chars=kwargs.get("ollama_max_chars", 40_000),
+            safe_mode=True,
+        )
+
+        cleaned = res.tex  # (module already returns original on failure/reject)
+
+        # ✅ append to existing string report
+        extra_lines = [
+            "",
+            "Ollama proofread:",
+            f"  Used AI: {res.used_ai}",
+            f"  OK: {res.ok}",
+            f"  Reason: {res.reason}",
+            f"  Document changed: {cleaned != original}",
+        ]
+        report = (report or "") + "\n".join(extra_lines)
+
+    return cleaned, report

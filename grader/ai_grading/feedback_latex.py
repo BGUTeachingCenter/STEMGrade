@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 
 from grader.compile_tex import compile_tex_to_pdf
+from .json_sanitizer import sanitize_grades_json
 
 
 def escape_for_latex(text: str) -> str:
@@ -213,10 +214,15 @@ def build_feedback_pdf(
     Build feedback PDF from grades JSON.
     Uses tex_cleanup.py for robust LaTeX cleaning while preserving Hebrew.
     """
-    data = json.loads(grades_json.read_text(encoding="utf-8"))
+    grades = json.loads(grades_json.read_text(encoding="utf-8"))
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    tex_content = render_feedback_tex(data, title)
+    grades_sanitized, st = sanitize_grades_json(grades)
+
+    # optional: write debug stats
+    (out_dir / "debug_json_sanitize.txt").write_text(str(st), encoding="utf-8")
+
+    tex_content = render_feedback_tex(grades, title)
     tex_path = out_dir / "feedback.tex"
     tex_path.write_text(tex_content, encoding="utf-8")
 

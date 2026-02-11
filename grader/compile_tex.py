@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .tex_cleaner import clean_tex_robust as robust_clean
+from .tex_cleaner import clean_tex
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,7 @@ def compile_tex_to_pdf(
     report_path: Optional[Path] = None
     if clean:
 
-        cleaned, report = robust_clean(src, font_name=font_name)
+        cleaned, report = clean_tex(src, font_name=font_name)
         report_path = out_dir / f"{input_tex.stem}_clean_report.txt"
         report_path.write_text(report, encoding="utf-8")
 
