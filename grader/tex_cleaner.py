@@ -1325,7 +1325,7 @@ def clean_tex(tex: str, font_name: str = "Arial", *, ollama_proofread: bool = Fa
             cleaned,
             model=kwargs.get("ollama_model"),
             base_url=kwargs.get("ollama_base_url"),
-            timeout_s=kwargs.get("ollama_timeout_s", 300),
+            timeout_s=kwargs.get("ollama_timeout_s", 1000),
             retries=kwargs.get("ollama_retries", 1),
             num_predict=kwargs.get("ollama_num_predict", 1800),
             max_chars=kwargs.get("ollama_max_chars", 40_000),

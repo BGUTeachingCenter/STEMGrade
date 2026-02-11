@@ -27,7 +27,7 @@ def proofread_tex_with_ollama(
     *,
     model: Optional[str] = None,
     base_url: Optional[str] = None,
-    timeout_s: int = 120,
+    timeout_s: int = 360,
     retries: int = 1,
     num_predict: int = 1800,
     max_chars: int = 40_000,
