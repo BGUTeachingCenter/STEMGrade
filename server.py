@@ -1,3 +1,12 @@
+"""MathGrade API server.
+
+Single source of truth for Ollama configuration
+----------------------------------------------
+For vigorous model testing, change **only** `OLLAMA_MODEL` below.
+
+All grading code reads the model from the environment (set here) and/or the
+explicit parameter passed from this server.
+"""
 from __future__ import annotations
 
 import os
@@ -31,7 +40,6 @@ RUNS_DIR = Path.cwd() / "runs"
 RUNS_DIR.mkdir(exist_ok=True)
 
 # tmp_root = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_DIR)))
-
 
 RUNS_ROOT = Path(r"C:\Users\alinag\PycharmProjects\MathTest\runs")
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -94,15 +102,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-"""MathGrade API server.
 
-Single source of truth for Ollama configuration
-----------------------------------------------
-For vigorous model testing, change **only** `OLLAMA_MODEL` below.
-
-All grading code reads the model from the environment (set here) and/or the
-explicit parameter passed from this server.
-"""
 
 # Ollama config
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -190,7 +190,7 @@ def _file_response_with_cleanup(path: Path, download_name: str, tmp_dir: Path) -
     )
 
 
-@app.post("/api/grade_tex")
+@app.post("/api/grade_tex_ollama")
 async def grade_bundle_from_reference_tex_api(
     reference_tex: UploadFile = File(...),
     student_tex: UploadFile = File(...),

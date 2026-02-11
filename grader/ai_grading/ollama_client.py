@@ -40,7 +40,7 @@ class OllamaClient:
         user: str,
         schema: Dict[str, Any],
         temperature: float = 0.15,
-        timeout_s: int = 120,
+        timeout_s: int = 360,
     ) -> dict:
         # NOTE: you already have this implemented — keep your existing request code.
         # The key point is: it uses self.base_url and self.model.
