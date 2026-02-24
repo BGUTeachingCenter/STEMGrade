@@ -36,10 +36,9 @@
       color:var(--muted);font-size:12px;white-space:nowrap;text-decoration:none;
     }
 
-    /* NEW: 3-column layout (exams | upload | files) */
     .layout{
       display:grid;
-      grid-template-columns: 280px 1fr 1fr;
+      grid-template-columns: 300px 1fr 1fr;
       gap:16px;
       align-items:start;
     }
@@ -156,7 +155,7 @@
     <div>
       <h1>Teacher Solution Bank</h1>
       <div class="sub">
-        Browse all <b>exam_ids</b>, click one to preview its files, or upload new teacher TeX.
+        Browse all <b>exam_ids</b>, click one to preview its files, upload new TeX, or rename/delete an exam.
       </div>
     </div>
     <div class="pillRow">
@@ -172,10 +171,11 @@
         <div class="row" style="justify-content:space-between;">
           <div>
             <div style="font-weight:900">All exam_ids</div>
-            <div class="small">Click to load bank contents</div>
+            <div class="small">Click to view files • Use Rename/Delete on the right</div>
           </div>
           <button id="refreshExamsBtn" class="secondary">Refresh</button>
         </div>
+
         <div class="examList" id="examList"></div>
         <div class="statusBox" id="examStatus">Idle</div>
       </div>
@@ -239,6 +239,7 @@
   const API_BASE = "http://localhost:8000";
   const $ = (id)=>document.getElementById(id);
 
+  // Teacher password is passed from /teacher?p=... and used as X-Teacher-Password header
   function qp(name){ return new URL(window.location.href).searchParams.get(name); }
   const TEACHER_PW = qp("p") || "";
 
@@ -263,8 +264,14 @@
   function setExamStatus(msg){ $("examStatus").textContent = msg; }
   function setUploadStatus(msg){ $("uploadStatus").textContent = msg; }
   function examId(){ return ($("examId").value || "").trim(); }
+
   function escapeHtml(s){
-    return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    return (s||"")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
   }
 
   // Drop zone
@@ -278,6 +285,7 @@
     if (f){ texChip.style.display="inline-flex"; texName.textContent = f.name; }
     else { texChip.style.display="none"; texName.textContent=""; }
   }
+
   function wireDropZone(zone, input, acceptCheck) {
     zone.addEventListener("click", () => input.click());
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
@@ -302,7 +310,6 @@
     activeExamId = id;
     $("examId").value = id;
     $("examEcho").textContent = id || "—";
-    // highlight
     document.querySelectorAll(".examItem").forEach(el=>{
       el.classList.toggle("active", el.dataset.examId === id);
     });
@@ -329,25 +336,86 @@
       const div = document.createElement("div");
       div.className = "examItem";
       div.dataset.examId = id;
-      div.innerHTML = `<div>
+
+      div.innerHTML = `
+        <div style="flex:1; min-width:0;">
           <div class="examName">${escapeHtml(id)}</div>
           <div class="small">Click to view files</div>
         </div>
-        <div class="small">›</div>`;
-      div.onclick = async () => {
+        <div class="row" style="gap:6px;">
+          <button class="secondary" data-action="rename"
+            style="padding:8px 10px;border-radius:12px;font-weight:800;">Rename</button>
+          <button class="danger" data-action="delete"
+            style="padding:8px 10px;border-radius:12px;font-weight:850;">Delete</button>
+        </div>
+      `;
+
+      // click-to-select (ignore button clicks)
+      div.onclick = async (e) => {
+        const btn = e.target.closest("button");
+        if (btn) return;
         setActiveExam(id);
         await refreshFiles();
       };
+
+      // Delete exam_id
+      div.querySelector('[data-action="delete"]').onclick = async (e) => {
+        e.stopPropagation();
+
+        // safer confirmation (type-to-confirm)
+        const typed = prompt(`Type the exam_id to confirm delete:\n\n${id}`);
+        if (typed === null) return;
+        if (typed.trim() !== id) { alert("Exam ID did not match. Cancelled."); return; }
+
+        const r2 = await authedFetch(API_BASE + "/api/bank/exam/delete", {
+          method:"POST",
+          headers: {"content-type":"application/json"},
+          body: JSON.stringify({ exam_id: id })
+        });
+        if(!r2.ok){ alert(await r2.text()); return; }
+
+        if (activeExamId === id) {
+          activeExamId = "";
+          $("examId").value = "";
+          $("examEcho").textContent = "—";
+          $("itemsList").innerHTML = "";
+        }
+        await loadExams();
+      };
+
+      // Rename exam_id
+      div.querySelector('[data-action="rename"]').onclick = async (e) => {
+        e.stopPropagation();
+        const newId = prompt(`Rename "${id}" to:`, id);
+        if(newId === null) return;
+        const trimmed = newId.trim();
+        if(!trimmed){ alert("New exam_id cannot be empty."); return; }
+
+        const r2 = await authedFetch(API_BASE + "/api/bank/exam/rename", {
+          method:"POST",
+          headers: {"content-type":"application/json"},
+          body: JSON.stringify({ old_exam_id: id, new_exam_id: trimmed })
+        });
+        if(!r2.ok){ alert(await r2.text()); return; }
+
+        if (activeExamId === id) setActiveExam(trimmed);
+        await loadExams();
+        await refreshFiles();
+      };
+
       $("examList").appendChild(div);
     }
 
-    // auto-select first if none chosen
+    // Auto-select first exam if none active
     if (!activeExamId){
       setActiveExam(ids[0]);
       await refreshFiles();
+    } else if (ids.includes(activeExamId)) {
+      setActiveExam(activeExamId);
     } else {
-      // keep selection if still exists
-      if (ids.includes(activeExamId)) setActiveExam(activeExamId);
+      // active exam was deleted/renamed
+      setActiveExam(ids[0]);
+      await refreshFiles();
     }
   }
 
@@ -423,7 +491,7 @@
         const r3 = await authedFetch(API_BASE + `/api/bank/delete?exam_id=${encodeURIComponent(id)}&filename=${encodeURIComponent(it.filename)}`, {method:"DELETE"});
         if(!r3.ok){ alert(await r3.text()); return; }
         await refreshFiles();
-        await loadExams(); // in case exam becomes empty
+        await loadExams(); // if exam becomes empty, list still updates
       };
 
       $("itemsList").appendChild(div);
@@ -459,7 +527,9 @@
   $("refreshFilesBtn").onclick = refreshFiles;
   $("refreshExamsBtn").onclick = loadExams;
 
-  // initial load
+  // Auto-refresh list periodically (nice UX)
+  setInterval(()=>{ if(document.visibilityState === "visible") loadExams(); }, 15000);
+
   window.addEventListener("load", () => loadExams());
 </script>
 </body>

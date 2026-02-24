@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from pathlib import Path
+import shutil
+from pydantic import BaseModel
+from core.storage import exam_dir  # add this import
 
 from fastapi import APIRouter, File, UploadFile, Form, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -168,3 +170,61 @@ def list_exams(x_teacher_password: str | None = Header(None)):
 
     exam_ids = sorted([p.name for p in BANK_ROOT.iterdir() if p.is_dir()])
     return {"exam_ids": exam_ids}
+
+class ExamDeleteReq(BaseModel):
+    exam_id: str
+
+@router.post("/exam/delete")
+def delete_exam(req: ExamDeleteReq, x_teacher_password: str | None = Header(None)):
+    """Delete an entire exam_id folder (uploads + meta + files)."""
+    require_teacher_password(x_teacher_password)
+
+    exam_id = require_safe_exam_id(req.exam_id)
+    d = exam_dir(exam_id)  # BANK_ROOT/exam_id
+
+    if not d.exists():
+        raise HTTPException(status_code=404, detail="exam_id not found")
+
+    # Safety: refuse deleting the bank root by mistake
+    if d.resolve() == BANK_ROOT.resolve():
+        raise HTTPException(status_code=400, detail="Refusing to delete bank root")
+
+    shutil.rmtree(d)
+    return {"ok": True, "deleted": exam_id}
+
+
+class ExamRenameReq(BaseModel):
+    old_exam_id: str
+    new_exam_id: str
+
+@router.post("/exam/rename")
+def rename_exam(req: ExamRenameReq, x_teacher_password: str | None = Header(None)):
+    """Rename an exam_id folder (and update meta exam_id fields)."""
+    require_teacher_password(x_teacher_password)
+
+    old_id = require_safe_exam_id(req.old_exam_id)
+    new_id = require_safe_exam_id(req.new_exam_id)
+
+    if old_id == new_id:
+        return {"ok": True, "renamed": False, "exam_id": old_id}
+
+    old_dir = exam_dir(old_id)
+    new_dir = exam_dir(new_id)
+
+    if not old_dir.exists():
+        raise HTTPException(status_code=404, detail="old exam_id not found")
+    if new_dir.exists():
+        raise HTTPException(status_code=409, detail="new exam_id already exists")
+
+    old_dir.rename(new_dir)
+
+    # Update stored metadata so preview/list show the new id
+    for meta_path in new_dir.rglob("*.meta.json"):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["exam_id"] = new_id
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    return {"ok": True, "old_exam_id": old_id, "new_exam_id": new_id}
