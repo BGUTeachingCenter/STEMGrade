@@ -41,7 +41,8 @@ RUNS_DIR.mkdir(exist_ok=True)
 
 # tmp_root = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_DIR)))
 
-RUNS_ROOT = Path(r"C:\Users\alinag\PycharmProjects\MathTest\runs")
+PROJECT_ROOT = Path(__file__).resolve().parent
+RUNS_ROOT = Path(os.getenv("MATHGRADE_RUNS_DIR", PROJECT_ROOT / "runs"))
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 
 DEBUG_DIR = Path.cwd() / "debug_logs"
@@ -121,8 +122,19 @@ FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
 
 @app.get("/health")
 def health():
-    """Health check endpoint."""
-    return {"ok": True, "ollama_base_url": OLLAMA_BASE_URL, "ollama_model": OLLAMA_MODEL}
+    ollama_model = os.getenv("OLLAMA_MODEL", "unknown")
+
+    # Pick one env var name and stick to it.
+    # Google GenAI SDK will auto-pick GEMINI_API_KEY (recommended) :contentReference[oaicite:0]{index=0}
+    google_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")  # your default
+    google_key_present = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+
+    return {
+        "status": "ok",
+        "ollama_model": ollama_model,
+        "google_model": google_model if google_key_present else None,
+        "google_configured": google_key_present,
+    }
 
 
 def _save_upload(upload: UploadFile, dest: Path) -> None:
