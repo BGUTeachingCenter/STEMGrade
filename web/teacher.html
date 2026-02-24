@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Teacher Solution Bank</title>
+  <style>
+    :root{
+      --text:#e5e7eb; --muted:#a7b0c0;
+      --shadow:0 30px 80px rgba(0,0,0,.35);
+      --radius:18px; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+      --btn:#f59e0b; --btnText:#06101f;
+      --cardBg: rgba(11,18,32,.60);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 800px at 10% 10%, rgba(245,158,11,.20), transparent 55%),
+        radial-gradient(900px 700px at 90% 20%, rgba(56,189,248,.20), transparent 55%),
+        radial-gradient(900px 700px at 70% 90%, rgba(167,139,250,.15), transparent 55%),
+        linear-gradient(135deg, #050816, #070a1a 35%, #040615);
+      min-height:100vh;
+    }
+    .wrap{max-width:1200px;margin:0 auto;padding:34px 18px 70px;}
+    .top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
+    h1{margin:0;font-size:24px;letter-spacing:-.01em;}
+    .sub{margin-top:8px;color:var(--muted);max-width:80ch;font-size:14px;line-height:1.5;}
+    .pillRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+    .pill{
+      display:inline-flex;align-items:center;gap:10px;
+      padding:8px 10px;border:1px solid rgba(255,255,255,.12);
+      border-radius:999px;background: rgba(255,255,255,.06);
+      color:var(--muted);font-size:12px;white-space:nowrap;text-decoration:none;
+    }
+
+    /* NEW: 3-column layout (exams | upload | files) */
+    .layout{
+      display:grid;
+      grid-template-columns: 280px 1fr 1fr;
+      gap:16px;
+      align-items:start;
+    }
+    @media (max-width: 1100px){ .layout{grid-template-columns: 1fr;} }
+
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+      border:1px solid rgba(255,255,255,.12);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .cardInner{padding:18px;background: var(--cardBg); backdrop-filter: blur(10px);}
+
+    .row{display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
+    label{font-size:12px;color:var(--muted);}
+    input[type="text"], select{
+      background: rgba(0,0,0,.25);
+      border: 1px solid rgba(255,255,255,.14);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline:none;
+      width:100%;
+    }
+
+    /* Drop zone */
+    .drop{
+      margin-top:10px;
+      position:relative;
+      border:1px dashed rgba(255,255,255,.20);
+      border-radius: 16px;
+      padding:16px;
+      background: rgba(0,0,0,.18);
+      transition: .15s ease;
+      min-height: 140px;
+      display:flex;flex-direction:column;gap:10px;justify-content:center;
+      cursor:pointer;
+    }
+    .drop:hover{border-color: rgba(245,158,11,.55)}
+    .drop.drag{border-color: rgba(34,197,94,.75); background: rgba(34,197,94,.08)}
+    .labelBig{font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px;}
+    .hint{color:var(--muted);font-size:13px;line-height:1.4}
+    .chip{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:8px 10px;border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      width: fit-content;max-width: 100%;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      font-size:13px;color:var(--text);
+    }
+    .chip span{color:var(--muted)}
+    input[type="file"]{display:none}
+
+    button{
+      appearance:none;border:0;border-radius:14px;padding:12px 14px;cursor:pointer;
+      font-weight:900;color:var(--btnText);background: var(--btn);
+      box-shadow:0 10px 30px rgba(0,0,0,.18);
+      transition:transform .1s ease, filter .15s ease, opacity .15s ease;
+      display:inline-flex;align-items:center;gap:10px;
+    }
+    button:hover{filter: brightness(1.06)}
+    button:active{transform: translateY(1px)}
+    button:disabled{opacity:.55;cursor:not-allowed}
+
+    button.secondary{
+      background: rgba(255,255,255,.10);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,.12);
+      font-weight: 750;
+    }
+    button.danger{
+      background: rgba(239,68,68,.18);
+      color: #fecaca;
+      border: 1px solid rgba(239,68,68,.35);
+      font-weight: 850;
+    }
+
+    .statusBox{
+      margin-top:12px;border-radius:16px;border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.18);
+      padding: 12px 14px;color:var(--muted);white-space: pre-wrap;min-height: 54px;font-size:12px;
+    }
+
+    /* Exam list */
+    .examList{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+    .examItem{
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.18);
+      border-radius: 14px;
+      padding:10px 12px;
+      cursor:pointer;
+      display:flex;justify-content:space-between;align-items:center;gap:10px;
+    }
+    .examItem:hover{border-color: rgba(245,158,11,.45)}
+    .examItem.active{border-color: rgba(34,197,94,.65); background: rgba(34,197,94,.08)}
+    .examName{font-weight:800;font-size:13px}
+    .small{color:var(--muted);font-size:11px}
+
+    /* File list */
+    .list{margin-top:10px;display:flex;flex-direction:column;gap:10px}
+    .item{border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:10px;background: rgba(0,0,0,.18);}
+    .item .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    .meta{color:var(--muted);font-size:12px}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px;white-space:pre-wrap;line-height:1.35}
+    .preview{margin-top:8px;border-top:1px dashed rgba(255,255,255,.12);padding-top:8px;display:none;}
+    .tag{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;border:1px solid rgba(255,255,255,.12);color:var(--muted)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Teacher Solution Bank</h1>
+      <div class="sub">
+        Browse all <b>exam_ids</b>, click one to preview its files, or upload new teacher TeX.
+      </div>
+    </div>
+    <div class="pillRow">
+      <a class="pill" href="/">← Back to Grader</a>
+      <span class="pill" id="healthPill">Health: …</span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- LEFT: exams -->
+    <div class="card">
+      <div class="cardInner">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div style="font-weight:900">All exam_ids</div>
+            <div class="small">Click to load bank contents</div>
+          </div>
+          <button id="refreshExamsBtn" class="secondary">Refresh</button>
+        </div>
+        <div class="examList" id="examList"></div>
+        <div class="statusBox" id="examStatus">Idle</div>
+      </div>
+    </div>
+
+    <!-- MIDDLE: upload -->
+    <div class="card">
+      <div class="cardInner">
+        <div class="row">
+          <div style="flex:1">
+            <label>Exam / Bank ID</label><br/>
+            <input id="examId" type="text" placeholder="e.g. final_25" />
+          </div>
+          <div style="flex:1">
+            <label>Content Type</label><br/>
+            <select id="contentType">
+              <option value="reference">reference.tex (questions + solutions)</option>
+              <option value="questions_only">questions-only (no solutions)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="drop" id="dropTex">
+          <div class="labelBig">📄 Teacher TeX file</div>
+          <div class="hint">Drag & drop a <b>.tex</b> here, or click to choose.</div>
+          <div class="chip" id="texChip" style="display:none;">
+            <span>Selected:</span> <span id="texName" style="color:var(--text)"></span>
+          </div>
+          <input id="texFile" type="file" accept=".tex,.txt" />
+        </div>
+
+        <div class="row" style="margin-top:14px;">
+          <button id="uploadBtn">Upload to Bank</button>
+          <button id="refreshFilesBtn" class="secondary">Refresh Files</button>
+        </div>
+
+        <div class="statusBox" id="uploadStatus">Idle</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: files -->
+    <div class="card">
+      <div class="cardInner">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div class="meta">Bank contents for exam_id:</div>
+            <div class="mono" id="examEcho">—</div>
+          </div>
+          <div class="row" style="gap:8px">
+            <span class="tag">Stored on server disk</span>
+            <span class="tag">Preview parses Q/parts</span>
+          </div>
+        </div>
+        <div class="list" id="itemsList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API_BASE = "http://localhost:8000";
+  const $ = (id)=>document.getElementById(id);
+
+  function qp(name){ return new URL(window.location.href).searchParams.get(name); }
+  const TEACHER_PW = qp("p") || "";
+
+  async function authedFetch(url, options = {}){
+    const headers = new Headers(options.headers || {});
+    headers.set("X-Teacher-Password", TEACHER_PW);
+    return fetch(url, { ...options, headers });
+  }
+
+  async function getHealth(){
+    try{
+      const r = await fetch(API_BASE + "/health");
+      const j = await r.json();
+      $("healthPill").textContent = `Health: ${j.status} | Ollama: ${j.ollama_model}`;
+    }catch(e){
+      $("healthPill").textContent = "Health: error";
+    }
+  }
+  getHealth();
+  setInterval(getHealth, 5000);
+
+  function setExamStatus(msg){ $("examStatus").textContent = msg; }
+  function setUploadStatus(msg){ $("uploadStatus").textContent = msg; }
+  function examId(){ return ($("examId").value || "").trim(); }
+  function escapeHtml(s){
+    return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+  }
+
+  // Drop zone
+  const dropTex = $("dropTex");
+  const texFile = $("texFile");
+  const texChip = $("texChip");
+  const texName = $("texName");
+
+  function updateFileChip(){
+    const f = texFile.files[0];
+    if (f){ texChip.style.display="inline-flex"; texName.textContent = f.name; }
+    else { texChip.style.display="none"; texName.textContent=""; }
+  }
+  function wireDropZone(zone, input, acceptCheck) {
+    zone.addEventListener("click", () => input.click());
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault(); zone.classList.remove("drag");
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      if (!acceptCheck(file)) { setUploadStatus("Wrong file type. Upload .tex/.txt"); return; }
+      const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
+      updateFileChip();
+    });
+    input.addEventListener("change", updateFileChip);
+  }
+  wireDropZone(dropTex, texFile, (f)=> f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt"));
+  updateFileChip();
+
+  // Exams list
+  let activeExamId = "";
+
+  function setActiveExam(id){
+    activeExamId = id;
+    $("examId").value = id;
+    $("examEcho").textContent = id || "—";
+    // highlight
+    document.querySelectorAll(".examItem").forEach(el=>{
+      el.classList.toggle("active", el.dataset.examId === id);
+    });
+  }
+
+  async function loadExams(){
+    setExamStatus("Loading exam_ids…");
+    $("examList").innerHTML = "";
+
+    const r = await authedFetch(API_BASE + "/api/bank/exams");
+    if (r.status === 401){ setExamStatus("Unauthorized (teacher password)."); return; }
+    if (!r.ok){ setExamStatus(await r.text()); return; }
+
+    const j = await r.json();
+    const ids = j.exam_ids || [];
+    setExamStatus(`Found ${ids.length} exam_id(s).`);
+
+    if(ids.length === 0){
+      $("examList").innerHTML = `<div class="small">No exams yet. Upload one.</div>`;
+      return;
+    }
+
+    for (const id of ids){
+      const div = document.createElement("div");
+      div.className = "examItem";
+      div.dataset.examId = id;
+      div.innerHTML = `<div>
+          <div class="examName">${escapeHtml(id)}</div>
+          <div class="small">Click to view files</div>
+        </div>
+        <div class="small">›</div>`;
+      div.onclick = async () => {
+        setActiveExam(id);
+        await refreshFiles();
+      };
+      $("examList").appendChild(div);
+    }
+
+    // auto-select first if none chosen
+    if (!activeExamId){
+      setActiveExam(ids[0]);
+      await refreshFiles();
+    } else {
+      // keep selection if still exists
+      if (ids.includes(activeExamId)) setActiveExam(activeExamId);
+    }
+  }
+
+  // Files list
+  async function refreshFiles(){
+    const id = examId();
+    $("examEcho").textContent = id || "—";
+    $("itemsList").innerHTML = "";
+    if(!id){ setUploadStatus("Select an exam_id from the left."); return; }
+
+    setUploadStatus("Loading files…");
+    const r = await authedFetch(API_BASE + `/api/bank/list?exam_id=${encodeURIComponent(id)}`);
+    if(r.status === 401){ setUploadStatus("Unauthorized (teacher password)."); return; }
+    if(!r.ok){ setUploadStatus(`List failed:\n${await r.text()}`); return; }
+
+    const j = await r.json();
+    const items = j.items || [];
+    setUploadStatus(`Found ${items.length} item(s).`);
+
+    for(const it of items){
+      const div = document.createElement("div");
+      div.className = "item";
+
+      const tags = [
+        it.content_type ? `<span class="tag">${escapeHtml(it.content_type)}</span>` : "",
+        (it.q_count!=null) ? `<span class="tag">questions: ${it.q_count}</span>` : "",
+        (it.part_count!=null) ? `<span class="tag">parts: ${it.part_count}</span>` : "",
+      ].join(" ");
+
+      div.innerHTML = `
+        <div class="hdr">
+          <div>
+            <div class="mono">${escapeHtml(it.filename)}</div>
+            <div class="meta">${escapeHtml(it.created_at || "")}</div>
+            <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap">${tags}</div>
+          </div>
+          <div class="row">
+            <button class="secondary" data-action="preview">Preview</button>
+            <button class="secondary" data-action="download">Download</button>
+            <button class="danger" data-action="delete">Delete</button>
+          </div>
+        </div>
+        <div class="preview mono"></div>
+      `;
+
+      const previewEl = div.querySelector(".preview");
+
+      div.querySelector('[data-action="preview"]').onclick = async ()=>{
+        if(previewEl.style.display === "block"){ previewEl.style.display = "none"; return; }
+        previewEl.style.display = "block";
+        previewEl.textContent = "Loading preview…";
+
+        const r2 = await authedFetch(API_BASE + `/api/bank/preview?exam_id=${encodeURIComponent(id)}&filename=${encodeURIComponent(it.filename)}`);
+        if(!r2.ok){ previewEl.textContent = await r2.text(); return; }
+        const j2 = await r2.json();
+        previewEl.innerHTML =
+          `<div><b>Parsed keys:</b> ${escapeHtml((j2.keys||[]).join(", "))}</div>` +
+          `<div style="height:8px"></div>` +
+          `<div><b>Preview:</b></div>` +
+          `<div>${escapeHtml(j2.preview_text || "")}</div>`;
+      };
+
+      div.querySelector('[data-action="download"]').onclick = async ()=>{
+        const r2 = await authedFetch(API_BASE + `/api/bank/raw?exam_id=${encodeURIComponent(id)}&filename=${encodeURIComponent(it.filename)}`);
+        if(!r2.ok){ alert(await r2.text()); return; }
+        const blob = await r2.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+      };
+
+      div.querySelector('[data-action="delete"]').onclick = async ()=>{
+        if(!confirm(`Delete ${it.filename}?`)) return;
+        const r3 = await authedFetch(API_BASE + `/api/bank/delete?exam_id=${encodeURIComponent(id)}&filename=${encodeURIComponent(it.filename)}`, {method:"DELETE"});
+        if(!r3.ok){ alert(await r3.text()); return; }
+        await refreshFiles();
+        await loadExams(); // in case exam becomes empty
+      };
+
+      $("itemsList").appendChild(div);
+    }
+  }
+
+  async function upload(){
+    const id = examId();
+    const f = texFile.files[0];
+    const type = $("contentType").value;
+
+    if(!id){ setUploadStatus("Please select or type an exam_id."); return; }
+    if(!f){ setUploadStatus("Please select a .tex file."); return; }
+
+    const fd = new FormData();
+    fd.append("exam_id", id);
+    fd.append("content_type", type);
+    fd.append("tex_file", f);
+
+    setUploadStatus("Uploading…");
+    const r = await authedFetch(API_BASE + "/api/bank/upload", { method:"POST", body: fd });
+    if(!r.ok){ setUploadStatus(`Upload failed:\n${await r.text()}`); return; }
+
+    setUploadStatus("Upload OK ✅");
+    texFile.value = ""; updateFileChip();
+
+    setActiveExam(id);
+    await loadExams();
+    await refreshFiles();
+  }
+
+  $("uploadBtn").onclick = upload;
+  $("refreshFilesBtn").onclick = refreshFiles;
+  $("refreshExamsBtn").onclick = loadExams;
+
+  // initial load
+  window.addEventListener("load", () => loadExams());
+</script>
+</body>
+</html>

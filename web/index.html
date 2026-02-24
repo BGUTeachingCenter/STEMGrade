@@ -19,6 +19,8 @@
       --btnOllama:#a78bfa;  /* violet */
       --btnGoogle:#22c55e;  /* green */
       --btnText:#06101f;
+
+      --btnTeacher:#f59e0b; /* amber */
     }
 
     *{box-sizing:border-box}
@@ -45,7 +47,7 @@
       background-clip:text;
       color:transparent;
     }
-    .sub{margin-top:10px; color:var(--muted); max-width:60ch; font-size:16px;}
+    .sub{margin-top:10px; color:var(--muted); max-width:70ch; font-size:16px;}
 
     .badge{
       display:inline-flex; align-items:center; gap:10px;
@@ -82,13 +84,13 @@
       backdrop-filter: blur(10px);
     }
 
+    /* single column */
     .grid{
       display:grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap:16px;
       margin-top:14px;
     }
-    @media (max-width: 820px){ .grid{grid-template-columns:1fr;} }
 
     .drop{
       position:relative;
@@ -125,10 +127,9 @@
     .icon{
       width:22px; height:22px; border-radius:8px;
       display:inline-grid; place-items:center;
-      background: rgba(56,189,248,.14);
-      border:1px solid rgba(56,189,248,.22);
+      background: rgba(167,139,250,.14);
+      border:1px solid rgba(167,139,250,.22);
     }
-    .icon.violet{background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.22);}
 
     .row{display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:16px; flex-wrap:wrap;}
 
@@ -155,10 +156,9 @@
     .btnBundle{ background: var(--btnBundle); }
     .btnOllama{ background: var(--btnOllama); }
     .btnGoogle{ background: var(--btnGoogle); }
+    .btnTeacher{ background: var(--btnTeacher); }
 
-    .btnIcon{
-      width:18px; height:18px; display:inline-block;
-    }
+    .btnIcon{ width:18px; height:18px; display:inline-block; }
     .btnIcon svg{width:18px;height:18px;display:block}
 
     .statusBox{
@@ -167,7 +167,7 @@
       border:1px solid rgba(255,255,255,.12);
       background: rgba(0,0,0,.18);
       padding: 12px 14px;
-      color: var(--muted);
+      color:var(--muted);
       white-space: pre-wrap;
       min-height: 54px;
     }
@@ -181,32 +181,22 @@
       <div>
         <h1>MathGrade</h1>
         <div class="sub">
-          Upload the official exam+solution <b>TeX</b> and the student's LaTeX results file.
-          Generate a bundle PDF, or generate a graded PDF with AI feedback.
+          Upload the student's LaTeX results file.
+          The server will automatically find the most relevant reference solution from the Teacher Bank.
         </div>
       </div>
       <div class="badge">
         <div class="dot" id="dot"></div>
-        <div><b id="badgeTitle">Ready</b> <span id="badgeText">Select two files</span></div>
+        <div><b id="badgeTitle">Ready</b> <span id="badgeText">Select student file</span></div>
       </div>
     </div>
 
     <div class="card">
       <div class="cardInner">
         <div class="grid">
-          <!-- Reference TeX -->
-          <div class="drop" id="dropRefTex">
-            <div class="label"><span class="icon">📄</span> Reference TeX (exam + solution)</div>
-            <div class="hint">Drag & drop a <b>.tex</b> here, or click to choose.</div>
-            <div class="chip" id="refChip" style="display:none;">
-              <span>Selected:</span> <span id="refName" style="color:var(--text)"></span>
-            </div>
-            <input id="referenceTex" type="file" accept=".tex,.txt" />
-          </div>
-
-          <!-- Student TeX -->
+          <!-- Student TeX ONLY -->
           <div class="drop" id="dropStudentTex">
-            <div class="label"><span class="icon violet">🧾</span> Student results (LaTeX)</div>
+            <div class="label"><span class="icon">🧾</span> Student results (LaTeX)</div>
             <div class="hint">Drag & drop a <b>.tex</b> file here, or click to choose.</div>
             <div class="chip" id="stuChip" style="display:none;">
               <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
@@ -248,6 +238,16 @@
               </span>
               Graded (Google)
             </button>
+
+            <button id="teacherBtn" class="btnTeacher">
+              <span class="btnIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Z" stroke="currentColor" stroke-width="2"/>
+                  <path d="M9 10V7a3 3 0 0 1 6 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </span>
+              Teacher Bank
+            </button>
           </div>
 
           <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 430px;">
@@ -264,20 +264,15 @@
   <script>
     const API_BASE = "http://localhost:8000";
 
-    // Endpoints
+    // NEW endpoints: server picks the reference automatically from the bank
     const ENDPOINT_BUNDLE       = API_BASE + "/api/generate_tex";
     const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
 
-    const referenceTex = document.getElementById("referenceTex");
     const studentTex = document.getElementById("studentTex");
-
-    const dropRefTex = document.getElementById("dropRefTex");
     const dropStudentTex = document.getElementById("dropStudentTex");
 
-    const refChip = document.getElementById("refChip");
     const stuChip = document.getElementById("stuChip");
-    const refName = document.getElementById("refName");
     const stuName = document.getElementById("stuName");
 
     const statusEl = document.getElementById("status");
@@ -288,6 +283,15 @@
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
     const badgeText = document.getElementById("badgeText");
+
+    // teacher button handler (minimal)
+    const teacherBtn = document.getElementById("teacherBtn");
+    teacherBtn.addEventListener("click", () => {
+      const pw = prompt("Teacher password:");
+      if (pw === null) return;
+      const q = encodeURIComponent(pw);
+      window.location.href = API_BASE + "/teacher?p=" + q;
+    });
 
     function setBadge(kind, title, text) {
       dot.classList.remove("ok", "err");
@@ -302,7 +306,7 @@
       if (kind === "ok") setBadge("ok", "Ready", "Click a button");
       else if (kind === "err") setBadge("err", "Error", "See details below");
       else if (kind === "work") setBadge("warn", "Working", "Please wait…");
-      else setBadge("warn", "Ready", "Select two files");
+      else setBadge("warn", "Ready", "Select student file");
     }
 
     async function loadHealth() {
@@ -310,7 +314,6 @@
         const res = await fetch(API_BASE + "/health");
         if (!res.ok) throw new Error("health not ok");
         const j = await res.json();
-
         document.getElementById("ollamaModelName").textContent = j.ollama_model || "unknown";
         document.getElementById("googleModelName").textContent = j.google_model || "not configured";
       } catch (_) {
@@ -320,23 +323,23 @@
     }
     loadHealth();
 
-    function updateUI() {
-      const ref = referenceTex.files[0];
-      const stu = studentTex.files[0];
+    function isReady() {
+      return !!studentTex.files[0];
+    }
 
-      if (ref) { refChip.style.display = "inline-flex"; refName.textContent = ref.name; }
-      else { refChip.style.display = "none"; }
+    function updateUI() {
+      const stu = studentTex.files[0];
 
       if (stu) { stuChip.style.display = "inline-flex"; stuName.textContent = stu.name; }
       else { stuChip.style.display = "none"; }
 
-      const ready = !!(ref && stu);
+      const ready = !!stu;
       bundleBtn.disabled = !ready;
       gradeOllamaBtn.disabled = !ready;
       gradeGoogleBtn.disabled = !ready;
 
       if (ready) setBadge("ok", "Ready", "Choose Bundle / Ollama / Google");
-      else setBadge("warn", "Ready", "Select two files");
+      else setBadge("warn", "Ready", "Select student file");
     }
 
     function wireDropZone(zone, input, acceptCheck) {
@@ -353,7 +356,7 @@
         if (!file) return;
 
         if (!acceptCheck(file)) {
-          setStatus("Wrong file type. Please upload the correct format.", "err");
+          setStatus("Wrong file type. Please upload a .tex or .txt file.", "err");
           return;
         }
 
@@ -366,9 +369,9 @@
       input.addEventListener("change", updateUI);
     }
 
-    // both are TeX now
-    wireDropZone(dropRefTex, referenceTex, (f) => f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt"));
-    wireDropZone(dropStudentTex, studentTex, (f) => f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt"));
+    wireDropZone(dropStudentTex, studentTex, (f) =>
+      f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt")
+    );
 
     function stageLine(stage, extra="") {
       const ts = new Date().toLocaleTimeString();
@@ -381,28 +384,22 @@
       gradeGoogleBtn.disabled = disabled || !isReady();
     }
 
-    function isReady() {
-      return !!(referenceTex.files[0] && studentTex.files[0]);
-    }
-
     async function postAndDownload(url, downloadName, workLabel) {
-      const ref = referenceTex.files[0];
       const stu = studentTex.files[0];
-      if (!ref || !stu) return;
+      if (!stu) return;
 
       disableAll(true);
 
       setStatus(
         workLabel + "\n" +
-        stageLine("Uploading files") + "\n" +
+        stageLine("Uploading student file") + "\n" +
+        stageLine("Finding best reference in bank") + "\n" +
         stageLine("Waiting for server to process"),
         "work"
       );
 
       try {
         const form = new FormData();
-        // IMPORTANT: field names must match backend
-        form.append("reference_tex", ref);
         form.append("student_tex", stu);
 
         const res = await fetch(url, { method: "POST", body: form });
