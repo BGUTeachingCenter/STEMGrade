@@ -262,6 +262,15 @@
   </div>
 
   <script>
+      function prettyError(j){
+    if (!j) return "";
+    // FastAPI often returns {"detail": "..."} or {"detail": {...}} or {"error": "...", "traceback": "..."}
+    const d = (j.detail !== undefined) ? j.detail : j.error ?? j.message ?? j;
+    if (typeof d === "string") return d;
+    try { return JSON.stringify(d, null, 2); }
+    catch { return String(d); }
+    }
+
     const API_BASE = "http://localhost:8000";
 
     // NEW endpoints: server picks the reference automatically from the bank

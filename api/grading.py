@@ -38,13 +38,12 @@ def _file_response(path: Path, download_name: str) -> FileResponse:
 
 @router.post("/grade_tex_ollama")
 async def grade_tex_ollama(
-    reference_tex: UploadFile = File(...),
     student_tex: UploadFile = File(...),
 ):
-    """Grade using reference .tex + student .tex with Ollama.
+    """Grade student .tex with Ollama.
 
-    If AUTO_REFERENCE is enabled (env MATHGRADE_AUTO_REFERENCE=1) OR reference filename is AUTO,
-    the server picks the best reference.tex from the solution bank and ignores the uploaded reference.
+    Always picks the best reference.tex from the solution bank (BANK_ROOT),
+    so the client only needs to upload student_tex.
     """
     tmp_dir = None
     try:
@@ -56,20 +55,21 @@ async def grade_tex_ollama(
         tex_path = tmp_dir / (student_tex.filename or "student.tex")
         tex_path.write_bytes(await student_tex.read())
 
-        use_bank = AUTO_REFERENCE or ((reference_tex.filename or "").lower() in {"auto", "autodetect", "bank"})
+        # Always pick from bank (single-file flow)
+        if not BANK_ROOT.exists():
+            raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
-        if use_bank:
-            chosen_ref = pick_reference_from_bank(
-                bank_dir=BANK_ROOT,
-                student_tex=tex_path,
-                prefer_heuristic=True,
-                llm_top_k=12,
-            )
-            ref_path = tmp_dir / Path(chosen_ref).name
-            ref_path.write_text(Path(chosen_ref).read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
-        else:
-            ref_path = tmp_dir / (reference_tex.filename or "reference.tex")
-            ref_path.write_bytes(await reference_tex.read())
+        chosen_ref = pick_reference_from_bank(
+            bank_dir=BANK_ROOT,
+            student_tex=tex_path,
+            prefer_heuristic=True,
+            llm_top_k=12,
+        )
+        ref_path = tmp_dir / Path(chosen_ref).name
+        ref_path.write_text(
+            Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
+            encoding="utf-8",
+        )
 
         ai_dir = out_dir / "ai_grade"
         ai_dir.mkdir(parents=True, exist_ok=True)
@@ -110,11 +110,11 @@ async def grade_tex_ollama(
 
 @router.post("/grade_tex_google")
 async def grade_tex_google(
-    reference_tex: UploadFile = File(...),
     student_tex: UploadFile = File(...),
 ):
-    """Grade using reference .tex + student .tex with Google (Gemini).
+    """Grade student .tex with Google (Gemini).
 
+    Picks reference automatically from BANK_ROOT.
     Requires GOOGLE_API_KEY (or GEMINI_API_KEY).
     """
     tmp_dir = None
@@ -127,10 +127,23 @@ async def grade_tex_google(
         out_dir = tmp_dir / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        ref_path = tmp_dir / (reference_tex.filename or "reference.tex")
         tex_path = tmp_dir / (student_tex.filename or "student.tex")
-        ref_path.write_bytes(await reference_tex.read())
         tex_path.write_bytes(await student_tex.read())
+
+        if not BANK_ROOT.exists():
+            raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
+
+        chosen_ref = pick_reference_from_bank(
+            bank_dir=BANK_ROOT,
+            student_tex=tex_path,
+            prefer_heuristic=True,
+            llm_top_k=12,
+        )
+        ref_path = tmp_dir / Path(chosen_ref).name
+        ref_path.write_text(
+            Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
+            encoding="utf-8",
+        )
 
         ai_dir = out_dir / "ai_grade"
         ai_dir.mkdir(parents=True, exist_ok=True)
