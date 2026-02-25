@@ -230,7 +230,7 @@ def build_feedback_pdf(
     outputs = compile_tex_to_pdf(
         tex_path,
         out_dir,
-        clean=True,
+        clean=False,
         font_name=font_name,
     )
 

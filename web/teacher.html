@@ -236,14 +236,6 @@
 </div>
 
 <script>
-  function prettyError(j){
-  if (!j) return "";
-  // FastAPI often returns {"detail": "..."} or {"detail": {...}} or {"error": "...", "traceback": "..."}
-  const d = (j.detail !== undefined) ? j.detail : j.error ?? j.message ?? j;
-  if (typeof d === "string") return d;
-  try { return JSON.stringify(d, null, 2); }
-  catch { return String(d); }
-  }
   const API_BASE = "http://localhost:8000";
   const $ = (id)=>document.getElementById(id);
 
@@ -257,6 +249,14 @@
     return fetch(url, { ...options, headers });
   }
 
+  function prettyError(j){
+    if (!j) return "";
+    const d = (j.detail !== undefined) ? j.detail : (j.error ?? j.message ?? j);
+    if (typeof d === "string") return d;
+    try { return JSON.stringify(d, null, 2); }
+    catch { return String(d); }
+  }
+
   async function getHealth(){
     try{
       const r = await fetch(API_BASE + "/health");
@@ -267,6 +267,7 @@
     }
   }
   getHealth();
+  // ✅ Keep health polling (lightweight, doesn’t reload lists)
   setInterval(getHealth, 5000);
 
   function setExamStatus(msg){ $("examStatus").textContent = msg; }
@@ -369,8 +370,6 @@
       // Delete exam_id
       div.querySelector('[data-action="delete"]').onclick = async (e) => {
         e.stopPropagation();
-
-        // safer confirmation (type-to-confirm)
         const typed = prompt(`Type the exam_id to confirm delete:\n\n${id}`);
         if (typed === null) return;
         if (typed.trim() !== id) { alert("Exam ID did not match. Cancelled."); return; }
@@ -421,7 +420,6 @@
     } else if (ids.includes(activeExamId)) {
       setActiveExam(activeExamId);
     } else {
-      // active exam was deleted/renamed
       setActiveExam(ids[0]);
       await refreshFiles();
     }
@@ -499,7 +497,7 @@
         const r3 = await authedFetch(API_BASE + `/api/bank/delete?exam_id=${encodeURIComponent(id)}&filename=${encodeURIComponent(it.filename)}`, {method:"DELETE"});
         if(!r3.ok){ alert(await r3.text()); return; }
         await refreshFiles();
-        await loadExams(); // if exam becomes empty, list still updates
+        // Optional: if exam becomes empty, user can manually refresh exams
       };
 
       $("itemsList").appendChild(div);
@@ -534,9 +532,6 @@
   $("uploadBtn").onclick = upload;
   $("refreshFilesBtn").onclick = refreshFiles;
   $("refreshExamsBtn").onclick = loadExams;
-
-  // Auto-refresh list periodically (nice UX)
-  setInterval(()=>{ if(document.visibilityState === "visible") loadExams(); }, 15000);
 
   window.addEventListener("load", () => loadExams());
 </script>

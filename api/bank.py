@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, UploadFile, Form, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from core.security import require_teacher_password
-from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir
+from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary
 from core.config import BANK_ROOT
 from grader.reference_tex import parse_reference_tex
 
@@ -47,6 +47,14 @@ async def upload_to_bank(
     filename = f"{suffix}_current.tex"
     tex_path = uploads / filename
     tex_path.write_bytes(raw)
+    # create/update reference_summary.json for fast matching
+    if content_type == "reference":
+        try:
+            write_reference_summary(exam_id, tex_path=tex_path)
+        except Exception as e:
+            # don't fail upload; just record parse failure in meta preview_text
+            # (or log it)
+            pass
 
     # Parse for metadata
     try:

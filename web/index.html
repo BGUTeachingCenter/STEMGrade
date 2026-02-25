@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MathGrade Bundle Generator</title>
+  <title>MathGrade</title>
   <style>
     :root{
       --text:#e5e7eb;
@@ -14,13 +14,9 @@
       --bad:#ef4444;
       --warn:#f59e0b;
 
-      /* solid button colors */
-      --btnBundle:#38bdf8;  /* blue */
-      --btnOllama:#a78bfa;  /* violet */
-      --btnGoogle:#22c55e;  /* green */
+      --btnOllama:#a78bfa;
+      --btnGoogle:#22c55e;
       --btnText:#06101f;
-
-      --btnTeacher:#f59e0b; /* amber */
     }
 
     *{box-sizing:border-box}
@@ -84,14 +80,6 @@
       backdrop-filter: blur(10px);
     }
 
-    /* single column */
-    .grid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:16px;
-      margin-top:14px;
-    }
-
     .drop{
       position:relative;
       border:1px dashed rgba(255,255,255,.20);
@@ -104,6 +92,8 @@
       flex-direction:column;
       gap:10px;
       justify-content:center;
+      margin-top: 14px;
+      cursor:pointer;
     }
     .drop:hover{border-color: rgba(56,189,248,.55)}
     .drop.drag{border-color: rgba(34,197,94,.75); background: rgba(34,197,94,.08)}
@@ -133,7 +123,6 @@
 
     .row{display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:16px; flex-wrap:wrap;}
 
-    /* Buttons */
     .btnRow{display:flex; gap:10px; flex-wrap:wrap;}
     button{
       appearance:none;
@@ -153,13 +142,11 @@
     button:active{transform: translateY(1px)}
     button:disabled{opacity:.55; cursor:not-allowed}
 
-    .btnBundle{ background: var(--btnBundle); }
     .btnOllama{ background: var(--btnOllama); }
     .btnGoogle{ background: var(--btnGoogle); }
-    .btnTeacher{ background: var(--btnTeacher); }
 
     .btnIcon{ width:18px; height:18px; display:inline-block; }
-    .btnIcon svg{width:18px;height:18px;display:block}
+    .btnIcon svg{ width:18px; height:18px; display:block }
 
     .statusBox{
       margin-top:14px;
@@ -169,10 +156,35 @@
       padding: 12px 14px;
       color:var(--muted);
       white-space: pre-wrap;
-      min-height: 54px;
+      min-height: 120px;
+      font-size: 12px;
+      line-height: 1.35;
     }
 
     input[type=file]{display:none}
+
+    .teacherFooter{
+      margin-top: 14px;
+      display:flex;
+      justify-content:flex-end;
+    }
+    .btnTeacherSubtle{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.16);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 700;
+      box-shadow: none;
+      opacity: .9;
+    }
+    .btnTeacherSubtle:hover{
+      opacity: 1;
+      filter:none;
+      border-color: rgba(255,255,255,.26);
+      background: rgba(255,255,255,.06);
+    }
   </style>
 </head>
 <body>
@@ -181,44 +193,30 @@
       <div>
         <h1>MathGrade</h1>
         <div class="sub">
-          Upload the student's LaTeX results file.
-          The server will automatically find the most relevant reference solution from the Teacher Bank.
+          Upload the student's <b>TeX</b> answers. The server automatically picks the best matching reference from the solution bank and returns a graded PDF.
         </div>
       </div>
       <div class="badge">
         <div class="dot" id="dot"></div>
-        <div><b id="badgeTitle">Ready</b> <span id="badgeText">Select student file</span></div>
+        <div><b id="badgeTitle">Ready</b> <span id="badgeText">Select a student file</span></div>
       </div>
     </div>
 
     <div class="card">
       <div class="cardInner">
-        <div class="grid">
-          <!-- Student TeX ONLY -->
-          <div class="drop" id="dropStudentTex">
-            <div class="label"><span class="icon">🧾</span> Student results (LaTeX)</div>
-            <div class="hint">Drag & drop a <b>.tex</b> file here, or click to choose.</div>
-            <div class="chip" id="stuChip" style="display:none;">
-              <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
-            </div>
-            <input id="studentTex" type="file" accept=".tex,.txt" />
+
+        <div class="drop" id="dropStudentTex">
+          <div class="label"><span class="icon">🧾</span> Student answers (LaTeX)</div>
+          <div class="hint">Drag & drop a <b>.tex</b> file here, or click to choose.</div>
+          <div class="chip" id="stuChip" style="display:none;">
+            <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
           </div>
+          <input id="studentTex" type="file" accept=".tex" />
         </div>
 
         <div class="row">
           <div class="btnRow">
-            <button id="bundleBtn" class="btnBundle" disabled>
-              <span class="btnIcon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h7l3 3v15a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="2"/>
-                  <path d="M14 3v4h4" stroke="currentColor" stroke-width="2"/>
-                  <path d="M8 12h8M8 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </span>
-              Bundle PDF
-            </button>
-
-            <button id="gradeOllamaBtn" class="btnOllama" disabled>
+            <button id="gradeOllamaBtn" class="btnOllama" disabled type="button">
               <span class="btnIcon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
                   <path d="M7 7c0-2 2-3 5-3s5 1 5 3v4c0 4-2 7-5 7s-5-3-5-7V7Z" stroke="currentColor" stroke-width="2"/>
@@ -226,27 +224,17 @@
                   <path d="M10 11h.01M14 11h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
                 </svg>
               </span>
-              Graded (Ollama)
+              Grade (Ollama)
             </button>
 
-            <button id="gradeGoogleBtn" class="btnGoogle" disabled>
+            <button id="gradeGoogleBtn" class="btnGoogle" disabled type="button">
               <span class="btnIcon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
                   <path d="M12 2l1.2 4.2L17.5 7.5l-4.3 1.3L12 13l-1.2-4.2L6.5 7.5l4.3-1.3L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                   <path d="M19 12l.7 2.4L22 15l-2.3.6L19 18l-.7-2.4L16 15l2.3-.6L19 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                 </svg>
               </span>
-              Graded (Google)
-            </button>
-
-            <button id="teacherBtn" class="btnTeacher">
-              <span class="btnIcon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Z" stroke="currentColor" stroke-width="2"/>
-                  <path d="M9 10V7a3 3 0 0 1 6 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </span>
-              Teacher Bank
+              Grade (Google)
             </button>
           </div>
 
@@ -257,50 +245,33 @@
         </div>
 
         <div class="statusBox" id="status">Idle</div>
+
+        <div class="teacherFooter">
+          <button id="teacherBtn" class="btnTeacherSubtle" type="button">Teacher Portal →</button>
+        </div>
+
       </div>
     </div>
   </div>
 
   <script>
-      function prettyError(j){
-    if (!j) return "";
-    // FastAPI often returns {"detail": "..."} or {"detail": {...}} or {"error": "...", "traceback": "..."}
-    const d = (j.detail !== undefined) ? j.detail : j.error ?? j.message ?? j;
-    if (typeof d === "string") return d;
-    try { return JSON.stringify(d, null, 2); }
-    catch { return String(d); }
-    }
-
     const API_BASE = "http://localhost:8000";
-
-    // NEW endpoints: server picks the reference automatically from the bank
-    const ENDPOINT_BUNDLE       = API_BASE + "/api/generate_tex";
     const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
+    const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
 
     const studentTex = document.getElementById("studentTex");
     const dropStudentTex = document.getElementById("dropStudentTex");
-
     const stuChip = document.getElementById("stuChip");
     const stuName = document.getElementById("stuName");
 
     const statusEl = document.getElementById("status");
-    const bundleBtn = document.getElementById("bundleBtn");
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
 
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
     const badgeText = document.getElementById("badgeText");
-
-    // teacher button handler (minimal)
-    const teacherBtn = document.getElementById("teacherBtn");
-    teacherBtn.addEventListener("click", () => {
-      const pw = prompt("Teacher password:");
-      if (pw === null) return;
-      const q = encodeURIComponent(pw);
-      window.location.href = API_BASE + "/teacher?p=" + q;
-    });
 
     function setBadge(kind, title, text) {
       dot.classList.remove("ok", "err");
@@ -310,18 +281,32 @@
       badgeText.textContent = text;
     }
 
-    function setStatus(msg, kind="idle") {
-      statusEl.textContent = msg;
-      if (kind === "ok") setBadge("ok", "Ready", "Click a button");
+    function setStatusText(lines, kind="idle") {
+      statusEl.textContent = lines.join("\n");
+      if (kind === "ok") setBadge("ok", "Done", "Download should start");
       else if (kind === "err") setBadge("err", "Error", "See details below");
       else if (kind === "work") setBadge("warn", "Working", "Please wait…");
-      else setBadge("warn", "Ready", "Select student file");
+      else setBadge("warn", "Ready", "Select a student file");
+    }
+
+    function nowTag() {
+      return new Date().toLocaleTimeString();
+    }
+
+    function mkJobId() {
+      // good enough for local dev, unique per click
+      return "job_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+    }
+
+    function disableAll(disabled) {
+      const ready = !!studentTex.files[0];
+      gradeOllamaBtn.disabled = disabled || !ready;
+      gradeGoogleBtn.disabled = disabled || !ready;
     }
 
     async function loadHealth() {
       try {
         const res = await fetch(API_BASE + "/health");
-        if (!res.ok) throw new Error("health not ok");
         const j = await res.json();
         document.getElementById("ollamaModelName").textContent = j.ollama_model || "unknown";
         document.getElementById("googleModelName").textContent = j.google_model || "not configured";
@@ -332,136 +317,158 @@
     }
     loadHealth();
 
-    function isReady() {
-      return !!studentTex.files[0];
-    }
-
     function updateUI() {
       const stu = studentTex.files[0];
-
       if (stu) { stuChip.style.display = "inline-flex"; stuName.textContent = stu.name; }
       else { stuChip.style.display = "none"; }
-
       const ready = !!stu;
-      bundleBtn.disabled = !ready;
       gradeOllamaBtn.disabled = !ready;
       gradeGoogleBtn.disabled = !ready;
-
-      if (ready) setBadge("ok", "Ready", "Choose Bundle / Ollama / Google");
-      else setBadge("warn", "Ready", "Select student file");
+      if (ready) setBadge("ok", "Ready", "Choose Ollama / Google");
+      else setBadge("warn", "Ready", "Select a student file");
     }
 
     function wireDropZone(zone, input, acceptCheck) {
       zone.addEventListener("click", () => input.click());
-
       zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
       zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
-
       zone.addEventListener("drop", (e) => {
         e.preventDefault();
         zone.classList.remove("drag");
-
         const file = e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
-
         if (!acceptCheck(file)) {
-          setStatus("Wrong file type. Please upload a .tex or .txt file.", "err");
+          setStatusText([`[${nowTag()}] Wrong file type. Please upload a .tex file.`], "err");
           return;
         }
-
         const dt = new DataTransfer();
         dt.items.add(file);
         input.files = dt.files;
         updateUI();
       });
-
       input.addEventListener("change", updateUI);
     }
 
-    wireDropZone(dropStudentTex, studentTex, (f) =>
-      f.name.toLowerCase().endsWith(".tex") || f.name.toLowerCase().endsWith(".txt")
-    );
+    wireDropZone(dropStudentTex, studentTex, (f) => {
+      const n = (f.name || "").toLowerCase();
+      return n.endsWith(".tex") || n.endsWith(".txt");
+    });
 
-    function stageLine(stage, extra="") {
-      const ts = new Date().toLocaleTimeString();
-      return `[${ts}] ${stage}${extra ? " — " + extra : ""}`;
+    // Teacher access
+    document.getElementById("teacherBtn").addEventListener("click", () => {
+      const pw = prompt("Teacher password:");
+      if (pw === null) return;
+      window.location.href = API_BASE + "/teacher?p=" + encodeURIComponent(pw);
+    });
+
+    async function pollProgress(jobId, linesRef, stopSignal) {
+      // Poll until stopSignal.stopped; update lines with server-reported steps.
+      let lastSeq = -1;
+
+      while (!stopSignal.stopped) {
+        try {
+          const r = await fetch(ENDPOINT_PROGRESS(jobId));
+          if (r.ok) {
+            const j = await r.json();
+            // expected: {steps:[{seq, ts, msg, level}], done:boolean, error?:string}
+            const steps = Array.isArray(j.steps) ? j.steps : [];
+
+            // append any new steps by seq
+            steps
+              .filter(s => typeof s.seq === "number" && s.seq > lastSeq)
+              .sort((a,b)=>a.seq-b.seq)
+              .forEach(s => {
+                lastSeq = s.seq;
+                const t = s.ts || nowTag();
+                const msg = s.msg || "";
+                linesRef.push(`[${t}] ${msg}`);
+              });
+
+            setStatusText(linesRef, j.error ? "err" : "work");
+
+            if (j.done) {
+              // keep last state; caller will set final message
+              return;
+            }
+          }
+        } catch (_) {
+          // ignore transient polling errors
+        }
+        await new Promise(res => setTimeout(res, 500));
+      }
     }
 
-    function disableAll(disabled) {
-      bundleBtn.disabled = disabled || !isReady();
-      gradeOllamaBtn.disabled = disabled || !isReady();
-      gradeGoogleBtn.disabled = disabled || !isReady();
-    }
-
-    async function postAndDownload(url, downloadName, workLabel) {
+    async function postAndDownload(url, downloadName, providerLabel) {
       const stu = studentTex.files[0];
       if (!stu) return;
 
       disableAll(true);
 
-      setStatus(
-        workLabel + "\n" +
-        stageLine("Uploading student file") + "\n" +
-        stageLine("Finding best reference in bank") + "\n" +
-        stageLine("Waiting for server to process"),
-        "work"
-      );
+      const jobId = mkJobId();
+      const lines = [
+        `[${nowTag()}] Started: ${providerLabel}`,
+        `[${nowTag()}] Uploading student file…`,
+        `[${nowTag()}] Fetching reference from solution bank…`
+      ];
+      setStatusText(lines, "work");
+
+      const stopSignal = { stopped: false };
+      const pollPromise = pollProgress(jobId, lines, stopSignal);
 
       try {
         const form = new FormData();
         form.append("student_tex", stu);
+        // IMPORTANT: backend patch reads this optional form field
+        form.append("job_id", jobId);
 
         const res = await fetch(url, { method: "POST", body: form });
+
+        // stop polling regardless (server may also mark done)
+        stopSignal.stopped = true;
+        await pollPromise;
 
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok) {
           if (contentType.includes("application/json")) {
             const j = await res.json();
-            setStatus(`Error: ${j.error || "request failed"}\n${j.detail || ""}`, "err");
+            const msg = (typeof j.detail === "string") ? j.detail : JSON.stringify(j.detail ?? j, null, 2);
+            setStatusText(lines.concat([`[${nowTag()}] ERROR: ${msg}`]), "err");
           } else {
             const t = await res.text();
-            setStatus(`Error: ${t}`, "err");
+            setStatusText(lines.concat([`[${nowTag()}] ERROR: ${t}`]), "err");
           }
           return;
         }
 
-        setStatus(
-          workLabel + "\n" +
-          stageLine("Processing done") + "\n" +
-          stageLine("Downloading PDF"),
-          "work"
-        );
+        // Download
+        setStatusText(lines.concat([`[${nowTag()}] Downloading PDF…`]), "work");
 
         const blob = await res.blob();
         const objUrl = URL.createObjectURL(blob);
-
         const a = document.createElement("a");
         a.href = objUrl;
         a.download = downloadName;
         document.body.appendChild(a);
         a.click();
         a.remove();
-
         URL.revokeObjectURL(objUrl);
-        setStatus(stageLine("Done ✅", "Download should start."), "ok");
+
+        setStatusText(lines.concat([`[${nowTag()}] Done ✅`]), "ok");
       } catch (e) {
-        setStatus("Request failed: " + (e?.message || e), "err");
+        stopSignal.stopped = true;
+        try { await pollPromise; } catch(_) {}
+        setStatusText(lines.concat([`[${nowTag()}] ERROR: ${e?.message || e}`]), "err");
       } finally {
         disableAll(false);
         updateUI();
       }
     }
 
-    bundleBtn.addEventListener("click", () =>
-      postAndDownload(ENDPOINT_BUNDLE, "qa_bundle.pdf", "Generating bundle…")
-    );
-
     gradeOllamaBtn.addEventListener("click", () =>
-      postAndDownload(ENDPOINT_GRADE_OLLAMA, "graded_test_ollama.pdf", "Generating graded PDF (Ollama)…")
+      postAndDownload(ENDPOINT_GRADE_OLLAMA, "graded_test_ollama.pdf", "Ollama grading")
     );
-
     gradeGoogleBtn.addEventListener("click", () =>
-      postAndDownload(ENDPOINT_GRADE_GOOGLE, "graded_test_google.pdf", "Generating graded PDF (Google AI Studio)…")
+      postAndDownload(ENDPOINT_GRADE_GOOGLE, "graded_test_google.pdf", "Google (Gemini) grading")
     );
 
     updateUI();

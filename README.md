@@ -4,6 +4,8 @@ MathGrade is a small Python backend + HTML frontend project for collecting stude
 
 This README focuses on **the grading pipeline** (how inputs flow through extraction → AI → feedback PDF).
 
+http://localhost:5173/
+
 ---
 
 ## What the system is trying to do

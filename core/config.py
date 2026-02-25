@@ -35,3 +35,8 @@ os.environ["OLLAMA_MODEL"] = OLLAMA_MODEL
 # Fixed font for PDF rendering
 FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
 ARIAL_FONT_PATH = Path(r"C:\Windows\Fonts\arial.ttf")
+
+
+OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip().rstrip("/")
