@@ -12,6 +12,9 @@ from typing import Any
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse
 
+# ✅ This is the key fix: run long blocking work off the event loop
+from starlette.concurrency import run_in_threadpool
+
 from core.config import RUNS_ROOT, FIXED_FONT, BANK_ROOT
 from core.debug import write_debug_log
 
@@ -146,6 +149,10 @@ async def _grade_tex_flow(
     """
     Unified grading flow. Only difference is the provider passed to the grader.
     Returns PDF if compilation succeeds; returns union TeX if XeLaTeX fails.
+
+    IMPORTANT:
+      This function is async, but most of the work is CPU/IO blocking (grading, TeX build, XeLaTeX).
+      We run heavy steps in a threadpool so the event loop remains responsive and progress polling works.
     """
     _require_provider_env(provider)
 
@@ -164,7 +171,7 @@ async def _grade_tex_flow(
         if job_id:
             push(job_id, "Saved student file")
 
-        # Student summary
+        # Student summary (lightweight; keep direct)
         try:
             p = write_student_summary(tex_path, out_dir=out_dir)
             if job_id:
@@ -180,7 +187,9 @@ async def _grade_tex_flow(
         if not BANK_ROOT.exists():
             raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
-        exam_id, chosen_ref = pick_reference_with_exam_id(
+        # ✅ Might involve I/O / heuristics, so run in threadpool
+        exam_id, chosen_ref = await run_in_threadpool(
+            pick_reference_with_exam_id,
             bank_dir=BANK_ROOT,
             student_tex=tex_path,
             prefer_heuristic=True,
@@ -188,7 +197,7 @@ async def _grade_tex_flow(
         )
 
         if job_id:
-            push(job_id, f"Fetched: {exam_id} / {Path(chosen_ref).name}")
+            push(job_id, f"Fetched: {exam_id}")
 
         # Copy reference into run folder
         ref_path = tmp_dir / Path(chosen_ref).name
@@ -205,7 +214,9 @@ async def _grade_tex_flow(
         if job_id:
             push(job_id, "Grading please wait…")
 
-        grades_json, _ = grade_reference_tex_and_student_tex(
+        # ✅ Heavy: model calls + loops -> threadpool
+        grades_json, _ = await run_in_threadpool(
+            grade_reference_tex_and_student_tex,
             reference_tex=ref_path,
             student_tex=tex_path,
             out_dir=ai_dir,
@@ -214,9 +225,11 @@ async def _grade_tex_flow(
 
         # Generate bundle TeX (NOT PDF)
         if job_id:
-            push(job_id, "Generating Q/A bundle (TeX)…")
+            push(job_id, "Generating Q/A bundle (TeX) please wait…")
 
-        bundle_outputs = generate_qa_bundle_from_reference_tex(
+        # ✅ Can be heavy if it parses/assembles big TeX -> threadpool
+        bundle_outputs = await run_in_threadpool(
+            generate_qa_bundle_from_reference_tex,
             reference_tex=ref_path,
             student_tex=tex_path,
             out_dir=out_dir,
@@ -241,13 +254,19 @@ async def _grade_tex_flow(
         if job_id:
             push(job_id, "Generating feedback (TeX)…")
 
-        feedback_tex = build_feedback_tex(grades_json=grades_json, out_dir=ai_dir)
+        # ✅ Could be moderate work -> threadpool
+        feedback_tex = await run_in_threadpool(
+            build_feedback_tex,
+            grades_json=grades_json,
+            out_dir=ai_dir,
+        )
 
         if job_id:
             push(job_id, "Building final output (compile union TeX)…")
 
-        # Union 2 TeX files and compile once
-        result_path = build_graded_pdf(
+        # Union 2 TeX files and compile once (XeLaTeX is definitely blocking)
+        result_path = await run_in_threadpool(
+            build_graded_pdf,
             qa_tex=bundle_tex,
             feedback_tex=feedback_tex,
             out_dir=ai_dir,
@@ -267,6 +286,7 @@ async def _grade_tex_flow(
     except Exception as e:
         log_path = write_debug_log(f"grade_tex_{provider}", e)
         if job_id:
+            push(job_id, f"FAILED: {_safe_str(e, 400)}")
             fail(job_id, f"{e}")
         raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
 

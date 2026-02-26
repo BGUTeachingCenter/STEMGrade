@@ -81,46 +81,46 @@ def _sanity_check_payloads(manifest_json: Path, out_dir: Path) -> None:
         )
 
 
-def grade_reference_and_student_tex(
-    *,
-    reference_pdf: Path,
-    student_tex: Path,
-    out_dir: Path,
-    ollama_base_url: str | None = None,
-    model: str | None = None,
-) -> Tuple[Path, Dict[Key, str]]:
-    """Grade by pairing reference pages with the student's LaTeX snippet.
-
-    Returns:
-      - grades.json path
-      - the parsed student answers dict (useful for debugging or future UI)
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Build payloads first (per question/part), then grade from those payloads.
-    manifest_json, _items = build_payloads(
-        reference_pdf=reference_pdf,
-        student_tex=student_tex,
-        out_dir=out_dir,
-    )
-
-    # Sanity check to catch empty/misaligned payloads early
-    _sanity_check_payloads(manifest_json, out_dir)
-
-    # Enforce: grading reads payload["ai_input"] (compact, LLM-friendly).
-    # grader_payloads.py should read this env var and send only ai_input to the model.
-    os.environ["MATHGRADE_USE_AI_INPUT"] = "1"
-
-    grades_json = grade_payload_manifest(
-        manifest_json=manifest_json,
-        out_dir=out_dir,
-        ollama_base_url=ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        model=model or os.getenv("OLLAMA_MODEL", "gemma3:4b"),
-    )
-
-    # Return student answers as before (useful for UI/debugging)
-    student_answers = _parse_student_answers_for_debug(student_tex, out_dir)
-    return grades_json, student_answers
+# def grade_reference_and_student_tex(
+#     *,
+#     reference_pdf: Path,
+#     student_tex: Path,
+#     out_dir: Path,
+#     ollama_base_url: str | None = None,
+#     model: str | None = None,
+# ) -> Tuple[Path, Dict[Key, str]]:
+#     """Grade by pairing reference pages with the student's LaTeX snippet.
+#
+#     Returns:
+#       - grades.json path
+#       - the parsed student answers dict (useful for debugging or future UI)
+#     """
+#     out_dir.mkdir(parents=True, exist_ok=True)
+#
+#     # Build payloads first (per question/part), then grade from those payloads.
+#     manifest_json, _items = build_payloads(
+#         reference_pdf=reference_pdf,
+#         student_tex=student_tex,
+#         out_dir=out_dir,
+#     )
+#
+#     # Sanity check to catch empty/misaligned payloads early
+#     _sanity_check_payloads(manifest_json, out_dir)
+#
+#     # Enforce: grading reads payload["ai_input"] (compact, LLM-friendly).
+#     # grader_payloads.py should read this env var and send only ai_input to the model.
+#     os.environ["MATHGRADE_USE_AI_INPUT"] = "1"
+#
+#     grades_json = grade_payload_manifest(
+#         manifest_json=manifest_json,
+#         out_dir=out_dir,
+#         ollama_base_url=ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+#         model=model or os.getenv("OLLAMA_MODEL", "gemma3:4b"),
+#     )
+#
+#     # Return student answers as before (useful for UI/debugging)
+#     student_answers = _parse_student_answers_for_debug(student_tex, out_dir)
+#     return grades_json, student_answers
 
 
 def grade_reference_tex_and_student_tex(

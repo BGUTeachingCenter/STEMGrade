@@ -19,6 +19,7 @@ from .grader import BundleGrades, QuestionGrade, infer_max_points
 
 from grader.ai_clients.ollama_client import OllamaClient
 from grader.ai_clients.google_client import GoogleClient
+from grader.ai_clients.gpt_client import GptClient
 
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema
@@ -110,8 +111,10 @@ def _make_client(
 
     if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
         client = GoogleClient()   # ✅ reads env only inside google_client.py
+    elif provider in ("chatgpt", "openai", "gpt"):
+        client = GptClient()      # ✅ reads env only inside gpt_client.py
     else:
-        client = OllamaClient()  # ✅ reads env only inside ollama_client.py
+        client = OllamaClient()   # ✅ reads env only inside ollama_client.py
 
     return client
 

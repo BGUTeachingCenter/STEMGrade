@@ -16,7 +16,7 @@
 
       --btnOllama:#a78bfa;
       --btnGoogle:#22c55e;
-      --btnGpt:#38bdf8;     /* NEW: GPT button color (blue) */
+      --btnGpt:#38bdf8;
       --btnText:#06101f;
     }
 
@@ -145,7 +145,7 @@
 
     .btnOllama{ background: var(--btnOllama); }
     .btnGoogle{ background: var(--btnGoogle); }
-    .btnGpt{ background: var(--btnGpt); }  /* NEW */
+    .btnGpt{ background: var(--btnGpt); }
 
     .btnIcon{ width:18px; height:18px; display:inline-block; }
     .btnIcon svg{ width:18px; height:18px; display:block }
@@ -161,7 +161,13 @@
       min-height: 120px;
       font-size: 12px;
       line-height: 1.35;
+      overflow:auto;
     }
+
+    /* ✅ make errors pop */
+    .statusBox.err { color: #ffd1d1; border-color: rgba(239,68,68,.35); }
+    .statusBox.ok  { border-color: rgba(34,197,94,.35); }
+    .statusBox.work{ border-color: rgba(245,158,11,.35); }
 
     input[type=file]{display:none}
 
@@ -195,7 +201,7 @@
       <div>
         <h1>MathGrade</h1>
         <div class="sub">
-          Upload the student's <b>TeX</b> answers. The server automatically picks the best matching reference from the solution bank and returns a graded PDF.
+          Upload the student's <b>TeX</b> answers. The server automatically picks the best matching reference from the solution bank and returns a graded tex or PDF file.
         </div>
       </div>
       <div class="badge">
@@ -239,7 +245,6 @@
               Grade (Google)
             </button>
 
-            <!-- NEW: GPT -->
             <button id="gradeGptBtn" class="btnGpt" disabled type="button">
               <span class="btnIcon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -253,7 +258,8 @@
 
           <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 430px;">
             Ollama model: <b id="ollamaModelName">…</b><br/>
-            Google model: <b id="googleModelName">…</b>
+            Google model: <b id="googleModelName">…</b><br/>
+            GPT model: <b id="gptModelName">…</b>
           </div>
         </div>
 
@@ -271,7 +277,7 @@
     const API_BASE = "http://localhost:8000";
     const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
-    const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";  // NEW
+    const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
 
     const studentTex = document.getElementById("studentTex");
@@ -282,7 +288,7 @@
     const statusEl = document.getElementById("status");
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
-    const gradeGptBtn    = document.getElementById("gradeGptBtn"); // NEW
+    const gradeGptBtn    = document.getElementById("gradeGptBtn");
 
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
@@ -298,10 +304,11 @@
 
     function setStatusText(lines, kind="idle") {
       statusEl.textContent = lines.join("\n");
-      if (kind === "ok") setBadge("ok", "Done", "Download should start");
-      else if (kind === "err") setBadge("err", "Error", "See details below");
-      else if (kind === "work") setBadge("warn", "Working", "Please wait…");
-      else setBadge("warn", "Ready", "Select a student file");
+      statusEl.classList.remove("ok","err","work");
+      if (kind === "ok") { statusEl.classList.add("ok"); setBadge("ok", "Done", "Download should start"); }
+      else if (kind === "err") { statusEl.classList.add("err"); setBadge("err", "Error", "See details below"); }
+      else if (kind === "work") { statusEl.classList.add("work"); setBadge("warn", "Working", "Please wait…"); }
+      else { setBadge("warn", "Ready", "Select a student file"); }
     }
 
     function nowTag() {
@@ -320,7 +327,7 @@
       const ready = !!studentTex.files[0];
       gradeOllamaBtn.disabled = disabled || !ready;
       gradeGoogleBtn.disabled = disabled || !ready;
-      gradeGptBtn.disabled    = disabled || !ready; // NEW
+      gradeGptBtn.disabled    = disabled || !ready;
     }
 
     async function loadHealth() {
@@ -329,9 +336,11 @@
         const j = await res.json();
         document.getElementById("ollamaModelName").textContent = j.ollama_model || "unknown";
         document.getElementById("googleModelName").textContent = j.google_model || "not configured";
+        document.getElementById("gptModelName").textContent = j.gpt_model || "not configured";
       } catch (_) {
         document.getElementById("ollamaModelName").textContent = "unknown";
         document.getElementById("googleModelName").textContent = "unknown";
+        document.getElementById("gptModelName").textContent = "unknown";
       }
     }
     loadHealth();
@@ -344,7 +353,7 @@
       const ready = !!stu;
       gradeOllamaBtn.disabled = !ready;
       gradeGoogleBtn.disabled = !ready;
-      gradeGptBtn.disabled    = !ready; // NEW
+      gradeGptBtn.disabled    = !ready;
 
       if (ready) setBadge("ok", "Ready", "Choose Ollama / Google / GPT");
       else setBadge("warn", "Ready", "Select a student file");
@@ -382,29 +391,47 @@
       window.location.href = API_BASE + "/teacher?p=" + encodeURIComponent(pw);
     });
 
-    async function pollProgress(jobId, linesRef, stopSignal) {
-      let lastSeq = -1;
+    // ✅ Correct polling: uses API_BASE, appends steps, shows error, avoids duplicates
+    async function pollProgress(jobId, lines, stopSignal) {
+      let lastSeq = 0;
+
       while (!stopSignal.stopped) {
         try {
-          const r = await fetch(ENDPOINT_PROGRESS(jobId));
+          const r = await fetch(ENDPOINT_PROGRESS(jobId), { cache: "no-store" });
           if (r.ok) {
             const j = await r.json();
+
             const steps = Array.isArray(j.steps) ? j.steps : [];
-
-            steps
-              .filter(s => typeof s.seq === "number" && s.seq > lastSeq)
-              .sort((a,b)=>a.seq-b.seq)
-              .forEach(s => {
-                lastSeq = s.seq;
-                const t = s.ts || nowTag();
+            for (const s of steps) {
+              const seq = Number(s.seq || 0);
+              if (seq > lastSeq) {
+                lastSeq = seq;
+                const ts = s.ts || nowTag();
                 const msg = s.msg || "";
-                linesRef.push(`[${t}] ${msg}`);
-              });
+                lines.push(`[${ts}] ${msg}`);
+              }
+            }
 
-            setStatusText(linesRef, j.error ? "err" : "work");
-            if (j.done) return;
+            if (j.error) {
+              lines.push(`[${nowTag()}] FAILED: ${j.error}`);
+              setStatusText(lines, "err");
+              break;
+            }
+
+            setStatusText(lines, "work");
+
+            if (j.done) {
+              break;
+            }
+          } else {
+            lines.push(`[${nowTag()}] ERROR: progress fetch failed (${r.status})`);
+            setStatusText(lines, "err");
           }
-        } catch (_) {}
+        } catch (e) {
+          lines.push(`[${nowTag()}] ERROR: ${e?.message || String(e)}`);
+          setStatusText(lines, "err");
+        }
+
         await new Promise(res => setTimeout(res, 500));
       }
     }
@@ -416,9 +443,7 @@
       disableAll(true);
 
       const jobId = mkJobId();
-      const lines = [
-        `[${nowTag()}] Started: ${providerLabel}`,
-      ];
+      const lines = [`[${nowTag()}] Started: ${providerLabel}`];
       setStatusText(lines, "work");
 
       const stopSignal = { stopped: false };
@@ -431,39 +456,59 @@
 
         const res = await fetch(url, { method: "POST", body: form });
 
-        stopSignal.stopped = true;
-        await pollPromise;
+        // Let poll finish naturally (it will stop when done/error appears)
+        // But if server never wrote anything, stop it after we process response.
+        const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
-        const contentType = res.headers.get("content-type") || "";
         if (!res.ok) {
+          stopSignal.stopped = true;
+          await pollPromise;
+
           if (contentType.includes("application/json")) {
             const j = await res.json();
             const msg = (typeof j.detail === "string") ? j.detail : JSON.stringify(j.detail ?? j, null, 2);
-            setStatusText(lines.concat([`[${nowTag()}] ERROR: ${msg}`]), "err");
+            lines.push(`[${nowTag()}] ERROR: ${msg}`);
+            setStatusText(lines, "err");
           } else {
             const t = await res.text();
-            setStatusText(lines.concat([`[${nowTag()}] ERROR: ${t}`]), "err");
+            lines.push(`[${nowTag()}] ERROR: ${t}`);
+            setStatusText(lines, "err");
           }
           return;
         }
 
-        setStatusText(lines.concat([`[${nowTag()}] Downloading PDF…`]), "work");
+        let finalName = downloadName;
+        if (contentType.includes("text/plain") || contentType.includes("application/x-tex")) {
+          finalName = downloadName.replace(/\.pdf$/i, ".tex");
+        }
+
+        lines.push(`[${nowTag()}] Downloading ${finalName}…`);
+        setStatusText(lines, "work");
 
         const blob = await res.blob();
         const objUrl = URL.createObjectURL(blob);
+
         const a = document.createElement("a");
         a.href = objUrl;
-        a.download = downloadName;
+        a.download = finalName;
         document.body.appendChild(a);
         a.click();
         a.remove();
+
         URL.revokeObjectURL(objUrl);
 
-        setStatusText(lines.concat([`[${nowTag()}] Done ✅`]), "ok");
+        // Ensure progress loop ends
+        stopSignal.stopped = true;
+        await pollPromise;
+
+        lines.push(`[${nowTag()}] Done ✅ (${finalName})`);
+        setStatusText(lines, "ok");
+
       } catch (e) {
         stopSignal.stopped = true;
-        try { await pollPromise; } catch(_) {}
-        setStatusText(lines.concat([`[${nowTag()}] ERROR: ${e?.message || e}`]), "err");
+        try { await pollPromise; } catch (_) {}
+        lines.push(`[${nowTag()}] ERROR: ${e?.message || e}`);
+        setStatusText(lines, "err");
       } finally {
         disableAll(false);
         updateUI();
