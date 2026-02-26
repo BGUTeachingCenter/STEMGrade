@@ -17,8 +17,8 @@ from .part_normalize import normalize_part
 @dataclass(frozen=True)
 class QABundleOutputs:
     """Outputs of bundle generation."""
-    bundle_pdf: Path
     bundle_tex: Path
+    bundle_pdf: Optional[Path]  # ✅ now optional (only if compile_pdf=True)
     student_clean_pdf: Path
     reference_clean_pdf: Path
     cleanse_report: CleanseReport
@@ -127,12 +127,16 @@ def generate_bundle(
     out_dir: Path,
     bundle_stem: str = "qa_bundle",
     font_name: str = "Arial",
+    compile_pdf: bool = False,   # ✅ NEW: TeX-first by default
 ) -> QABundleOutputs:
-    """Single entry point to generate a Q/A bundle PDF.
+    """Single entry point to generate a Q/A bundle.
 
     `reference` can be either:
       - a .pdf with questions+official solution, or
       - a .tex/.txt with questions+official solution.
+
+    By default this generates ONLY the TeX bundle (bundle_tex).
+    Set compile_pdf=True if you also want bundle_pdf compiled.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -144,6 +148,7 @@ def generate_bundle(
             out_dir=out_dir,
             bundle_stem=bundle_stem,
             font_name=font_name,
+            compile_pdf=compile_pdf,
         )
     if suf in (".tex", ".txt"):
         return _generate_from_reference_tex(
@@ -152,6 +157,7 @@ def generate_bundle(
             out_dir=out_dir,
             bundle_stem=bundle_stem,
             font_name=font_name,
+            compile_pdf=compile_pdf,
         )
 
     raise ValueError(f"Unsupported reference type: {reference.name}. Expected .pdf or .tex/.txt")
@@ -164,11 +170,12 @@ def _generate_from_reference_pdf(
     out_dir: Path,
     bundle_stem: str,
     font_name: str,
+    compile_pdf: bool,
 ) -> QABundleOutputs:
     cleanse_report = cleanse_test_pdf(reference_pdf, out_dir)
     reference_clean_pdf = cleanse_report.output_pdf
 
-    ref_ranges = { _norm_key(k): v for k, v in find_reference_ranges(reference_clean_pdf, out_dir).items() }
+    ref_ranges = {_norm_key(k): v for k, v in find_reference_ranges(reference_clean_pdf, out_dir).items()}
     if not ref_ranges:
         raise RuntimeError(
             "Reference question detection failed.\n"
@@ -177,8 +184,8 @@ def _generate_from_reference_pdf(
         )
 
     student_answers, student_ranges = parse_student_tex_answers(student_tex, out_dir)
-    student_answers = { _norm_key(k): v for k, v in student_answers.items() }
-    student_ranges = { _norm_key(k): v for k, v in student_ranges.items() }
+    student_answers = {_norm_key(k): v for k, v in student_answers.items()}
+    student_ranges = {_norm_key(k): v for k, v in student_ranges.items()}
 
     if not student_answers:
         raise RuntimeError(
@@ -186,6 +193,7 @@ def _generate_from_reference_pdf(
             "Check build/debug_student_tex_parts.txt."
         )
 
+    # still compile whole student tex for inspection/debug
     student_clean_pdf = compile_tex_to_pdf(
         student_tex,
         out_dir,
@@ -196,7 +204,7 @@ def _generate_from_reference_pdf(
     ).pdf
 
     answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name, clean=True)
-    answer_pdfs = { _norm_key(k): v for k, v in answer_pdfs.items() }
+    answer_pdfs = {_norm_key(k): v for k, v in answer_pdfs.items()}
 
     bundle_tex = out_dir / f"{bundle_stem}.tex"
     _write_bundle_tex(
@@ -208,29 +216,31 @@ def _generate_from_reference_pdf(
         answer_pdfs=answer_pdfs,
     )
 
-    bundle_pdf = compile_tex_to_pdf(
-        bundle_tex,
-        out_dir,
-        clean=False,
-        font_name=font_name,
-        passes=2,
-        texinputs=[bundle_tex.parent],
-    ).pdf
+    bundle_pdf: Optional[Path] = None
+    if compile_pdf:
+        bundle_pdf = compile_tex_to_pdf(
+            bundle_tex,
+            out_dir,
+            clean=False,
+            font_name=font_name,
+            passes=2,
+            texinputs=[bundle_tex.parent],
+        ).pdf
 
-    normalized = out_dir / f"{bundle_stem}.pdf"
-    if bundle_pdf.exists() and bundle_pdf != normalized:
-        try:
-            bundle_pdf.replace(normalized)
-            bundle_pdf = normalized
-        except Exception:
-            pass
+        normalized = out_dir / f"{bundle_stem}.pdf"
+        if bundle_pdf.exists() and bundle_pdf != normalized:
+            try:
+                bundle_pdf.replace(normalized)
+                bundle_pdf = normalized
+            except Exception:
+                pass
 
-    if not bundle_pdf.exists():
-        raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+        if not bundle_pdf.exists():
+            raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
 
     return QABundleOutputs(
-        bundle_pdf=bundle_pdf,
         bundle_tex=bundle_tex,
+        bundle_pdf=bundle_pdf,
         student_clean_pdf=student_clean_pdf,
         reference_clean_pdf=reference_clean_pdf,
         cleanse_report=cleanse_report,
@@ -247,8 +257,8 @@ def _generate_from_reference_tex(
     out_dir: Path,
     bundle_stem: str,
     font_name: str,
+    compile_pdf: bool,
 ) -> QABundleOutputs:
-    # 1) Build payloads in a dedicated folder (avoid clobbering ai_grade/payloads)
     payload_out = out_dir / "bundle_payloads"
     manifest_path, items = build_payloads_from_reference_tex(
         reference_tex=reference_tex,
@@ -257,10 +267,9 @@ def _generate_from_reference_tex(
         default_max_points=0.0,
     )
 
-    # 2) Load payload JSONs -> canonical reference snippets + student answers
     reference_snippets: Dict[Key, str] = {}
     student_answers: Dict[Key, str] = {}
-    student_ranges: Dict[Key, Tuple[int, int]] = {}  # keep empty unless you want to add ranges to payloads
+    student_ranges: Dict[Key, Tuple[int, int]] = {}
 
     for it in items:
         data = json.loads(it.payload_path.read_text(encoding="utf-8"))
@@ -269,7 +278,6 @@ def _generate_from_reference_tex(
         q = (data.get("reference", {}).get("question_text") or "").strip()
         sol = (data.get("reference", {}).get("solution_text") or "").strip()
 
-        # Build the exact "reference (question+solution)" block the bundle uses
         ref_block = "\n\n".join([x for x in [q, sol] if x]).strip()
         reference_snippets[k] = ref_block
 
@@ -279,7 +287,6 @@ def _generate_from_reference_tex(
     if not student_answers:
         raise RuntimeError("No student answers found in generated payloads (reference_tex path).")
 
-    # 3) Optional: still compile whole student tex for debugging/inspection
     student_clean_pdf = compile_tex_to_pdf(
         student_tex,
         out_dir,
@@ -289,11 +296,9 @@ def _generate_from_reference_tex(
         texinputs=[student_tex.parent],
     ).pdf
 
-    # 4) Render per-part student answer PDFs from the SAME student_latex used for grading
     answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
-    answer_pdfs = { _norm_key(k): v for k, v in answer_pdfs.items() }
+    answer_pdfs = {_norm_key(k): v for k, v in answer_pdfs.items()}
 
-    # 5) Write + compile the bundle as usual
     bundle_tex = out_dir / f"{bundle_stem}.tex"
     _write_bundle_tex(
         bundle_tex,
@@ -303,25 +308,27 @@ def _generate_from_reference_tex(
         answer_pdfs=answer_pdfs,
     )
 
-    bundle_pdf = compile_tex_to_pdf(
-        bundle_tex,
-        out_dir,
-        clean=False,
-        font_name=font_name,
-        passes=2,
-        texinputs=[bundle_tex.parent, reference_tex.parent, student_tex.parent],
-    ).pdf
+    bundle_pdf: Optional[Path] = None
+    if compile_pdf:
+        bundle_pdf = compile_tex_to_pdf(
+            bundle_tex,
+            out_dir,
+            clean=False,
+            font_name=font_name,
+            passes=2,
+            texinputs=[bundle_tex.parent, reference_tex.parent, student_tex.parent],
+        ).pdf
 
-    normalized = out_dir / f"{bundle_stem}.pdf"
-    if bundle_pdf.exists() and bundle_pdf != normalized:
-        try:
-            bundle_pdf.replace(normalized)
-            bundle_pdf = normalized
-        except Exception:
-            pass
+        normalized = out_dir / f"{bundle_stem}.pdf"
+        if bundle_pdf.exists() and bundle_pdf != normalized:
+            try:
+                bundle_pdf.replace(normalized)
+                bundle_pdf = normalized
+            except Exception:
+                pass
 
-    if not bundle_pdf.exists():
-        raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+        if not bundle_pdf.exists():
+            raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
 
     placeholder_pdf = out_dir / "reference_tex_placeholder.pdf"
     cleanse_report = CleanseReport(
@@ -334,8 +341,8 @@ def _generate_from_reference_tex(
     )
 
     return QABundleOutputs(
-        bundle_pdf=bundle_pdf,
         bundle_tex=bundle_tex,
+        bundle_pdf=bundle_pdf,
         student_clean_pdf=student_clean_pdf,
         reference_clean_pdf=placeholder_pdf,
         cleanse_report=cleanse_report,
@@ -343,4 +350,3 @@ def _generate_from_reference_tex(
         student_ranges=student_ranges,
         student_answer_pdfs=answer_pdfs,
     )
-

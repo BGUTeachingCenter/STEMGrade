@@ -16,6 +16,7 @@
 
       --btnOllama:#a78bfa;
       --btnGoogle:#22c55e;
+      --btnGpt:#38bdf8;     /* NEW: GPT button color (blue) */
       --btnText:#06101f;
     }
 
@@ -144,6 +145,7 @@
 
     .btnOllama{ background: var(--btnOllama); }
     .btnGoogle{ background: var(--btnGoogle); }
+    .btnGpt{ background: var(--btnGpt); }  /* NEW */
 
     .btnIcon{ width:18px; height:18px; display:inline-block; }
     .btnIcon svg{ width:18px; height:18px; display:block }
@@ -236,6 +238,17 @@
               </span>
               Grade (Google)
             </button>
+
+            <!-- NEW: GPT -->
+            <button id="gradeGptBtn" class="btnGpt" disabled type="button">
+              <span class="btnIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2l3 6 7 .7-5.2 4.3 1.7 6.9L12 17l-6.5 3.9 1.7-6.9L2 8.7 9 8l3-6Z"
+                        stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              Grade (GPT)
+            </button>
           </div>
 
           <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 430px;">
@@ -258,6 +271,7 @@
     const API_BASE = "http://localhost:8000";
     const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
+    const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";  // NEW
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
 
     const studentTex = document.getElementById("studentTex");
@@ -268,6 +282,7 @@
     const statusEl = document.getElementById("status");
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
+    const gradeGptBtn    = document.getElementById("gradeGptBtn"); // NEW
 
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
@@ -290,11 +305,14 @@
     }
 
     function nowTag() {
-      return new Date().toLocaleTimeString();
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mm = String(d.getMinutes()).padStart(2,'0');
+      const ss = String(d.getSeconds()).padStart(2,'0');
+      return `${hh}:${mm}:${ss}`;
     }
 
     function mkJobId() {
-      // good enough for local dev, unique per click
       return "job_" + Date.now() + "_" + Math.random().toString(16).slice(2);
     }
 
@@ -302,6 +320,7 @@
       const ready = !!studentTex.files[0];
       gradeOllamaBtn.disabled = disabled || !ready;
       gradeGoogleBtn.disabled = disabled || !ready;
+      gradeGptBtn.disabled    = disabled || !ready; // NEW
     }
 
     async function loadHealth() {
@@ -321,10 +340,13 @@
       const stu = studentTex.files[0];
       if (stu) { stuChip.style.display = "inline-flex"; stuName.textContent = stu.name; }
       else { stuChip.style.display = "none"; }
+
       const ready = !!stu;
       gradeOllamaBtn.disabled = !ready;
       gradeGoogleBtn.disabled = !ready;
-      if (ready) setBadge("ok", "Ready", "Choose Ollama / Google");
+      gradeGptBtn.disabled    = !ready; // NEW
+
+      if (ready) setBadge("ok", "Ready", "Choose Ollama / Google / GPT");
       else setBadge("warn", "Ready", "Select a student file");
     }
 
@@ -354,7 +376,6 @@
       return n.endsWith(".tex") || n.endsWith(".txt");
     });
 
-    // Teacher access
     document.getElementById("teacherBtn").addEventListener("click", () => {
       const pw = prompt("Teacher password:");
       if (pw === null) return;
@@ -362,18 +383,14 @@
     });
 
     async function pollProgress(jobId, linesRef, stopSignal) {
-      // Poll until stopSignal.stopped; update lines with server-reported steps.
       let lastSeq = -1;
-
       while (!stopSignal.stopped) {
         try {
           const r = await fetch(ENDPOINT_PROGRESS(jobId));
           if (r.ok) {
             const j = await r.json();
-            // expected: {steps:[{seq, ts, msg, level}], done:boolean, error?:string}
             const steps = Array.isArray(j.steps) ? j.steps : [];
 
-            // append any new steps by seq
             steps
               .filter(s => typeof s.seq === "number" && s.seq > lastSeq)
               .sort((a,b)=>a.seq-b.seq)
@@ -385,15 +402,9 @@
               });
 
             setStatusText(linesRef, j.error ? "err" : "work");
-
-            if (j.done) {
-              // keep last state; caller will set final message
-              return;
-            }
+            if (j.done) return;
           }
-        } catch (_) {
-          // ignore transient polling errors
-        }
+        } catch (_) {}
         await new Promise(res => setTimeout(res, 500));
       }
     }
@@ -407,8 +418,6 @@
       const jobId = mkJobId();
       const lines = [
         `[${nowTag()}] Started: ${providerLabel}`,
-        `[${nowTag()}] Uploading student file…`,
-        `[${nowTag()}] Fetching reference from solution bank…`
       ];
       setStatusText(lines, "work");
 
@@ -418,12 +427,10 @@
       try {
         const form = new FormData();
         form.append("student_tex", stu);
-        // IMPORTANT: backend patch reads this optional form field
         form.append("job_id", jobId);
 
         const res = await fetch(url, { method: "POST", body: form });
 
-        // stop polling regardless (server may also mark done)
         stopSignal.stopped = true;
         await pollPromise;
 
@@ -440,7 +447,6 @@
           return;
         }
 
-        // Download
         setStatusText(lines.concat([`[${nowTag()}] Downloading PDF…`]), "work");
 
         const blob = await res.blob();
@@ -469,6 +475,9 @@
     );
     gradeGoogleBtn.addEventListener("click", () =>
       postAndDownload(ENDPOINT_GRADE_GOOGLE, "graded_test_google.pdf", "Google (Gemini) grading")
+    );
+    gradeGptBtn.addEventListener("click", () =>
+      postAndDownload(ENDPOINT_GRADE_GPT, "graded_test_gpt.pdf", "GPT grading")
     );
 
     updateUI();

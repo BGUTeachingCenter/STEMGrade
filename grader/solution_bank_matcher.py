@@ -127,7 +127,7 @@ def _llm_match(student_tex: Path, candidates: List[CandidateRef], *, top_k: int 
         "Choose the best exam_id."
     )
 
-    client = GptClient()
+    client = OllamaClient()
     out = client.chat_json(system=system, user=user, schema=schema, temperature=0.1, timeout_s=90)
 
     chosen = (out.get("exam_id") or "").strip()

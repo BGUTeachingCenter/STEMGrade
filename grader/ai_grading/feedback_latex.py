@@ -1,83 +1,34 @@
-"""
-Simplified feedback PDF generation focused only on feedback rendering.
-All LaTeX cleaning is delegated to tex_cleanup.py.
-"""
-
+# grader/ai_grading/feedback_tex.py
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from pathlib import Path
-import re
+from typing import Any, Dict, List
 
-from grader.compile_tex import compile_tex_to_pdf
-from .json_sanitizer import sanitize_grades_json
+# If you have these already, keep them. Otherwise remove/replace accordingly.
+from .json_sanitizer import sanitize_grades_json  # optional but recommended
 
 
-def escape_for_latex(text: str) -> str:
+def _escape_minimal(s: str) -> str:
     """
-    Simple text escaping that preserves Hebrew and other Unicode text.
-    Only escapes truly problematic characters for LaTeX.
+    Minimal escaping for prose. We intentionally do NOT try to "fix" math here.
+    XeLaTeX/tex_cleanup handles robustness in compilation stage.
     """
-    if not text:
+    if not s:
         return ""
-
-    # Only escape characters that will break LaTeX compilation
-    # Do NOT escape Hebrew characters or other Unicode
-    replacements = {
-        "&": r"\&",
-        "%": r"\%",
-        "#": r"\#",
-        "_": r"\_",
-        "~": r"\textasciitilde{}",
-        "^": r"\textasciicircum{}",
-        "\\": r"\textbackslash{}",  # Only if not already a LaTeX command
-    }
-
-    result = text
-
-    # Handle backslashes carefully - don't escape if it's already a LaTeX command
-    if "\\" in result:
-        # Only escape backslashes that aren't part of LaTeX commands
-        # This is a simple heuristic - tex_cleanup.py will handle complex cases
-        result = re.sub(r"\\(?![a-zA-Z])", r"\\textbackslash{}", result)
-
-    # Apply other replacements
-    for char, escape in replacements.items():
-        if char != "\\":  # Already handled above
-            result = result.replace(char, escape)
-
-    # Handle newlines but preserve paragraphs
-    result = result.replace("\n\n", r"\par ")
-    result = result.replace("\n", r" ")
-
-    return result
-
-
-import re
-
-_MATH_DELIMS = (r"\(", r"\)", r"\[", r"\]", "$")
-
-def preserve_hebrew_in_latex(text: str) -> str:
-    """
-    Minimal escaping ONLY. No math fixing here.
-    tex_cleaner.py is responsible for robustness.
-    """
-    if not text:
-        return ""
-    s = str(text)
-    # Keep backslashes intact (LaTeX commands), escape only truly dangerous text chars.
+    s = str(s)
     s = s.replace("&", r"\&").replace("%", r"\%").replace("#", r"\#")
     return s
 
 
-def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
-    """Generate LaTeX source for feedback PDF with proper Hebrew support."""
-
-    lines = [
+def _preamble(title: str = "משוב בדיקה", font_name: str = "Arial") -> List[str]:
+    return [
         r"\documentclass[10pt]{article}",
         r"\usepackage[a4paper,margin=2cm]{geometry}",
         r"\usepackage{fontspec}",
-        r"\setmainfont{Arial}",  # This will be updated by tex_cleanup.py
+        rf"\setmainfont{{{font_name}}}",
         r"\usepackage{amsmath,amssymb,mathtools}",
         r"\usepackage{polyglossia}",
         r"\usepackage{xcolor}",
@@ -91,153 +42,115 @@ def render_feedback_tex(data: dict, title: str = "משוב בדיקה") -> str:
         r"\begin{document}",
         r"\small",
         "",
-        # Use Hebrew title as-is - XeLaTeX will handle it
-        rf"{{\LARGE {title}\par}}",
-        r"\vspace{0.3cm}",
+        rf"{{\LARGE {_escape_minimal(title)}\par}}",
         r"\vspace{0.6cm}",
         "",
     ]
 
-    for q in data.get("questions", []):
-        # Preserve original question ID - don't translate
-        qid = str(q.get("qid", "Q?"))
 
-        lines.extend([
+def render_feedback_body(grades: Dict[str, Any]) -> str:
+    """
+    Render ONLY the body portion (no preamble/document wrappers).
+    """
+    lines: List[str] = []
+
+    # adapt this to your grades schema as needed
+    questions = grades.get("question_grades") or grades.get("questions") or []
+    if not isinstance(questions, list):
+        questions = []
+
+    for q in questions:
+        qid = str(q.get("qid") or q.get("id") or "Q?")
+
+        lines += [
             r"\hrule\vspace{0.35cm}",
-            rf"{{\Large {preserve_hebrew_in_latex(qid)}",
+            rf"{{\Large {_escape_minimal(qid)}\par}}",
             r"\vspace{0.2cm}",
-        ])
+        ]
 
-        # Summary - preserve Hebrew
-        summary = q.get("summary", "")
+        score = q.get("score")
+        maxp = q.get("max_points")
+        if score is not None and maxp is not None:
+            lines.append(rf"\textbf{{ציון:}} {_escape_minimal(score)} / {_escape_minimal(maxp)}\par")
+
+        summary = q.get("summary") or ""
         if summary:
-            lines.append(preserve_hebrew_in_latex(str(summary)) + r"\par")
-            lines.append(r"\vspace{0.2cm}")
+            lines.append(_escape_minimal(summary) + r"\par")
 
-        # Mismatch warning (if present)
-        mismatch = q.get("mismatch", {}) or {}
-        try:
-            is_mismatch = bool(mismatch.get("is_mismatch", False))
-        except:
-            is_mismatch = False
-
-        if is_mismatch:
-            lines.extend([
-                r"\vspace{0.2cm}",
-                r"{\color{red}\textbf{התאמה: פתרת שאלה אחרת}}",
-                r"\vspace{0.1cm}",
-            ])
-
-            explanation = mismatch.get("explanation_he", "")
-            if explanation:
-                lines.append(preserve_hebrew_in_latex(str(explanation)) + r"\par")
-
-        # What was correct - preserve Hebrew
-        good = q.get("what_was_correct", []) or []
-        if good:
+        good = q.get("what_was_correct") or []
+        if isinstance(good, list) and good:
             lines.append(r"\textbf{מה עשית נכון:}")
             lines.append(r"\begin{itemize}")
             for item in good[:10]:
-                if item:  # Skip empty items
-                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
-            lines.append(r"\end{itemize}")
-
-        # Evidence (correct)
-        ev_ok = q.get("evidence_correct", []) or []
-        if ev_ok:
-            lines.append(r"\textbf{ראיות למה שנכון (ציטוט קצר):}")
-            lines.append(r"\begin{itemize}")
-            for item in ev_ok[:4]:
                 if item:
-                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
+                    lines.append(rf"\item {_escape_minimal(item)}")
             lines.append(r"\end{itemize}")
 
-        # Mistakes - preserve Hebrew
-        mistakes = q.get("main_mistakes", []) or []
-        if mistakes:
+        mistakes = q.get("main_mistakes") or []
+        if isinstance(mistakes, list) and mistakes:
             lines.append(r"\textbf{טעויות עיקריות:}")
             lines.append(r"\begin{itemize}")
             for item in mistakes[:10]:
-                if item:  # Skip empty items
-                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
-            lines.append(r"\end{itemize}")
-
-        # Evidence (mistakes)
-        ev_bad = q.get("evidence_mistakes", []) or []
-        if ev_bad:
-            lines.append(r"\textbf{ראיות לטעויות (ציטוט קצר):}")
-            lines.append(r"\begin{itemize}")
-            for item in ev_bad[:6]:
                 if item:
-                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
+                    lines.append(rf"\item {_escape_minimal(item)}")
             lines.append(r"\end{itemize}")
 
-        # How to improve - preserve Hebrew
-        improve = q.get("how_to_improve", []) or []
-        if improve:
+        improve = q.get("how_to_improve") or []
+        if isinstance(improve, list) and improve:
             lines.append(r"\textbf{איך להשתפר:}")
             lines.append(r"\begin{itemize}")
             for item in improve[:10]:
-                if item:  # Skip empty items
-                    lines.append(rf"\item {preserve_hebrew_in_latex(str(item))}")
+                if item:
+                    lines.append(rf"\item {_escape_minimal(item)}")
             lines.append(r"\end{itemize}")
 
-        # Next step - preserve Hebrew
-        next_step = q.get("suggested_next_step_he", "")
+        next_step = q.get("suggested_next_step_he") or q.get("suggested_next_step") or ""
         if next_step:
             lines.append(r"\textbf{צעד מומלץ הבא:}")
-            lines.append(preserve_hebrew_in_latex(str(next_step)) + r"\par")
-
-        # Common errors tags
-        tags = q.get("common_errors_detected", []) or []
-        if tags:
-            tag_text = ", ".join(str(t) for t in tags[:5])  # Limit number of tags
-            lines.append(rf"\textit{{תגיות: {preserve_hebrew_in_latex(tag_text)}}}\par")
+            lines.append(_escape_minimal(next_step) + r"\par")
 
         lines.append(r"\vspace{0.4cm}")
-
-    lines.extend([
-        "",
-        r"\end{document}"
-    ])
 
     return "\n".join(lines)
 
 
-def build_feedback_pdf(
+def render_feedback_tex(grades: Dict[str, Any], title: str = "משוב בדיקה", font_name: str = "Arial") -> str:
+    """
+    Render a FULL TeX document for feedback (still TeX-only; compilation happens elsewhere).
+    """
+    lines = _preamble(title=title, font_name=font_name)
+    lines.append(render_feedback_body(grades))
+    lines += ["", r"\end{document}"]
+    return "\n".join(lines)
+
+
+def build_feedback_tex(
+    *,
     grades_json: Path,
     out_dir: Path,
     title: str = "משוב בדיקה",
     font_name: str = "Arial",
 ) -> Path:
     """
-    Build feedback PDF from grades JSON.
-    Uses tex_cleanup.py for robust LaTeX cleaning while preserving Hebrew.
+    MAIN OUTPUT: feedback.tex (no PDF).
+    Writes:
+      - out_dir/feedback.tex
+      - out_dir/debug_json_sanitize.txt (if sanitizer exists)
+    Returns: Path to feedback.tex
     """
-    grades = json.loads(grades_json.read_text(encoding="utf-8"))
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    grades_sanitized, st = sanitize_grades_json(grades)
+    raw = json.loads(grades_json.read_text(encoding="utf-8"))
+    try:
+        sanitized, st = sanitize_grades_json(raw)  # optional but helpful
+        (out_dir / "debug_json_sanitize.txt").write_text(str(st), encoding="utf-8")
+        grades = sanitized
+    except Exception:
+        # if sanitizer not present / fails, just proceed
+        grades = raw
 
-    # optional: write debug stats
-    (out_dir / "debug_json_sanitize.txt").write_text(str(st), encoding="utf-8")
+    tex = render_feedback_tex(grades, title=title, font_name=font_name)
 
-    tex_content = render_feedback_tex(grades, title)
     tex_path = out_dir / "feedback.tex"
-    tex_path.write_text(tex_content, encoding="utf-8")
-
-    # Compile with robust cleaning enabled
-    outputs = compile_tex_to_pdf(
-        tex_path,
-        out_dir,
-        clean=False,
-        font_name=font_name,
-    )
-
-    return outputs.pdf
-
-
-# Backwards compatibility
-def build_feedback_pdf_from_grades_latex(*args, **kwargs):
-    """Backwards compatible alias."""
-    return build_feedback_pdf(*args, **kwargs)
+    tex_path.write_text(tex, encoding="utf-8")
+    return tex_path
