@@ -311,4 +311,19 @@ def grade_payload_manifest(
 
     grades_json = out_dir / "grades.json"
     grades_json.write_text(json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    try:
+        usage_summary = {
+            "provider": provider,
+            "total_tokens": int(getattr(client, "total_tokens", 0) or 0),
+            "prompt_tokens": int(getattr(client, "total_prompt_tokens", 0) or 0),
+            "candidate_tokens": int(getattr(client, "total_candidate_tokens", 0) or 0),
+        }
+        (out_dir / "usage_summary.json").write_text(
+            json.dumps(usage_summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
     return grades_json

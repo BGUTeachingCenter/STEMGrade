@@ -52,23 +52,17 @@ def _sanitize_schema_for_gemini(schema: Dict[str, Any]) -> Dict[str, Any]:
 
 @dataclass
 class GoogleClient:
-    api_key: str
-    model: str
-    api_base: str
-    api_version: str
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        self.api_key = (api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
+        self.model = (model or os.getenv("GOOGLE_MODEL") or os.getenv("GEMINI_MODEL") or "").strip()
+        self.api_base = (os.getenv("GOOGLE_API_BASE") or "https://generativelanguage.googleapis.com").rstrip("/")
+        self.api_version = (os.getenv("GOOGLE_API_VERSION") or "v1beta").strip()
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        api_base: Optional[str] = None,
-        api_version: Optional[str] = None,
-    ):
-        # ✅ env reading ONLY here
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
-        self.model = model or os.getenv("GOOGLE_MODEL") or os.getenv("GEMINI_MODEL") or ""
-        self.api_base = (api_base or os.getenv("GOOGLE_API_BASE") or "https://generativelanguage.googleapis.com").rstrip("/")
-        self.api_version = api_version or os.getenv("GOOGLE_API_VERSION") or "v1beta"
+        # ✅ token counters (Gemini usageMetadata)
+        self.total_tokens = 0
+        self.total_prompt_tokens = 0
+        self.total_candidate_tokens = 0
+
 
     def chat_json(
         self,
@@ -104,12 +98,22 @@ class GoogleClient:
             raise RuntimeError(f"Google Gemini API error {r.status_code}: {r.text[:1000]}")
 
         data = r.json()
+
+        # ✅ accumulate usageMetadata if present
+        usage = data.get("usageMetadata") or {}
+        pt = int(usage.get("promptTokenCount") or 0)
+        ct = int(usage.get("candidatesTokenCount") or 0)
+        tt = int(usage.get("totalTokenCount") or (pt + ct) or 0)
+        self.total_prompt_tokens += pt
+        self.total_candidate_tokens += ct
+        self.total_tokens += tt
+
         text = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        ) or ""
+                   data.get("candidates", [{}])[0]
+                   .get("content", {})
+                   .get("parts", [{}])[0]
+                   .get("text", "")
+               ) or ""
 
         if not text:
             raise RuntimeError(

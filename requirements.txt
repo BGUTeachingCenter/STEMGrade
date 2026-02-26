@@ -1,3 +1,6 @@
+starlette
+pydantic
+openpyxl
 python-dotenv
 # MathGrade dependencies
 fastapi>=0.110

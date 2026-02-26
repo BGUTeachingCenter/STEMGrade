@@ -8,11 +8,12 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from time import perf_counter
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Request
 from fastapi.responses import FileResponse
 
-# ✅ This is the key fix: run long blocking work off the event loop
+# ✅ run blocking work off the event loop
 from starlette.concurrency import run_in_threadpool
 
 from core.config import RUNS_ROOT, FIXED_FONT, BANK_ROOT
@@ -21,11 +22,11 @@ from core.debug import write_debug_log
 from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
 from grader.file_handling.qa_bundle import generate_qa_bundle_from_reference_tex
 from grader.ai_grading.grader_sources import grade_reference_tex_and_student_tex
-from grader.file_handling.feedback_tex import build_feedback_tex  # ✅ TeX-first feedback
-from grader.file_handling.graded_pdf import build_graded_pdf      # ✅ unions 2 tex and compiles once
-
+from grader.file_handling.feedback_tex import build_feedback_tex  # TeX-first feedback
+from grader.file_handling.graded_pdf import build_graded_pdf      # unions 2 tex and compiles once
 from grader.file_handling.student_tex import parse_student_tex_answers
 
+from api.student_log import log_student_submission
 from api.progress import init_job, push, done, fail
 
 router = APIRouter(prefix="/api", tags=["grading"])
@@ -122,14 +123,10 @@ def _response_for_path(p: Path) -> FileResponse:
     suf = p.suffix.lower()
     if suf == ".pdf":
         return FileResponse(path=str(p), media_type="application/pdf", filename="graded_test.pdf")
-    # fallback: return TeX
     return FileResponse(path=str(p), media_type="text/plain; charset=utf-8", filename="graded_union.tex")
 
 
 def _require_provider_env(provider: str) -> None:
-    """
-    Validate provider requirements early for clearer errors.
-    """
     if provider == "google":
         google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not google_key:
@@ -142,17 +139,20 @@ def _require_provider_env(provider: str) -> None:
 
 async def _grade_tex_flow(
     *,
-    provider: str,               # "ollama" | "google" | "chatgpt"
+    provider: str,
     student_tex: UploadFile,
     job_id: str | None,
+    student_code: str | None,
+    request: Request | None,
 ) -> FileResponse:
     """
-    Unified grading flow. Only difference is the provider passed to the grader.
-    Returns PDF if compilation succeeds; returns union TeX if XeLaTeX fails.
-
-    IMPORTANT:
-      This function is async, but most of the work is CPU/IO blocking (grading, TeX build, XeLaTeX).
-      We run heavy steps in a threadpool so the event loop remains responsive and progress polling works.
+    Unified grading flow.
+    Timing is measured around the TRUE heavy steps:
+      - pick reference
+      - grade (LLM calls)
+      - build Q/A bundle TeX
+      - build feedback TeX
+      - compile union TeX (XeLaTeX)
     """
     _require_provider_env(provider)
 
@@ -171,7 +171,7 @@ async def _grade_tex_flow(
         if job_id:
             push(job_id, "Saved student file")
 
-        # Student summary (lightweight; keep direct)
+        # Student summary
         try:
             p = write_student_summary(tex_path, out_dir=out_dir)
             if job_id:
@@ -180,14 +180,14 @@ async def _grade_tex_flow(
             if job_id:
                 push(job_id, f"Student summary failed (continuing): {_safe_str(e, 220)}")
 
-        # Pick reference
+        # Pick reference (timed)
         if job_id:
             push(job_id, "Fetching reference from solution bank…")
 
         if not BANK_ROOT.exists():
             raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
-        # ✅ Might involve I/O / heuristics, so run in threadpool
+        t_ref = perf_counter()
         exam_id, chosen_ref = await run_in_threadpool(
             pick_reference_with_exam_id,
             bank_dir=BANK_ROOT,
@@ -195,9 +195,10 @@ async def _grade_tex_flow(
             prefer_heuristic=True,
             llm_top_k=12,
         )
+        ref_secs = perf_counter() - t_ref
 
         if job_id:
-            push(job_id, f"Fetched: {exam_id}")
+            push(job_id, f"Fetched: {exam_id} (reference match {ref_secs:.1f}s)")
 
         # Copy reference into run folder
         ref_path = tmp_dir / Path(chosen_ref).name
@@ -210,11 +211,11 @@ async def _grade_tex_flow(
         ai_dir = out_dir / "ai_grade"
         ai_dir.mkdir(parents=True, exist_ok=True)
 
-        # Grade (produces grades_json)
+        # Grade (LLM calls) (timed)
         if job_id:
             push(job_id, "Grading please wait…")
 
-        # ✅ Heavy: model calls + loops -> threadpool
+        t_grade = perf_counter()
         grades_json, _ = await run_in_threadpool(
             grade_reference_tex_and_student_tex,
             reference_tex=ref_path,
@@ -222,24 +223,55 @@ async def _grade_tex_flow(
             out_dir=ai_dir,
             model=provider,
         )
-
-        # Generate bundle TeX (NOT PDF)
+        grade_secs = perf_counter() - t_grade
         if job_id:
-            push(job_id, "Generating Q/A bundle (TeX) please wait…")
+            push(job_id, f"Grading finished ({grade_secs:.1f}s)")
 
-        # ✅ Can be heavy if it parses/assembles big TeX -> threadpool
+        # Read Gemini token usage summary (if produced)
+        gemini_tokens = 0
+        try:
+            usage_path = ai_dir / "usage_summary.json"
+            if usage_path.exists():
+                usage = json.loads(usage_path.read_text(encoding="utf-8"))
+                if (usage.get("provider") or "").lower() in ("google", "gemini", "google_ai_studio", "aistudio"):
+                    gemini_tokens = int(usage.get("total_tokens") or 0)
+        except Exception:
+            gemini_tokens = 0
+
+        # ✅ Log ONCE (students only; teacher codes omitted by log_student_submission)
+        try:
+            if student_code:
+                ua = request.headers.get("user-agent", "") if request else ""
+                ip = request.client.host if (request and request.client) else ""
+                log_student_submission(
+                    code=student_code,
+                    exam_id=str(exam_id),
+                    provider=provider,
+                    gemini_tokens=gemini_tokens,
+                    ip=ip,
+                    user_agent=ua,
+                )
+        except Exception:
+            pass
+
+        # Generate bundle TeX (timed)
+        if job_id:
+            push(job_id, "Generating Q/A bundle (TeX)…")
+
+        t_bundle = perf_counter()
         bundle_outputs = await run_in_threadpool(
             generate_qa_bundle_from_reference_tex,
             reference_tex=ref_path,
             student_tex=tex_path,
             out_dir=out_dir,
             font_name=FIXED_FONT,
-            # IMPORTANT: ensure your bundler is TeX-first (no compilation here)
-            # If your function signature supports it, pass compile_pdf=False
-            # compile_pdf=False,
+            # compile_pdf=False,  # if supported in your function signature
         )
+        bundle_secs = perf_counter() - t_bundle
+        if job_id:
+            push(job_id, f"Q/A bundle TeX ready ({bundle_secs:.1f}s)")
 
-        # Try to locate bundle_tex robustly
+        # Locate bundle_tex
         bundle_tex = None
         if hasattr(bundle_outputs, "bundle_tex") and getattr(bundle_outputs, "bundle_tex"):
             bundle_tex = Path(getattr(bundle_outputs, "bundle_tex"))
@@ -250,21 +282,25 @@ async def _grade_tex_flow(
             produced = [p.name for p in out_dir.glob("*")]
             raise RuntimeError(f"No bundle TeX produced. Files in out/: {produced}")
 
-        # Build feedback TeX
+        # Build feedback TeX (timed)
         if job_id:
             push(job_id, "Generating feedback (TeX)…")
 
-        # ✅ Could be moderate work -> threadpool
+        t_fb = perf_counter()
         feedback_tex = await run_in_threadpool(
             build_feedback_tex,
             grades_json=grades_json,
             out_dir=ai_dir,
         )
+        fb_secs = perf_counter() - t_fb
+        if job_id:
+            push(job_id, f"Feedback TeX ready ({fb_secs:.1f}s)")
 
+        # Compile union TeX (timed)
         if job_id:
             push(job_id, "Building final output (compile union TeX)…")
 
-        # Union 2 TeX files and compile once (XeLaTeX is definitely blocking)
+        t_pdf = perf_counter()
         result_path = await run_in_threadpool(
             build_graded_pdf,
             qa_tex=bundle_tex,
@@ -272,8 +308,9 @@ async def _grade_tex_flow(
             out_dir=ai_dir,
             font_name=FIXED_FONT,
         )
-
+        pdf_secs = perf_counter() - t_pdf
         if job_id:
+            push(job_id, f"PDF build finished ({pdf_secs:.1f}s)")
             push(job_id, "Done. Sending file…")
             done(job_id)
 
@@ -292,28 +329,52 @@ async def _grade_tex_flow(
 
 
 # -------------------------
-# Endpoints (thin wrappers)
+# Endpoints
 # -------------------------
 
 @router.post("/grade_tex_ollama")
 async def grade_tex_ollama(
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    student_code: str | None = Form(None),
+    request: Request = None,
 ):
-    return await _grade_tex_flow(provider="ollama", student_tex=student_tex, job_id=job_id)
+    return await _grade_tex_flow(
+        provider="ollama",
+        student_tex=student_tex,
+        job_id=job_id,
+        student_code=student_code,
+        request=request,
+    )
 
 
 @router.post("/grade_tex_google")
 async def grade_tex_google(
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    student_code: str | None = Form(None),
+    request: Request = None,
 ):
-    return await _grade_tex_flow(provider="google", student_tex=student_tex, job_id=job_id)
+    return await _grade_tex_flow(
+        provider="google",
+        student_tex=student_tex,
+        job_id=job_id,
+        student_code=student_code,
+        request=request,
+    )
 
 
 @router.post("/grade_tex_chatgpt")
 async def grade_tex_chatgpt(
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    student_code: str | None = Form(None),
+    request: Request = None,
 ):
-    return await _grade_tex_flow(provider="chatgpt", student_tex=student_tex, job_id=job_id)
+    return await _grade_tex_flow(
+        provider="chatgpt",
+        student_tex=student_tex,
+        job_id=job_id,
+        student_code=student_code,
+        request=request,
+    )

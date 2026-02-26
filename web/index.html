@@ -33,7 +33,7 @@
       min-height:100vh;
     }
 
-    .wrap{max-width:980px; margin:0 auto; padding:42px 18px 70px;}
+    .wrap{max-width:1100px; margin:0 auto; padding:42px 18px 70px;}
     h1{
       margin:0;
       font-size: clamp(30px, 4vw, 48px);
@@ -44,7 +44,7 @@
       background-clip:text;
       color:transparent;
     }
-    .sub{margin-top:10px; color:var(--muted); max-width:70ch; font-size:16px;}
+    .sub{margin-top:10px; color:var(--muted); max-width:85ch; font-size:16px;}
 
     .badge{
       display:inline-flex; align-items:center; gap:10px;
@@ -81,6 +81,92 @@
       backdrop-filter: blur(10px);
     }
 
+    /* --- Top row: login (left) + stats placeholder (right) --- */
+    .topGrid{
+      display:grid;
+      grid-template-columns: 360px 1fr;
+      gap:14px;
+      align-items:stretch;
+      margin-bottom:14px;
+    }
+    @media (max-width: 900px){
+      .topGrid{ grid-template-columns: 1fr; }
+    }
+
+    .panel{
+      border-radius: 16px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.18);
+      padding: 14px;
+    }
+
+    .loginPanel .label{
+      font-weight:800;
+      font-size:14px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .icon{
+      width:22px; height:22px; border-radius:8px;
+      display:inline-grid; place-items:center;
+      background: rgba(167,139,250,.14);
+      border:1px solid rgba(167,139,250,.22);
+      flex: 0 0 auto;
+    }
+    .mini{font-size:12px; color:var(--muted); line-height:1.4; margin-top:6px;}
+
+    .loginRow{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      margin-top:10px;
+    }
+    .loginInput{
+      flex: 1;
+      min-width: 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      outline: none;
+      font-size: 14px;
+    }
+
+    button{
+      appearance:none;
+      border:0;
+      border-radius: 14px;
+      padding: 12px 14px;
+      cursor:pointer;
+      font-weight: 800;
+      color: var(--btnText);
+      box-shadow: 0 10px 30px rgba(0,0,0,.18);
+      transition: transform .1s ease, filter .15s ease, opacity .15s ease;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      white-space:nowrap;
+    }
+    button:hover{filter: brightness(1.06)}
+    button:active{transform: translateY(1px)}
+    button:disabled{opacity:.55; cursor:not-allowed}
+
+    .btnOllama{ background: var(--btnOllama); }
+    .btnGoogle{ background: var(--btnGoogle); }
+    .btnGpt{ background: var(--btnGpt); }
+    .btnSubtle{
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow:none;
+      font-weight: 750;
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+
+    /* main app */
     .drop{
       position:relative;
       border:1px dashed rgba(255,255,255,.20);
@@ -93,12 +179,11 @@
       flex-direction:column;
       gap:10px;
       justify-content:center;
-      margin-top: 14px;
+      margin-top: 10px;
       cursor:pointer;
     }
     .drop:hover{border-color: rgba(56,189,248,.55)}
     .drop.drag{border-color: rgba(34,197,94,.75); background: rgba(34,197,94,.08)}
-    .label{font-weight:700; font-size:16px; display:flex; align-items:center; gap:10px;}
     .hint{color:var(--muted); font-size:13px; line-height:1.4}
     .chip{
       display:inline-flex; align-items:center; gap:8px;
@@ -115,40 +200,10 @@
       color:var(--text);
     }
     .chip span{color:var(--muted)}
-    .icon{
-      width:22px; height:22px; border-radius:8px;
-      display:inline-grid; place-items:center;
-      background: rgba(167,139,250,.14);
-      border:1px solid rgba(167,139,250,.22);
-    }
+    input[type=file]{display:none}
 
-    .row{display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:16px; flex-wrap:wrap;}
-
+    .row{display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:14px; flex-wrap:wrap;}
     .btnRow{display:flex; gap:10px; flex-wrap:wrap;}
-    button{
-      appearance:none;
-      border:0;
-      border-radius: 14px;
-      padding: 12px 14px;
-      cursor:pointer;
-      font-weight: 800;
-      color: var(--btnText);
-      box-shadow: 0 10px 30px rgba(0,0,0,.18);
-      transition: transform .1s ease, filter .15s ease, opacity .15s ease;
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-    }
-    button:hover{filter: brightness(1.06)}
-    button:active{transform: translateY(1px)}
-    button:disabled{opacity:.55; cursor:not-allowed}
-
-    .btnOllama{ background: var(--btnOllama); }
-    .btnGoogle{ background: var(--btnGoogle); }
-    .btnGpt{ background: var(--btnGpt); }
-
-    .btnIcon{ width:18px; height:18px; display:inline-block; }
-    .btnIcon svg{ width:18px; height:18px; display:block }
 
     .statusBox{
       margin-top:14px;
@@ -163,112 +218,139 @@
       line-height: 1.35;
       overflow:auto;
     }
-
-    /* ✅ make errors pop */
     .statusBox.err { color: #ffd1d1; border-color: rgba(239,68,68,.35); }
     .statusBox.ok  { border-color: rgba(34,197,94,.35); }
     .statusBox.work{ border-color: rgba(245,158,11,.35); }
 
-    input[type=file]{display:none}
-
     .teacherFooter{
-      margin-top: 14px;
+      margin-top: 12px;
       display:flex;
-      justify-content:flex-end;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
     }
-    .btnTeacherSubtle{
-      appearance:none;
-      border:1px solid rgba(255,255,255,.16);
+
+    .statsPanel{
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-height: 96px;
+    }
+    .statsTitle{font-weight:800; font-size:13px;}
+    .statsHint{margin-top:6px; font-size:12px; color:var(--muted); line-height:1.45;}
+    .placeholderGrid{
+      margin-top:10px;
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap:10px;
+    }
+    .placeholderCard{
+      border:1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.04);
-      color: var(--muted);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 10px 12px;
-      font-weight: 700;
-      box-shadow: none;
-      opacity: .9;
-    }
-    .btnTeacherSubtle:hover{
-      opacity: 1;
-      filter:none;
-      border-color: rgba(255,255,255,.26);
-      background: rgba(255,255,255,.06);
+      min-height: 54px;
+      color: var(--muted);
+      font-size: 12px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
     }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="hero">
       <div>
         <h1>MathGrade</h1>
         <div class="sub">
-          Upload the student's <b>TeX</b> answers. The server automatically picks the best matching reference from the solution bank and returns a graded tex or PDF file.
+          Students: enter your <b>code</b>, then upload your <b>.tex</b> answers.<br/>
+          Teachers: enter the <b>admin code</b> to unlock the Teacher Portal button.
         </div>
       </div>
       <div class="badge">
         <div class="dot" id="dot"></div>
-        <div><b id="badgeTitle">Ready</b> <span id="badgeText">Select a student file</span></div>
+        <div><b id="badgeTitle">Ready</b> <span id="badgeText">Login required</span></div>
       </div>
     </div>
 
     <div class="card">
       <div class="cardInner">
 
-        <div class="drop" id="dropStudentTex">
-          <div class="label"><span class="icon">🧾</span> Student answers (LaTeX)</div>
-          <div class="hint">Drag & drop a <b>.tex</b> file here, or click to choose.</div>
-          <div class="chip" id="stuChip" style="display:none;">
-            <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
-          </div>
-          <input id="studentTex" type="file" accept=".tex" />
-        </div>
+        <!-- Top: small login on the left, reserved stats box on the right -->
+        <div class="topGrid">
+          <div class="panel loginPanel" id="loginPanel">
+            <div class="label"><span class="icon">🔐</span> Login</div>
+            <div class="mini">
+              Students must be in the allowlist. Teachers use the admin code.<br/>
+              (Student submissions are logged with exam_id; admin submissions are not.)
+            </div>
 
-        <div class="row">
-          <div class="btnRow">
-            <button id="gradeOllamaBtn" class="btnOllama" disabled type="button">
-              <span class="btnIcon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M7 7c0-2 2-3 5-3s5 1 5 3v4c0 4-2 7-5 7s-5-3-5-7V7Z" stroke="currentColor" stroke-width="2"/>
-                  <path d="M9 4l-1 3M15 4l1 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M10 11h.01M14 11h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-                </svg>
-              </span>
-              Grade (Ollama)
-            </button>
+            <div class="loginRow">
+              <input id="codeInput" class="loginInput" type="text" placeholder="Enter code…" autocomplete="off" />
+              <button id="loginBtn" class="btnGoogle" type="button" style="padding:10px 12px; border-radius:12px;">Continue</button>
+            </div>
 
-            <button id="gradeGoogleBtn" class="btnGoogle" disabled type="button">
-              <span class="btnIcon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2l1.2 4.2L17.5 7.5l-4.3 1.3L12 13l-1.2-4.2L6.5 7.5l4.3-1.3L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                  <path d="M19 12l.7 2.4L22 15l-2.3.6L19 18l-.7-2.4L16 15l2.3-.6L19 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                </svg>
-              </span>
-              Grade (Google)
-            </button>
-
-            <button id="gradeGptBtn" class="btnGpt" disabled type="button">
-              <span class="btnIcon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2l3 6 7 .7-5.2 4.3 1.7 6.9L12 17l-6.5 3.9 1.7-6.9L2 8.7 9 8l3-6Z"
-                        stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                </svg>
-              </span>
-              Grade (GPT)
-            </button>
+            <div class="loginRow" style="margin-top:10px; justify-content:space-between;">
+              <div class="mini" id="whoami" style="margin:0; flex:1;"></div>
+              <button id="logoutBtn" class="btnSubtle" type="button" style="display:none;">Logout</button>
+            </div>
           </div>
 
-          <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 430px;">
-            Ollama model: <b id="ollamaModelName">…</b><br/>
-            Google model: <b id="googleModelName">…</b><br/>
-            GPT model: <b id="gptModelName">…</b>
+          <div class="panel statsPanel" id="statsPanel">
+            <div class="statsTitle">Student statistics (placeholder)</div>
+            <div class="statsHint">
+              We’ll add progress / history / score stats here later.<br/>
+              For now this area is reserved.
+            </div>
+            <div class="placeholderGrid">
+              <div class="placeholderCard">📊 Attempts</div>
+              <div class="placeholderCard">🧾 Last exam_id</div>
+              <div class="placeholderCard">⏱ Time spent</div>
+              <div class="placeholderCard">✅ Avg score</div>
+            </div>
           </div>
         </div>
 
-        <div class="statusBox" id="status">Idle</div>
+        <!-- Main app area (shown after login) -->
+        <div id="appPanel" style="display:none;">
 
-        <div class="teacherFooter">
-          <button id="teacherBtn" class="btnTeacherSubtle" type="button">Teacher Portal →</button>
+          <div class="drop" id="dropStudentTex">
+            <div class="label" style="font-weight:800; font-size:16px; display:flex; gap:10px; align-items:center;">
+              <span class="icon">🧾</span> Student answers (LaTeX)
+            </div>
+            <div class="hint">Drag & drop a <b>.tex</b> file here, or click to choose.</div>
+            <div class="chip" id="stuChip" style="display:none;">
+              <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
+            </div>
+            <input id="studentTex" type="file" accept=".tex" />
+          </div>
+
+          <div class="row">
+            <div class="btnRow">
+              <button id="gradeOllamaBtn" class="btnOllama" disabled type="button">Grade (Ollama)</button>
+              <button id="gradeGoogleBtn" class="btnGoogle" disabled type="button">Grade (Google)</button>
+              <button id="gradeGptBtn" class="btnGpt" disabled type="button">Grade (GPT)</button>
+            </div>
+
+            <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 460px;">
+              Ollama model: <b id="ollamaModelName">…</b><br/>
+              Google model: <b id="googleModelName">…</b><br/>
+              GPT model: <b id="gptModelName">…</b>
+            </div>
+          </div>
+
+          <div class="statusBox" id="status">Idle</div>
+
+          <div class="teacherFooter">
+            <button id="teacherBtn" class="btnSubtle" type="button" style="display:none;">Teacher Portal →</button>
+            <span class="mini" id="loggedAs"></span>
+          </div>
+
         </div>
-
       </div>
     </div>
   </div>
@@ -279,13 +361,15 @@
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
     const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
+    const ENDPOINT_LOGIN = API_BASE + "/api/login";
+
+    const statusEl = document.getElementById("status");
 
     const studentTex = document.getElementById("studentTex");
     const dropStudentTex = document.getElementById("dropStudentTex");
     const stuChip = document.getElementById("stuChip");
     const stuName = document.getElementById("stuName");
 
-    const statusEl = document.getElementById("status");
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
     const gradeGptBtn    = document.getElementById("gradeGptBtn");
@@ -293,6 +377,26 @@
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
     const badgeText = document.getElementById("badgeText");
+
+    const loginPanel = document.getElementById("loginPanel");
+    const appPanel = document.getElementById("appPanel");
+    const codeInput = document.getElementById("codeInput");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const whoami = document.getElementById("whoami");
+    const loggedAs = document.getElementById("loggedAs");
+    const teacherBtn = document.getElementById("teacherBtn");
+
+    const LS_ROLE = "mathgrade_role";
+    const LS_CODE = "mathgrade_code";
+
+    function nowTag() {
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2,'0');
+      const mm = String(d.getMinutes()).padStart(2,'0');
+      const ss = String(d.getSeconds()).padStart(2,'0');
+      return `${hh}:${mm}:${ss}`;
+    }
 
     function setBadge(kind, title, text) {
       dot.classList.remove("ok", "err");
@@ -303,6 +407,7 @@
     }
 
     function setStatusText(lines, kind="idle") {
+      if (!statusEl) return;
       statusEl.textContent = lines.join("\n");
       statusEl.classList.remove("ok","err","work");
       if (kind === "ok") { statusEl.classList.add("ok"); setBadge("ok", "Done", "Download should start"); }
@@ -311,20 +416,12 @@
       else { setBadge("warn", "Ready", "Select a student file"); }
     }
 
-    function nowTag() {
-      const d = new Date();
-      const hh = String(d.getHours()).padStart(2,'0');
-      const mm = String(d.getMinutes()).padStart(2,'0');
-      const ss = String(d.getSeconds()).padStart(2,'0');
-      return `${hh}:${mm}:${ss}`;
-    }
-
     function mkJobId() {
       return "job_" + Date.now() + "_" + Math.random().toString(16).slice(2);
     }
 
     function disableAll(disabled) {
-      const ready = !!studentTex.files[0];
+      const ready = !!(studentTex && studentTex.files && studentTex.files[0]);
       gradeOllamaBtn.disabled = disabled || !ready;
       gradeGoogleBtn.disabled = disabled || !ready;
       gradeGptBtn.disabled    = disabled || !ready;
@@ -385,13 +482,110 @@
       return n.endsWith(".tex") || n.endsWith(".txt");
     });
 
-    document.getElementById("teacherBtn").addEventListener("click", () => {
-      const pw = prompt("Teacher password:");
-      if (pw === null) return;
-      window.location.href = API_BASE + "/teacher?p=" + encodeURIComponent(pw);
+    // ---- LOGIN ----
+    function getSession() {
+      return {
+        role: localStorage.getItem(LS_ROLE) || "",
+        code: localStorage.getItem(LS_CODE) || "",
+      };
+    }
+    function setSession(role, code) {
+      localStorage.setItem(LS_ROLE, role);
+      localStorage.setItem(LS_CODE, code);
+    }
+    function clearSession() {
+      localStorage.removeItem(LS_ROLE);
+      localStorage.removeItem(LS_CODE);
+    }
+
+    function renderSessionUI() {
+      const { role, code } = getSession();
+
+      if (!role || !code) {
+        appPanel.style.display = "none";
+        logoutBtn.style.display = "none";
+        teacherBtn.style.display = "none";
+        whoami.textContent = "";
+        setBadge("warn", "Ready", "Login required");
+        return;
+      }
+
+      logoutBtn.style.display = "inline-flex";
+      whoami.textContent = `Logged in as: ${role.toUpperCase()}`;
+
+      // Teachers: see grading tool + teacher portal button
+      if (role === "teacher") {
+        appPanel.style.display = "block";
+        teacherBtn.style.display = "inline-flex";
+        loggedAs.textContent = "Teacher (admin)";
+        setBadge("ok", "Ready", "Teacher mode: grading + portal");
+        updateUI();
+        return;
+      }
+
+      // Students: see grading tool, no teacher portal
+      appPanel.style.display = "block";
+      teacherBtn.style.display = "none";
+      loggedAs.textContent = `Student code: ${code}`;
+      setBadge("ok", "Ready", "Choose Ollama / Google / GPT");
+      updateUI();
+    }
+
+    async function doLogin() {
+      const code = (codeInput.value || "").trim();
+      if (!code) {
+        whoami.textContent = "Please enter a code.";
+        return;
+      }
+      whoami.textContent = "Checking code…";
+
+      try {
+        const res = await fetch(ENDPOINT_LOGIN, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+
+        if (!res.ok) {
+          const t = await res.text();
+          // Keep it short for UI; backend will show 401 invalid student code
+          whoami.textContent = "Login failed: " + t;
+          return;
+        }
+
+        const j = await res.json();
+        if (!j.ok) {
+          whoami.textContent = "Login failed.";
+          return;
+        }
+
+        setSession(j.role, code);
+        renderSessionUI();
+      } catch (e) {
+        whoami.textContent = "Login error: " + (e?.message || String(e));
+      }
+    }
+
+    loginBtn.addEventListener("click", doLogin);
+    codeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doLogin();
+    });
+    logoutBtn.addEventListener("click", () => {
+      clearSession();
+      codeInput.value = "";
+      renderSessionUI();
     });
 
-    // ✅ Correct polling: uses API_BASE, appends steps, shows error, avoids duplicates
+    teacherBtn.addEventListener("click", () => {
+      const { role, code } = getSession();
+      if (role === "teacher" && code) {
+        window.location.href = API_BASE + "/teacher?p=" + encodeURIComponent(code);
+      } else {
+        alert("Teacher portal requires admin code.");
+      }
+    });
+
+    // ---- PROGRESS POLLING ----
     async function pollProgress(jobId, lines, stopSignal) {
       let lastSeq = 0;
 
@@ -419,10 +613,8 @@
             }
 
             setStatusText(lines, "work");
+            if (j.done) break;
 
-            if (j.done) {
-              break;
-            }
           } else {
             lines.push(`[${nowTag()}] ERROR: progress fetch failed (${r.status})`);
             setStatusText(lines, "err");
@@ -437,6 +629,12 @@
     }
 
     async function postAndDownload(url, downloadName, providerLabel) {
+      const { role, code } = getSession();
+      if (!role || !code) {
+        alert("Please login first.");
+        return;
+      }
+
       const stu = studentTex.files[0];
       if (!stu) return;
 
@@ -454,10 +652,12 @@
         form.append("student_tex", stu);
         form.append("job_id", jobId);
 
-        const res = await fetch(url, { method: "POST", body: form });
+        // IMPORTANT: only students get logged server-side; don't send teacher code
+        if (role === "student") {
+          form.append("student_code", code);
+        }
 
-        // Let poll finish naturally (it will stop when done/error appears)
-        // But if server never wrote anything, stop it after we process response.
+        const res = await fetch(url, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
         if (!res.ok) {
@@ -468,12 +668,11 @@
             const j = await res.json();
             const msg = (typeof j.detail === "string") ? j.detail : JSON.stringify(j.detail ?? j, null, 2);
             lines.push(`[${nowTag()}] ERROR: ${msg}`);
-            setStatusText(lines, "err");
           } else {
             const t = await res.text();
             lines.push(`[${nowTag()}] ERROR: ${t}`);
-            setStatusText(lines, "err");
           }
+          setStatusText(lines, "err");
           return;
         }
 
@@ -497,7 +696,6 @@
 
         URL.revokeObjectURL(objUrl);
 
-        // Ensure progress loop ends
         stopSignal.stopped = true;
         await pollPromise;
 
@@ -525,7 +723,8 @@
       postAndDownload(ENDPOINT_GRADE_GPT, "graded_test_gpt.pdf", "GPT grading")
     );
 
-    updateUI();
+    // Initial render
+    renderSessionUI();
   </script>
 </body>
 </html>
