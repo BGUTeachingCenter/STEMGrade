@@ -13,12 +13,12 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import List, Protocol, Any, Dict, Optional
+from typing import List, Protocol, Any, Dict
 
 from .grader import BundleGrades, QuestionGrade, infer_max_points
 
-from .ollama_client import OllamaClient
-from .google_client import GoogleClient
+from grader.ai_clients.ollama_client import OllamaClient
+from grader.ai_clients.google_client import GoogleClient
 
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema

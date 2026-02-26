@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from .config import BANK_ROOT
-from grader.reference_tex import parse_reference_tex
+from grader.file_handling.reference_tex import parse_reference_tex
 
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,80}$")
 

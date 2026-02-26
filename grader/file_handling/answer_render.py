@@ -15,8 +15,8 @@ from typing import Dict, Optional
 import traceback
 from datetime import datetime
 
-from .compile_tex import compile_tex_to_pdf
-from .reference_ranges import Key
+from grader.file_handling.compile_tex import compile_tex_to_pdf
+from grader.file_handling.reference_ranges import Key
 
 
 def make_answer_tex(qnum: int, part: str, answer_latex: str, font_name: str) -> str:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # If you have these already, keep them. Otherwise remove/replace accordingly.
-from .json_sanitizer import sanitize_grades_json  # optional but recommended
+from grader.ai_grading.json_sanitizer import sanitize_grades_json  # optional but recommended
 
 
 def _escape_minimal(s: str) -> str:

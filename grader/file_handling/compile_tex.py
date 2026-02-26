@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .tex_cleaner import clean_tex
+from grader.file_handling.tex_cleaner import clean_tex
 
 
 @dataclass(frozen=True)

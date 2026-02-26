@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import re
 import os
-from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
-from .ollama_proofreader import proofread_tex_with_ollama
+from grader.file_handling.ai_proofreader import proofread_tex_with_ollama
 
 
 # ============================================================

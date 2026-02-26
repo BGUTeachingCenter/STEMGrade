@@ -5,7 +5,7 @@ import traceback
 from pathlib import Path
 from typing import Tuple
 
-from grader.compile_tex import compile_tex_to_pdf
+from grader.file_handling.compile_tex import compile_tex_to_pdf
 
 
 def _split_tex(tex_text: str) -> Tuple[str, str]:

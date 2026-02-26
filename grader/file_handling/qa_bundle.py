@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .bundler import QABundleOutputs, generate_bundle
+from grader.file_handling.bundler import QABundleOutputs, generate_bundle
 
 
 # ----------------------------

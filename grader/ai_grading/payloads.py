@@ -20,14 +20,14 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import fitz  # PyMuPDF
 
-from grader.pdf_cleanse import cleanse_test_pdf
-from grader.reference_ranges import Key, find_reference_ranges
-from grader.reference_tex import parse_reference_tex
-from grader.student_tex import parse_student_tex_answers
+from grader.file_handling.pdf_cleanse import cleanse_test_pdf
+from grader.file_handling.reference_ranges import Key, find_reference_ranges
+from grader.file_handling.reference_tex import parse_reference_tex
+from grader.file_handling.student_tex import parse_student_tex_answers
 
 
 _ANSWER_SPLIT_RE = re.compile(r"\bתשובה\s*:\s*", re.UNICODE)

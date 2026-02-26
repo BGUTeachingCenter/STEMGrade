@@ -7,9 +7,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.storage import list_exam_summaries
-from grader.student_tex import parse_student_tex_answers
-from grader.ai_grading.ollama_client import OllamaClient
-from grader.ai_grading.gpt_client import GptClient
+from grader.file_handling.student_tex import parse_student_tex_answers
+from grader.ai_clients.ollama_client import OllamaClient
 
 
 @dataclass(frozen=True)
@@ -144,19 +143,54 @@ def _llm_match(student_tex: Path, candidates: List[CandidateRef], *, top_k: int 
     )
 
 
-def pick_reference_from_bank(
+# def pick_reference_from_bank(
+#     *,
+#     bank_dir: Path,
+#     student_tex: Path,
+#     prefer_heuristic: bool = True,
+#     llm_top_k: int = 8,
+# ) -> Path:
+#     """
+#     Returns path to the chosen reference_current.tex using saved summaries.
+#
+#     NO FALLBACK:
+#       - if heuristic is enabled and no match -> raise (unless you explicitly want LLM to run)
+#       - if LLM is run and doesn't pick a valid candidate -> raise
+#     """
+#     candidates = _collect_candidates_from_summaries(bank_dir)
+#     if not candidates:
+#         raise RuntimeError(
+#             "No reference summaries found in bank. "
+#             "Upload a teacher reference first (reference_current.tex) so reference_summary.json is created. "
+#             f"bank_dir={bank_dir}"
+#         )
+#
+#     # Heuristic first
+#     if prefer_heuristic:
+#         h = _heuristic_match_by_qnums(student_tex, candidates)
+#         if h:
+#             return h.path
+#
+#         # 🚫 No fallback: if heuristic is on and fails, stop here
+#         raise RuntimeError(
+#             "No confident match found by heuristic matching (qnums overlap). "
+#             "Student answers did not match any exam in the bank."
+#         )
+#
+#     # If you turn off heuristic, we try LLM directly
+#     chosen = _llm_match(student_tex, candidates, top_k=llm_top_k)
+#     return chosen.path
+
+def pick_reference_with_exam_id(
     *,
     bank_dir: Path,
     student_tex: Path,
     prefer_heuristic: bool = True,
     llm_top_k: int = 8,
-) -> Path:
+) -> tuple[str, Path]:
     """
-    Returns path to the chosen reference_current.tex using saved summaries.
-
-    NO FALLBACK:
-      - if heuristic is enabled and no match -> raise (unless you explicitly want LLM to run)
-      - if LLM is run and doesn't pick a valid candidate -> raise
+    Returns (exam_id, reference_tex_path).
+    No fallback behavior is preserved from your existing pick_reference_from_bank().
     """
     candidates = _collect_candidates_from_summaries(bank_dir)
     if not candidates:
@@ -166,18 +200,33 @@ def pick_reference_from_bank(
             f"bank_dir={bank_dir}"
         )
 
-    # Heuristic first
     if prefer_heuristic:
         h = _heuristic_match_by_qnums(student_tex, candidates)
         if h:
-            return h.path
-
-        # 🚫 No fallback: if heuristic is on and fails, stop here
+            return h.exam_id, h.path
         raise RuntimeError(
             "No confident match found by heuristic matching (qnums overlap). "
             "Student answers did not match any exam in the bank."
         )
 
-    # If you turn off heuristic, we try LLM directly
     chosen = _llm_match(student_tex, candidates, top_k=llm_top_k)
-    return chosen.path
+    return chosen.exam_id, chosen.path
+
+
+def pick_reference_from_bank(
+    *,
+    bank_dir: Path,
+    student_tex: Path,
+    prefer_heuristic: bool = True,
+    llm_top_k: int = 8,
+) -> Path:
+    """
+    Backwards-compatible: returns only the path.
+    """
+    _exam_id, p = pick_reference_with_exam_id(
+        bank_dir=bank_dir,
+        student_tex=student_tex,
+        prefer_heuristic=prefer_heuristic,
+        llm_top_k=llm_top_k,
+    )
+    return p

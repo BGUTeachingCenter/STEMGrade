@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 
-from .math_normalize import normalize_math_text
+from grader.ai_grading.math_normalize import normalize_math_text
 
 
 _MATH_SPLIT_RE = re.compile(r"(\$\$.*?\$\$|\$.*?\$)", re.DOTALL)

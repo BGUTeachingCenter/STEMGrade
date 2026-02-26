@@ -15,13 +15,13 @@ from fastapi.responses import FileResponse
 from core.config import RUNS_ROOT, FIXED_FONT, BANK_ROOT
 from core.debug import write_debug_log
 
-from grader import pick_reference_from_bank
-from grader.qa_bundle import generate_qa_bundle_from_reference_tex
+from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
+from grader.file_handling.qa_bundle import generate_qa_bundle_from_reference_tex
 from grader.ai_grading.grader_sources import grade_reference_tex_and_student_tex
-from grader.ai_grading.feedback_latex import build_feedback_tex  # ✅ TeX-first feedback
-from grader.ai_grading.graded_pdf import build_graded_pdf      # ✅ unions 2 tex and compiles once
+from grader.file_handling.feedback_tex import build_feedback_tex  # ✅ TeX-first feedback
+from grader.file_handling.graded_pdf import build_graded_pdf      # ✅ unions 2 tex and compiles once
 
-from grader.student_tex import parse_student_tex_answers
+from grader.file_handling.student_tex import parse_student_tex_answers
 
 from api.progress import init_job, push, done, fail
 
@@ -180,7 +180,7 @@ async def _grade_tex_flow(
         if not BANK_ROOT.exists():
             raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
-        chosen_ref = pick_reference_from_bank(
+        exam_id, chosen_ref = pick_reference_with_exam_id(
             bank_dir=BANK_ROOT,
             student_tex=tex_path,
             prefer_heuristic=True,
@@ -188,7 +188,7 @@ async def _grade_tex_flow(
         )
 
         if job_id:
-            push(job_id, f"Fetched: {Path(chosen_ref).name}")
+            push(job_id, f"Fetched: {exam_id} / {Path(chosen_ref).name}")
 
         # Copy reference into run folder
         ref_path = tmp_dir / Path(chosen_ref).name

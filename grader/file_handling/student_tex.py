@@ -11,8 +11,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from .reference_ranges import Key
-from .part_normalize import normalize_part
+from grader.file_handling.reference_ranges import Key
+from grader.file_handling.part_normalize import normalize_part
 
 
 # Primary format: \subsection*{Question 1 ...} or \subsection*{שאלה 1 ...}

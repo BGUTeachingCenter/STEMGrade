@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from core.security import require_teacher_password
 from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary
 from core.config import BANK_ROOT
-from grader.reference_tex import parse_reference_tex
+from grader.file_handling.reference_tex import parse_reference_tex
 
 router = APIRouter(prefix="/api/bank", tags=["bank"])
 
