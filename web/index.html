@@ -81,7 +81,6 @@
       backdrop-filter: blur(10px);
     }
 
-    /* --- Top row: login (left) + stats placeholder (right) --- */
     .topGrid{
       display:grid;
       grid-template-columns: 360px 1fr;
@@ -166,7 +165,6 @@
       border-radius: 12px;
     }
 
-    /* main app */
     .drop{
       position:relative;
       border:1px dashed rgba(255,255,255,.20);
@@ -258,6 +256,20 @@
       justify-content:center;
       text-align:center;
     }
+
+    .sectionDivider{
+      margin:18px 0 8px;
+      height:1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent);
+    }
+
+    .sectionTitle{
+      margin-top:8px;
+      margin-bottom:4px;
+      font-weight:800;
+      font-size:15px;
+      color:var(--text);
+    }
   </style>
 </head>
 
@@ -267,7 +279,7 @@
       <div>
         <h1>MathGrade</h1>
         <div class="sub">
-          Students: enter your <b>code</b>, then upload your <b>.tex</b> answers.<br/>
+          Students: enter your <b>code</b>, then upload your <b>.tex</b> answers or a <b>handwritten homework image/PDF</b> for OCR.<br/>
           Teachers: enter the <b>admin code</b> to unlock the Teacher Portal button.
         </div>
       </div>
@@ -280,7 +292,6 @@
     <div class="card">
       <div class="cardInner">
 
-        <!-- Top: small login on the left, reserved stats box on the right -->
         <div class="topGrid">
           <div class="panel loginPanel" id="loginPanel">
             <div class="label"><span class="icon">🔐</span> Login</div>
@@ -315,8 +326,9 @@
           </div>
         </div>
 
-        <!-- Main app area (shown after login) -->
         <div id="appPanel" style="display:none;">
+
+          <div class="sectionTitle">Direct LaTeX submission</div>
 
           <div class="drop" id="dropStudentTex">
             <div class="label" style="font-weight:800; font-size:16px; display:flex; gap:10px; align-items:center;">
@@ -326,13 +338,13 @@
             <div class="chip" id="stuChip" style="display:none;">
               <span>Selected:</span> <span id="stuName" style="color:var(--text)"></span>
             </div>
-            <input id="studentTex" type="file" accept=".tex" />
+            <input id="studentTex" type="file" accept=".tex,.txt" />
           </div>
 
           <div class="row">
             <div class="btnRow">
               <button id="gradeOllamaBtn" class="btnOllama" disabled type="button">Grade (Ollama)</button>
-              <button id="gradeGoogleBtn" class="btnGoogle" disabled type="button">Grade (Google)</button>
+              <button id="gradeGoogleBtn" class="btnGoogle" disabled type="button">Grade (Gemini)</button>
               <button id="gradeGptBtn" class="btnGpt" disabled type="button">Grade (GPT)</button>
             </div>
 
@@ -340,6 +352,34 @@
               Ollama model: <b id="ollamaModelName">…</b><br/>
               Google model: <b id="googleModelName">…</b><br/>
               GPT model: <b id="gptModelName">…</b>
+            </div>
+          </div>
+
+          <div class="sectionDivider"></div>
+          <div class="sectionTitle">Handwritten homework OCR</div>
+
+          <div class="drop" id="dropHandwritten">
+            <div class="label" style="font-weight:800; font-size:16px; display:flex; gap:10px; align-items:center;">
+              <span class="icon">✍️</span> Handwritten homework (image/PDF)
+            </div>
+            <div class="hint">
+              Drag & drop a <b>.png, .jpg, .jpeg, .webp, or .pdf</b> file here, or click to choose.<br/>
+              This first step only runs preliminary OCR and returns the extracted text for review.
+            </div>
+            <div class="chip" id="ocrChip" style="display:none;">
+              <span>Selected:</span> <span id="ocrName" style="color:var(--text)"></span>
+            </div>
+            <input id="handwrittenFile" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" />
+          </div>
+
+          <div class="row">
+            <div class="btnRow">
+              <button id="ocrBtn" class="btnGoogle" disabled type="button">OCR Handwritten</button>
+            </div>
+
+            <div style="font-size:12px; color:var(--muted); line-height:1.5; max-width: 460px;">
+              Upload one handwritten page or PDF first.<br/>
+              Later we’ll add LaTeX review and submit-to-grade flow.
             </div>
           </div>
 
@@ -360,6 +400,7 @@
     const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
     const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";
+    const ENDPOINT_OCR          = API_BASE + "/api/ocr_handwritten";
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
     const ENDPOINT_LOGIN = API_BASE + "/api/login";
 
@@ -370,9 +411,15 @@
     const stuChip = document.getElementById("stuChip");
     const stuName = document.getElementById("stuName");
 
+    const handwrittenFile = document.getElementById("handwrittenFile");
+    const dropHandwritten = document.getElementById("dropHandwritten");
+    const ocrChip = document.getElementById("ocrChip");
+    const ocrName = document.getElementById("ocrName");
+
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
     const gradeGptBtn    = document.getElementById("gradeGptBtn");
+    const ocrBtn         = document.getElementById("ocrBtn");
 
     const dot = document.getElementById("dot");
     const badgeTitle = document.getElementById("badgeTitle");
@@ -410,10 +457,10 @@
       if (!statusEl) return;
       statusEl.textContent = lines.join("\n");
       statusEl.classList.remove("ok","err","work");
-      if (kind === "ok") { statusEl.classList.add("ok"); setBadge("ok", "Done", "Download should start"); }
+      if (kind === "ok") { statusEl.classList.add("ok"); setBadge("ok", "Done", "Operation completed"); }
       else if (kind === "err") { statusEl.classList.add("err"); setBadge("err", "Error", "See details below"); }
       else if (kind === "work") { statusEl.classList.add("work"); setBadge("warn", "Working", "Please wait…"); }
-      else { setBadge("warn", "Ready", "Select a student file"); }
+      else { setBadge("warn", "Ready", "Select a file"); }
     }
 
     function mkJobId() {
@@ -421,10 +468,12 @@
     }
 
     function disableAll(disabled) {
-      const ready = !!(studentTex && studentTex.files && studentTex.files[0]);
-      gradeOllamaBtn.disabled = disabled || !ready;
-      gradeGoogleBtn.disabled = disabled || !ready;
-      gradeGptBtn.disabled    = disabled || !ready;
+      const readyTex = !!(studentTex && studentTex.files && studentTex.files[0]);
+      const readyOcr = !!(handwrittenFile && handwrittenFile.files && handwrittenFile.files[0]);
+      gradeOllamaBtn.disabled = disabled || !readyTex;
+      gradeGoogleBtn.disabled = disabled || !readyTex;
+      gradeGptBtn.disabled    = disabled || !readyTex;
+      ocrBtn.disabled         = disabled || !readyOcr;
     }
 
     async function loadHealth() {
@@ -444,19 +493,36 @@
 
     function updateUI() {
       const stu = studentTex.files[0];
-      if (stu) { stuChip.style.display = "inline-flex"; stuName.textContent = stu.name; }
-      else { stuChip.style.display = "none"; }
+      if (stu) {
+        stuChip.style.display = "inline-flex";
+        stuName.textContent = stu.name;
+      } else {
+        stuChip.style.display = "none";
+        stuName.textContent = "";
+      }
 
-      const ready = !!stu;
-      gradeOllamaBtn.disabled = !ready;
-      gradeGoogleBtn.disabled = !ready;
-      gradeGptBtn.disabled    = !ready;
+      const hw = handwrittenFile.files[0];
+      if (hw) {
+        ocrChip.style.display = "inline-flex";
+        ocrName.textContent = hw.name;
+      } else {
+        ocrChip.style.display = "none";
+        ocrName.textContent = "";
+      }
 
-      if (ready) setBadge("ok", "Ready", "Choose Ollama / Google / GPT");
-      else setBadge("warn", "Ready", "Select a student file");
+      const readyTex = !!stu;
+      const readyOcr = !!hw;
+
+      gradeOllamaBtn.disabled = !readyTex;
+      gradeGoogleBtn.disabled = !readyTex;
+      gradeGptBtn.disabled    = !readyTex;
+      ocrBtn.disabled         = !readyOcr;
+
+      if (readyTex || readyOcr) setBadge("ok", "Ready", "Choose grading or OCR");
+      else setBadge("warn", "Ready", "Select a file");
     }
 
-    function wireDropZone(zone, input, acceptCheck) {
+    function wireDropZone(zone, input, acceptCheck, errorMessage) {
       zone.addEventListener("click", () => input.click());
       zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
       zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
@@ -466,7 +532,7 @@
         const file = e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
         if (!acceptCheck(file)) {
-          setStatusText([`[${nowTag()}] Wrong file type. Please upload a .tex file.`], "err");
+          setStatusText([`[${nowTag()}] ${errorMessage}`], "err");
           return;
         }
         const dt = new DataTransfer();
@@ -477,12 +543,26 @@
       input.addEventListener("change", updateUI);
     }
 
-    wireDropZone(dropStudentTex, studentTex, (f) => {
-      const n = (f.name || "").toLowerCase();
-      return n.endsWith(".tex") || n.endsWith(".txt");
-    });
+    wireDropZone(
+      dropStudentTex,
+      studentTex,
+      (f) => {
+        const n = (f.name || "").toLowerCase();
+        return n.endsWith(".tex") || n.endsWith(".txt");
+      },
+      "Wrong file type. Please upload a .tex file."
+    );
 
-    // ---- LOGIN ----
+    wireDropZone(
+      dropHandwritten,
+      handwrittenFile,
+      (f) => {
+        const n = (f.name || "").toLowerCase();
+        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp") || n.endsWith(".pdf");
+      },
+      "Wrong file type. Please upload PNG, JPG, JPEG, WEBP, or PDF."
+    );
+
     function getSession() {
       return {
         role: localStorage.getItem(LS_ROLE) || "",
@@ -513,7 +593,6 @@
       logoutBtn.style.display = "inline-flex";
       whoami.textContent = `Logged in as: ${role.toUpperCase()}`;
 
-      // Teachers: see grading tool + teacher portal button
       if (role === "teacher") {
         appPanel.style.display = "block";
         teacherBtn.style.display = "inline-flex";
@@ -523,11 +602,10 @@
         return;
       }
 
-      // Students: see grading tool, no teacher portal
       appPanel.style.display = "block";
       teacherBtn.style.display = "none";
       loggedAs.textContent = `Student code: ${code}`;
-      setBadge("ok", "Ready", "Choose Ollama / Google / GPT");
+      setBadge("ok", "Ready", "Choose Ollama / Google / GPT / OCR");
       updateUI();
     }
 
@@ -548,7 +626,6 @@
 
         if (!res.ok) {
           const t = await res.text();
-          // Keep it short for UI; backend will show 401 invalid student code
           whoami.textContent = "Login failed: " + t;
           return;
         }
@@ -585,7 +662,6 @@
       }
     });
 
-    // ---- PROGRESS POLLING ----
     async function pollProgress(jobId, lines, stopSignal) {
       let lastSeq = 0;
 
@@ -652,7 +728,6 @@
         form.append("student_tex", stu);
         form.append("job_id", jobId);
 
-        // IMPORTANT: only students get logged server-side; don't send teacher code
         if (role === "student") {
           form.append("student_code", code);
         }
@@ -713,6 +788,82 @@
       }
     }
 
+    async function runOcr() {
+      const { role, code } = getSession();
+      if (!role || !code) {
+        alert("Please login first.");
+        return;
+      }
+
+      const hw = handwrittenFile.files[0];
+      if (!hw) return;
+
+      disableAll(true);
+
+      const lines = [
+        `[${nowTag()}] Started: Handwritten OCR`,
+        `[${nowTag()}] Uploading ${hw.name}…`
+      ];
+      setStatusText(lines, "work");
+
+      try {
+        const form = new FormData();
+        form.append("file", hw);
+
+        const res = await fetch(ENDPOINT_OCR, {
+          method: "POST",
+          body: form
+        });
+
+        const contentType = (res.headers.get("content-type") || "").toLowerCase();
+        let data = null;
+
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const txt = await res.text();
+          throw new Error(txt || `OCR request failed (${res.status})`);
+        }
+
+        if (!res.ok) {
+          const msg = (typeof data.detail === "string") ? data.detail : JSON.stringify(data.detail ?? data, null, 2);
+          lines.push(`[${nowTag()}] ERROR: ${msg}`);
+          setStatusText(lines, "err");
+          return;
+        }
+
+        lines.push(`[${nowTag()}] OCR finished ✅`);
+        if (data.confidence !== undefined && data.confidence !== null) {
+          lines.push(`[${nowTag()}] Confidence: ${data.confidence}`);
+        }
+        if (data.is_handwritten !== undefined && data.is_handwritten !== null) {
+          lines.push(`[${nowTag()}] is_handwritten: ${data.is_handwritten}`);
+        }
+        if (data.line_count !== undefined && data.line_count !== null) {
+          lines.push(`[${nowTag()}] line_count: ${data.line_count}`);
+        }
+
+        lines.push("");
+        lines.push("Detected text:");
+        lines.push(data.text || "(empty)");
+
+        if (data.latex_styled) {
+          lines.push("");
+          lines.push("LaTeX styled:");
+          lines.push(data.latex_styled);
+        }
+
+        setStatusText(lines, "ok");
+
+      } catch (e) {
+        lines.push(`[${nowTag()}] ERROR: ${e?.message || String(e)}`);
+        setStatusText(lines, "err");
+      } finally {
+        disableAll(false);
+        updateUI();
+      }
+    }
+
     gradeOllamaBtn.addEventListener("click", () =>
       postAndDownload(ENDPOINT_GRADE_OLLAMA, "graded_test_ollama.pdf", "Ollama grading")
     );
@@ -722,8 +873,8 @@
     gradeGptBtn.addEventListener("click", () =>
       postAndDownload(ENDPOINT_GRADE_GPT, "graded_test_gpt.pdf", "GPT grading")
     );
+    ocrBtn.addEventListener("click", runOcr);
 
-    // Initial render
     renderSessionUI();
   </script>
 </body>

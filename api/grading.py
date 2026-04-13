@@ -20,7 +20,7 @@ from core.config import RUNS_ROOT, FIXED_FONT, BANK_ROOT
 from core.debug import write_debug_log
 
 from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
-from grader.file_handling.qa_bundle import generate_qa_bundle_from_reference_tex
+from grader.file_handling.bundler import generate_bundle
 from grader.ai_grading.grader_sources import grade_reference_tex_and_student_tex
 from grader.file_handling.feedback_tex import build_feedback_tex  # TeX-first feedback
 from grader.file_handling.graded_pdf import build_graded_pdf      # unions 2 tex and compiles once
@@ -260,7 +260,7 @@ async def _grade_tex_flow(
 
         t_bundle = perf_counter()
         bundle_outputs = await run_in_threadpool(
-            generate_qa_bundle_from_reference_tex,
+            generate_bundle,
             reference_tex=ref_path,
             student_tex=tex_path,
             out_dir=out_dir,

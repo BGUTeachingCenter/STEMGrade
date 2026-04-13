@@ -1,24 +1,23 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-import json
 
-from grader.ai_grading.payloads import build_payloads_from_reference_tex
+from grader.ai_grading.payloads import build_payloads
 from grader.file_handling.answer_render import compile_student_answer_pdfs
 from grader.file_handling.compile_tex import compile_tex_to_pdf
+from grader.file_handling.part_normalize import normalize_part
 from grader.file_handling.pdf_cleanse import CleanseReport, cleanse_test_pdf
 from grader.file_handling.reference_ranges import Key, find_reference_ranges
 from grader.file_handling.student_tex import parse_student_tex_answers
-from grader.file_handling.part_normalize import normalize_part
 
 
 @dataclass(frozen=True)
 class QABundleOutputs:
-    """Outputs of bundle generation."""
     bundle_tex: Path
-    bundle_pdf: Optional[Path]  # ✅ now optional (only if compile_pdf=True)
+    bundle_pdf: Optional[Path]
     student_clean_pdf: Path
     reference_clean_pdf: Path
     cleanse_report: CleanseReport
@@ -27,43 +26,145 @@ class QABundleOutputs:
     student_answer_pdfs: Dict[Key, Optional[Path]]
 
 
+def generate_bundle(
+    *,
+    reference_tex: Path,
+    student_tex: Path,
+    out_dir: Path,
+    bundle_stem: str = "qa_bundle",
+    font_name: str = "Arial",
+    compile_pdf: bool = False,
+) -> QABundleOutputs:
+    """
+    Public entry point.
+
+    Supported reference inputs:
+      - .pdf
+      - .tex / .txt
+
+    By default, generates only the bundle .tex.
+    Set compile_pdf=True to also compile the bundle PDF.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    suffix = reference_tex.suffix.lower()
+    if suffix == ".pdf":
+        return _generate_from_reference_pdf(
+            reference_pdf=reference_tex,
+            student_tex=student_tex,
+            out_dir=out_dir,
+            bundle_stem=bundle_stem,
+            font_name=font_name,
+            compile_pdf=compile_pdf,
+        )
+
+    if suffix in {".tex", ".txt"}:
+        return _generate_from_reference_tex(
+            reference_tex=reference_tex,
+            student_tex=student_tex,
+            out_dir=out_dir,
+            bundle_stem=bundle_stem,
+            font_name=font_name,
+            compile_pdf=compile_pdf,
+        )
+
+    raise ValueError(
+        f"Unsupported reference type: {reference_tex.name}. Expected .pdf or .tex/.txt"
+    )
+
+
 def _norm_key(k: Key) -> Key:
     q, p = k
-    return (int(q), normalize_part(p))
+    return int(q), normalize_part(p)
 
 
 def _union_keys(*dicts: Dict[Key, object]) -> list[Key]:
-    s = set()
+    keys: set[Key] = set()
     for d in dicts:
         for k in d.keys():
-            s.add(_norm_key(k))
-    return sorted(s, key=lambda x: (x[0], x[1]))
+            keys.add(_norm_key(k))
+    return sorted(keys, key=lambda x: (x[0], x[1]))
 
 
-def _tex_path(p: Path) -> str:
-    return p.as_posix()
+def _tex_path(path: Path) -> str:
+    return path.as_posix()
 
 
-def _write_bundle_tex(
+def _tex_escape_text(text: str) -> str:
+    if not text:
+        return ""
+    return (
+        text.replace("\\", r"\textbackslash{}")
+        .replace("&", r"\&")
+        .replace("%", r"\%")
+        .replace("$", r"\$")
+        .replace("#", r"\#")
+        .replace("_", r"\_")
+        .replace("{", r"\{")
+        .replace("}", r"\}")
+        .replace("~", r"\textasciitilde{}")
+        .replace("^", r"\textasciicircum{}")
+    )
+
+
+def _sort_key(k: Key):
+    qnum, part = k
+    try:
+        qnum_sort = int(qnum)
+    except Exception:
+        qnum_sort = str(qnum)
+    part_sort = "" if part in (None, "") else str(part)
+    return qnum_sort, part_sort
+
+
+def _compile_bundle_pdf(
+    *,
+    bundle_tex: Path,
+    out_dir: Path,
+    font_name: str,
+    texinputs: list[Path],
+    bundle_stem: str,
+) -> Path:
+    bundle_pdf = compile_tex_to_pdf(
+        bundle_tex,
+        out_dir,
+        clean=False,
+        font_name=font_name,
+        passes=2,
+        texinputs=texinputs,
+    ).pdf
+
+    normalized = out_dir / f"{bundle_stem}.pdf"
+    if bundle_pdf.exists() and bundle_pdf != normalized:
+        try:
+            bundle_pdf.replace(normalized)
+            bundle_pdf = normalized
+        except Exception:
+            pass
+
+    if not bundle_pdf.exists():
+        raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+
+    return bundle_pdf
+
+
+def _write_bundle_tex_from_pdf_reference(
     out_tex: Path,
     *,
     title: str,
     font_name: str,
-    reference_pdf: Optional[Path] = None,
-    ref_ranges: Optional[Dict[Key, Tuple[int, int]]] = None,
-    reference_snippets: Optional[Dict[Key, str]] = None,
+    reference_pdf: Path,
+    ref_ranges: Dict[Key, Tuple[int, int]],
     answer_pdfs: Dict[Key, Optional[Path]],
 ) -> None:
-    """Single writer for both 'reference PDF pages' and 'reference TeX snippets' modes."""
+    """
+    PDF-reference mode:
+    include reference PDF page ranges + rendered student answer PDFs.
+    """
     out_tex.parent.mkdir(parents=True, exist_ok=True)
 
-    if reference_pdf is None and reference_snippets is None:
-        raise ValueError("Must provide either reference_pdf or reference_snippets.")
-
-    ref_ranges = ref_ranges or {}
-    reference_snippets = reference_snippets or {}
-
-    keys = _union_keys(reference_snippets, ref_ranges, answer_pdfs)
+    keys = _union_keys(ref_ranges, answer_pdfs)
+    ref_pdf_tex = _tex_path(reference_pdf)
 
     tex: list[str] = []
     tex.append("\\documentclass[12pt]{article}\n")
@@ -84,35 +185,28 @@ def _write_bundle_tex(
     tex.append(f"\\section*{{{title}}}\n")
     tex.append("\\tableofcontents\n\\newpage\n")
 
-    ref_pdf_tex = _tex_path(reference_pdf) if reference_pdf is not None else ""
-
-    for (qnum, part) in keys:
+    for qnum, part in keys:
         section_title = f"שאלה {qnum}" + (f"({part})" if part else "")
         tex.append(f"\\section{{{section_title}}}\n")
 
         tex.append("\\subsection*{Reference (question + official solution)}\n")
-        if reference_pdf is not None:
-            rng = ref_ranges.get((qnum, part)) or ref_ranges.get((qnum, ""))
-            if rng:
-                start, end = rng
-                tex.append(f"\\includepdf[pages={{{start}-{end}}},pagecommand={{}}]{{{ref_pdf_tex}}}\n")
-            else:
-                tex.append("\\textcolor{red}{Missing reference page-range for this part.}\\par\n")
+        rng = ref_ranges.get((qnum, part)) or ref_ranges.get((qnum, ""))
+        if rng:
+            start, end = rng
+            tex.append(
+                f"\\includepdf[pages={{{start}-{end}}},pagecommand={{}}]{{{ref_pdf_tex}}}\n"
+            )
         else:
-            ref_block = (reference_snippets.get((qnum, part)) or reference_snippets.get((qnum, "")) or "").strip()
-            if not ref_block:
-                tex.append("\\textcolor{red}{Missing reference snippet for this part.}\\par\n")
-            else:
-                tex.append("\\begingroup\n")
-                tex.append(ref_block)
-                tex.append("\n\\endgroup\n")
+            tex.append("\\textcolor{red}{Missing reference page-range for this part.}\\par\n")
 
         tex.append("\\subsection*{Student answer (rendered)}\n")
-        ap = answer_pdfs.get((qnum, part)) or answer_pdfs.get((qnum, ""))
-        if ap is None:
+        answer_pdf = answer_pdfs.get((qnum, part)) or answer_pdfs.get((qnum, ""))
+        if answer_pdf is None:
             tex.append("\\textcolor{red}{Could not compile student answer for this part.}\\par\n")
         else:
-            tex.append(f"\\includepdf[pages=-,pagecommand={{}}]{{{_tex_path(ap)}}}\n")
+            tex.append(
+                f"\\includepdf[pages=-,pagecommand={{}}]{{{_tex_path(answer_pdf)}}}\n"
+            )
 
         tex.append("\\newpage\n")
 
@@ -120,47 +214,64 @@ def _write_bundle_tex(
     out_tex.write_text("".join(tex), encoding="utf-8")
 
 
-def generate_bundle(
+def _write_bundle_tex_inline_answers(
+    out_tex: Path,
     *,
-    reference: Path,
-    student_tex: Path,
-    out_dir: Path,
-    bundle_stem: str = "qa_bundle",
-    font_name: str = "Arial",
-    compile_pdf: bool = False,   # ✅ NEW: TeX-first by default
-) -> QABundleOutputs:
-    """Single entry point to generate a Q/A bundle.
-
-    `reference` can be either:
-      - a .pdf with questions+official solution, or
-      - a .tex/.txt with questions+official solution.
-
-    By default this generates ONLY the TeX bundle (bundle_tex).
-    Set compile_pdf=True if you also want bundle_pdf compiled.
+    title: str,
+    font_name: str,
+    reference_snippets: Dict[Key, str],
+    student_answers: Dict[Key, str],
+) -> None:
     """
-    out_dir.mkdir(parents=True, exist_ok=True)
+    Fast TeX-first mode:
+    include reference snippets + raw student LaTeX inline.
+    """
+    out_tex.parent.mkdir(parents=True, exist_ok=True)
 
-    suf = reference.suffix.lower()
-    if suf == ".pdf":
-        return _generate_from_reference_pdf(
-            reference_pdf=reference,
-            student_tex=student_tex,
-            out_dir=out_dir,
-            bundle_stem=bundle_stem,
-            font_name=font_name,
-            compile_pdf=compile_pdf,
-        )
-    if suf in (".tex", ".txt"):
-        return _generate_from_reference_tex(
-            reference_tex=reference,
-            student_tex=student_tex,
-            out_dir=out_dir,
-            bundle_stem=bundle_stem,
-            font_name=font_name,
-            compile_pdf=compile_pdf,
-        )
+    ordered_keys = sorted(
+        set(reference_snippets.keys()) | set(student_answers.keys()),
+        key=_sort_key,
+    )
 
-    raise ValueError(f"Unsupported reference type: {reference.name}. Expected .pdf or .tex/.txt")
+    parts: list[str] = [
+        r"\documentclass[12pt]{article}",
+        r"\usepackage[a4paper,margin=1in]{geometry}",
+        r"\usepackage{amsmath,amssymb,mathtools}",
+        r"\usepackage{graphicx}",
+        r"\usepackage{xcolor}",
+        r"\usepackage{enumitem}",
+        r"\usepackage{longtable}",
+        r"\usepackage{array}",
+        r"\usepackage{iftex}",
+        r"\usepackage{fontspec}",
+        rf"\setmainfont{{{font_name}}}",
+        r"\setlength{\parindent}{0pt}",
+        r"\setlength{\parskip}{0.6em}",
+        r"\begin{document}",
+        rf"{{\LARGE \textbf{{{_tex_escape_text(title)}}}}}\par",
+        r"\vspace{1em}",
+    ]
+
+    for qnum, part in ordered_keys:
+        label = f"Q{qnum}" + (f"({part})" if part else "")
+        ref_block = (reference_snippets.get((qnum, part)) or "").strip()
+        student_block = (student_answers.get((qnum, part)) or "").strip()
+
+        parts.extend([
+            r"\hrule",
+            r"\vspace{0.8em}",
+            rf"{{\large \textbf{{{_tex_escape_text(label)}}}}}\par",
+            r"\vspace{0.5em}",
+            r"{\bfseries Reference}\par",
+            ref_block if ref_block else r"{\color{red}No reference content found.}",
+            r"\vspace{0.8em}",
+            r"{\bfseries Student answer}\par",
+            student_block if student_block else r"{\color{red}No student answer found for this part.}",
+            r"\vspace{1.2em}",
+        ])
+
+    parts.append(r"\end{document}")
+    out_tex.write_text("\n".join(parts), encoding="utf-8")
 
 
 def _generate_from_reference_pdf(
@@ -175,7 +286,10 @@ def _generate_from_reference_pdf(
     cleanse_report = cleanse_test_pdf(reference_pdf, out_dir)
     reference_clean_pdf = cleanse_report.output_pdf
 
-    ref_ranges = {_norm_key(k): v for k, v in find_reference_ranges(reference_clean_pdf, out_dir).items()}
+    ref_ranges = {
+        _norm_key(k): v
+        for k, v in find_reference_ranges(reference_clean_pdf, out_dir).items()
+    }
     if not ref_ranges:
         raise RuntimeError(
             "Reference question detection failed.\n"
@@ -193,7 +307,6 @@ def _generate_from_reference_pdf(
             "Check build/debug_student_tex_parts.txt."
         )
 
-    # still compile whole student tex for inspection/debug
     student_clean_pdf = compile_tex_to_pdf(
         student_tex,
         out_dir,
@@ -203,11 +316,16 @@ def _generate_from_reference_pdf(
         texinputs=[student_tex.parent],
     ).pdf
 
-    answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name, clean=True)
+    answer_pdfs = compile_student_answer_pdfs(
+        student_answers,
+        out_dir,
+        font_name,
+        clean=True,
+    )
     answer_pdfs = {_norm_key(k): v for k, v in answer_pdfs.items()}
 
     bundle_tex = out_dir / f"{bundle_stem}.tex"
-    _write_bundle_tex(
+    _write_bundle_tex_from_pdf_reference(
         bundle_tex,
         title="Q/A Bundle (Reference pages + Rendered student answers)",
         font_name=font_name,
@@ -218,25 +336,13 @@ def _generate_from_reference_pdf(
 
     bundle_pdf: Optional[Path] = None
     if compile_pdf:
-        bundle_pdf = compile_tex_to_pdf(
-            bundle_tex,
-            out_dir,
-            clean=False,
+        bundle_pdf = _compile_bundle_pdf(
+            bundle_tex=bundle_tex,
+            out_dir=out_dir,
             font_name=font_name,
-            passes=2,
             texinputs=[bundle_tex.parent],
-        ).pdf
-
-        normalized = out_dir / f"{bundle_stem}.pdf"
-        if bundle_pdf.exists() and bundle_pdf != normalized:
-            try:
-                bundle_pdf.replace(normalized)
-                bundle_pdf = normalized
-            except Exception:
-                pass
-
-        if not bundle_pdf.exists():
-            raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+            bundle_stem=bundle_stem,
+        )
 
     return QABundleOutputs(
         bundle_tex=bundle_tex,
@@ -259,8 +365,17 @@ def _generate_from_reference_tex(
     font_name: str,
     compile_pdf: bool,
 ) -> QABundleOutputs:
+    """
+    Fast TeX-first path:
+    - uses build_payloads_from_reference_tex(...) as the source of truth
+    - extracts reference snippets + raw student LaTeX from payloads
+    - writes one bundle .tex with inline student answers
+    - compiles only if compile_pdf=True
+    """
     payload_out = out_dir / "bundle_payloads"
-    manifest_path, items = build_payloads_from_reference_tex(
+    payload_out.mkdir(parents=True, exist_ok=True)
+
+    _, items = build_payloads(
         reference_tex=reference_tex,
         student_tex=student_tex,
         out_dir=payload_out,
@@ -271,66 +386,43 @@ def _generate_from_reference_tex(
     student_answers: Dict[Key, str] = {}
     student_ranges: Dict[Key, Tuple[int, int]] = {}
 
-    for it in items:
-        data = json.loads(it.payload_path.read_text(encoding="utf-8"))
-        k = _norm_key((data["key"]["qnum"], data["key"]["part"]))
+    for item in items:
+        data = json.loads(item.payload_path.read_text(encoding="utf-8"))
+        key = _norm_key((data["key"]["qnum"], data["key"]["part"]))
 
-        q = (data.get("reference", {}).get("question_text") or "").strip()
-        sol = (data.get("reference", {}).get("solution_text") or "").strip()
+        question_text = (data.get("reference", {}).get("question_text") or "").strip()
+        solution_text = (data.get("reference", {}).get("solution_text") or "").strip()
+        reference_snippets[key] = "\n\n".join(
+            part for part in [question_text, solution_text] if part
+        ).strip()
 
-        ref_block = "\n\n".join([x for x in [q, sol] if x]).strip()
-        reference_snippets[k] = ref_block
-
-        s = (data.get("student", {}).get("latex_raw") or "").strip()
-        student_answers[k] = s
+        student_answers[key] = (data.get("student", {}).get("latex_raw") or "").strip()
 
     if not student_answers:
         raise RuntimeError("No student answers found in generated payloads (reference_tex path).")
 
-    student_clean_pdf = compile_tex_to_pdf(
-        student_tex,
-        out_dir,
-        clean=True,
-        font_name=font_name,
-        passes=2,
-        texinputs=[student_tex.parent],
-    ).pdf
-
-    answer_pdfs = compile_student_answer_pdfs(student_answers, out_dir, font_name)
-    answer_pdfs = {_norm_key(k): v for k, v in answer_pdfs.items()}
-
     bundle_tex = out_dir / f"{bundle_stem}.tex"
-    _write_bundle_tex(
+    _write_bundle_tex_inline_answers(
         bundle_tex,
-        title="Q/A Bundle (Reference TeX + Rendered student answers)",
+        title="Q/A Bundle (Reference TeX + Inline student answers)",
         font_name=font_name,
         reference_snippets=reference_snippets,
-        answer_pdfs=answer_pdfs,
+        student_answers=student_answers,
     )
 
     bundle_pdf: Optional[Path] = None
     if compile_pdf:
-        bundle_pdf = compile_tex_to_pdf(
-            bundle_tex,
-            out_dir,
-            clean=False,
+        bundle_pdf = _compile_bundle_pdf(
+            bundle_tex=bundle_tex,
+            out_dir=out_dir,
             font_name=font_name,
-            passes=2,
             texinputs=[bundle_tex.parent, reference_tex.parent, student_tex.parent],
-        ).pdf
-
-        normalized = out_dir / f"{bundle_stem}.pdf"
-        if bundle_pdf.exists() and bundle_pdf != normalized:
-            try:
-                bundle_pdf.replace(normalized)
-                bundle_pdf = normalized
-            except Exception:
-                pass
-
-        if not bundle_pdf.exists():
-            raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
+            bundle_stem=bundle_stem,
+        )
 
     placeholder_pdf = out_dir / "reference_tex_placeholder.pdf"
+    student_placeholder_pdf = out_dir / "student_tex_placeholder.pdf"
+
     cleanse_report = CleanseReport(
         input_pdf=placeholder_pdf,
         output_pdf=placeholder_pdf,
@@ -343,10 +435,10 @@ def _generate_from_reference_tex(
     return QABundleOutputs(
         bundle_tex=bundle_tex,
         bundle_pdf=bundle_pdf,
-        student_clean_pdf=student_clean_pdf,
+        student_clean_pdf=student_placeholder_pdf,
         reference_clean_pdf=placeholder_pdf,
         cleanse_report=cleanse_report,
         ref_ranges={},
         student_ranges=student_ranges,
-        student_answer_pdfs=answer_pdfs,
+        student_answer_pdfs={},
     )

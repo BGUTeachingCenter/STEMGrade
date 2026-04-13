@@ -2,18 +2,10 @@ from __future__ import annotations
 
 """Build machine-readable grading payloads.
 
-We separate *data preparation* from *AI grading*.
+Public API:
+    build_payloads(...)
 
-Payloads are JSON files (one per question/part) plus a manifest.json that
-enumerates them. This makes the pipeline reproducible and debuggable:
-
-  reference.pdf + student.tex -> payloads/*.json -> grades.json -> graded PDF
-
-Design goals:
-  - Hebrew stays as Unicode text.
-  - Math stays as LaTeX when possible (student answer is raw LaTeX).
-  - Each question/part is a standalone unit with a stable id.
-  - Provide an AI-focused compact view ("ai_input") to reduce LLM confusion.
+Everything else in this module is private.
 """
 
 import json
@@ -30,14 +22,21 @@ from grader.file_handling.reference_tex import parse_reference_tex
 from grader.file_handling.student_tex import parse_student_tex_answers
 
 
+@dataclass(frozen=True)
+class PayloadItem:
+    key: Key
+    qid: str
+    max_points: float
+    reference_text: str
+    student_latex: str
+    payload_path: Path
+
+
 _ANSWER_SPLIT_RE = re.compile(r"\bתשובה\s*:\s*", re.UNICODE)
 _POINTS_AFTER_RE = re.compile(r"נקודות[^0-9]{0,12}(\d{1,3})", re.UNICODE)
 _POINTS_BEFORE_RE = re.compile(r"(\d{1,3})\s*נקודות", re.UNICODE)
-
-# If the reference text already contains LaTeX math blocks, we preserve them.
 _MATH_BLOCK_RE = re.compile(r"(\$\$.*?\$\$|\$.*?\$)", re.DOTALL)
 
-# Unicode -> LaTeX-ish substitutions (conservative)
 _UNICODE_REPL = {
     "≤": r"\leq",
     "≥": r"\geq",
@@ -67,64 +66,74 @@ _UNICODE_REPL = {
     "γ": r"\gamma",
 }
 
-# Heuristic "mathy fragment" detector (conservative: wraps only obvious tokens)
 _MATHY_RE = re.compile(
     r"(\\(frac|int|sum|lim|max|min|sup|inf|cdot|to|infty|Delta|delta|epsilon|lambda|pi|theta|alpha|beta|gamma)\b|"
-    r"[A-Za-z]\w*\s*\([^)]*\)|"             # f(x), S(...), lim(...)
-    r"[A-Za-z]\w*_\{[^}]+\}|"               # x_{i+1}
-    r"[A-Za-z]\w*\^\{[^}]+\}|"              # x^{2}
-    r"[A-Za-z]\w*_[A-Za-z0-9]+|"            # x_i
-    r"[A-Za-z]\w*\^[A-Za-z0-9]+|"           # x^2
-    r"\b\d+\s*/\s*\d+\b|"                   # 2/3
-    r"[=<>]=?|\\leq|\\geq|\\neq)"           # comparisons
+    r"[A-Za-z]\w*\s*\([^)]*\)|"
+    r"[A-Za-z]\w*_\{[^}]+\}|"
+    r"[A-Za-z]\w*\^\{[^}]+\}|"
+    r"[A-Za-z]\w*_[A-Za-z0-9]+|"
+    r"[A-Za-z]\w*\^[A-Za-z0-9]+|"
+    r"\b\d+\s*/\s*\d+\b|"
+    r"[=<>]=?|\\leq|\\geq|\\neq)"
 )
 
-# --- TeX fragment cleanup (prevents \end{document} from killing qa_bundle.tex) ---
-
 _DOC_WRAPPER_RX = re.compile(
-    r"(?is)"                       # i=ignorecase, s=dot matches newline
-    r"(\\documentclass\b.*?\n)"    # \documentclass ... (up to newline)
+    r"(?is)"
+    r"(\\documentclass\b.*?\n)"
     r"|"
     r"(\\begin\{document\})"
     r"|"
     r"(\\end\{document\})"
 )
 
-def strip_tex_document_wrappers(tex: str) -> str:
-    """Remove TeX document wrapper commands from a fragment.
 
-    This prevents reference snippets (especially the last part) from containing
-    \end{document}, which would terminate qa_bundle.tex early.
+def build_payloads(
+    *,
+    reference_tex: Path,
+    student_tex: Path,
+    out_dir: Path,
+    default_max_points: float = 0.0,
+) -> Tuple[Path, List[PayloadItem]]:
     """
-    if not tex:
-        return ""
-    t = tex.replace("\r\n", "\n").replace("\r", "\n")
-    t = _DOC_WRAPPER_RX.sub("", t)
-    # Extra safety: remove any stragglers
-    t = t.replace(r"\end{document}", "").replace(r"\begin{document}", "")
-    return t.strip()
+    Public entry point.
+
+    Supports:
+      - reference PDF
+      - reference TeX / TXT
+
+    Returns:
+      - manifest.json path
+      - list of PayloadItem
+    """
+    suffix = reference_tex.suffix.lower()
+    if suffix == ".pdf":
+        return _build_payloads_from_reference_pdf(
+            reference_pdf=reference_tex,
+            student_tex=student_tex,
+            out_dir=out_dir,
+            default_max_points=default_max_points,
+        )
+
+    if suffix in {".tex", ".txt"}:
+        return _build_payloads_from_reference_tex(
+            reference_tex=reference_tex,
+            student_tex=student_tex,
+            out_dir=out_dir,
+            default_max_points=default_max_points,
+        )
+
+    raise ValueError(
+        f"Unsupported reference type: {reference_tex.name}. Expected .pdf or .tex/.txt"
+    )
 
 
-
-@dataclass(frozen=True)
-class PayloadItem:
-    key: Key
-    qid: str
-    max_points: float
-    reference_text: str
-    student_latex: str
-    payload_path: Path
-
-
-def qid_from_key(key: Key) -> str:
+def _qid_from_key(key: Key) -> str:
     qnum, part = key
-    if part:
-        return f"Q{qnum}({part})"
-    return f"Q{qnum}"
+    return f"Q{qnum}({part})" if part else f"Q{qnum}"
 
 
-def extract_reference_text(reference_pdf: Path, start_page_1b: int, end_page_1b: int) -> str:
-    """Extract selectable text from a page range (1-based inclusive)."""
+def _extract_reference_text(reference_pdf: Path, start_page_1b: int, end_page_1b: int) -> str:
+    """Extract selectable text from a 1-based inclusive page range."""
     doc = fitz.open(str(reference_pdf))
     try:
         parts: List[str] = []
@@ -139,59 +148,49 @@ def extract_reference_text(reference_pdf: Path, start_page_1b: int, end_page_1b:
         doc.close()
 
 
-def split_question_and_solution(reference_block: str) -> tuple[str, str]:
-    """Split a reference block into (question_text, solution_text).
+def _split_question_and_solution(reference_block: str) -> tuple[str, str]:
+    """
+    Split a reference block into (question_text, solution_text).
 
-    The reference PDFs we work with usually contain the question statement
-    followed by a Hebrew marker like "תשובה:" (official solution).
-
-    If the marker is not found, we return ("", reference_block) to preserve
-    backward compatibility.
+    If no 'תשובה:' marker is found, return ("", reference_block) for compatibility.
     """
     txt = (reference_block or "").strip()
     if not txt:
         return "", ""
 
-    m = _ANSWER_SPLIT_RE.search(txt)
-    if not m:
+    match = _ANSWER_SPLIT_RE.search(txt)
+    if not match:
         return "", txt
 
-    q = txt[: m.start()].strip()
-    sol = txt[m.end() :].strip()
-    return q, sol
+    question_text = txt[: match.start()].strip()
+    solution_text = txt[match.end() :].strip()
+    return question_text, solution_text
 
 
-def infer_points(text: str, default_max: float = 0.0) -> float:
-    """Extract max points from a reference text block."""
+def _infer_points(text: str, default_max: float = 0.0) -> float:
+    """Extract max points from a text block."""
     if not text:
         return default_max
+
     candidates: List[int] = []
     for rx in (_POINTS_AFTER_RE, _POINTS_BEFORE_RE):
-        for m in rx.finditer(text):
+        for match in rx.finditer(text):
             try:
-                # Avoid false positives like the question number in strings
-                # such as "(נקודות35) .1" (the ".1" is not points).
-                g_start = m.start(1)
+                g_start = match.start(1)
                 if g_start > 0 and text[g_start - 1] == ".":
                     continue
-                candidates.append(int(m.group(1)))
+                candidates.append(int(match.group(1)))
             except Exception:
                 pass
+
     if not candidates:
         return default_max
-    # In many PDFs the total question points appear before the part points.
-    # Returning the *smallest* candidate tends to pick the part points (e.g. 15)
-    # over the total (e.g. 35). For questions that have no parts, this still
-    # returns the correct total.
+
     return float(min(candidates))
 
 
-def infer_points_for_part(question_text: str, part: str, default_max: float = 0.0) -> float:
-    """Prefer the points that belong to a specific part (א/ב) if detectable.
-
-    Some RTL PDFs put the total question points before the part points.
-    We try to locate the part marker and then search for "נקודות" nearby.
-    """
+def _infer_points_for_part(question_text: str, part: str, default_max: float = 0.0) -> float:
+    """Prefer the points that belong to a specific part if detectable."""
     if not question_text or not part:
         return default_max
 
@@ -200,33 +199,31 @@ def infer_points_for_part(question_text: str, part: str, default_max: float = 0.
         return default_max
 
     window = question_text[max(0, idx - 50) : idx + 350]
-    return infer_points(window, default_max)
+    return _infer_points(window, default_max)
 
 
-def _normalize_reference_to_latexish(s: str) -> str:
-    """Best-effort: make PDF-extracted math more readable for LLMs.
-
-    This is intentionally conservative: it does NOT invent structure.
-    It only:
-      - converts common unicode math symbols to LaTeX-ish tokens
-      - wraps obvious math fragments in $...$
-      - normalizes whitespace
+def _normalize_reference_to_latexish(text: str) -> str:
     """
-    if not s:
+    Best-effort cleanup for PDF-extracted math.
+
+    Conservative:
+      - replace common Unicode math symbols
+      - wrap obvious math fragments in $...$
+      - normalize whitespace
+    """
+    if not text:
         return ""
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Replace unicode math symbols everywhere
-    for k, v in _UNICODE_REPL.items():
-        s = s.replace(k, v)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Fix a few common plain-text math words
-    s = re.sub(r"\bdelta\s*\(", r"\\delta(", s, flags=re.IGNORECASE)
-    s = re.sub(r"\bepsilon\b", r"\\epsilon", s, flags=re.IGNORECASE)
-    s = re.sub(r"\blambda\s*\(", r"\\lambda(", s, flags=re.IGNORECASE)
+    for src, dst in _UNICODE_REPL.items():
+        text = text.replace(src, dst)
 
-    # Wrap mathy fragments in $...$ but DO NOT touch existing $...$
-    parts = _MATH_BLOCK_RE.split(s)
+    text = re.sub(r"\bdelta\s*\(", r"\\delta(", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bepsilon\b", r"\\epsilon", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blambda\s*\(", r"\\lambda(", text, flags=re.IGNORECASE)
+
+    parts = _MATH_BLOCK_RE.split(text)
     out: List[str] = []
     for part in parts:
         if not part:
@@ -235,55 +232,82 @@ def _normalize_reference_to_latexish(s: str) -> str:
             out.append(part)
         else:
             out.append(_MATHY_RE.sub(lambda m: f"${m.group(0)}$", part))
-    cleaned = "".join(out)
 
-    # Light whitespace normalization (avoid one-token-per-line look)
+    cleaned = "".join(out)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
 
 
 def _infer_required_outcome(question_text: str, solution_text: str) -> str:
-    """Heuristic: produce a short 'required outcome' string to anchor the LLM.
-
-    Prefer a line containing an equation/inequality or integral/sum/limit.
-    """
+    """Heuristic short target string for the LLM."""
     q = (question_text or "").strip()
     s = (solution_text or "").strip()
 
-    candidates = (q.splitlines()[:12]) + (s.splitlines()[:8])
+    candidates = q.splitlines()[:12] + s.splitlines()[:8]
     for line in candidates:
-        line2 = line.strip()
-        if not line2:
+        line = line.strip()
+        if not line:
             continue
-        if any(tok in line2 for tok in ["\\leq", "\\geq", "<=", ">=", "=", "\\int", "\\sum", "\\lim"]):
-            return line2[:300]
+        if any(tok in line for tok in ["\\leq", "\\geq", "<=", ">=", "=", "\\int", "\\sum", "\\lim"]):
+            return line[:300]
 
     for line in q.splitlines():
-        if line.strip():
-            return line.strip()[:300]
+        line = line.strip()
+        if line:
+            return line[:300]
 
     return ""
 
 
-def build_payloads(
+def _strip_tex_document_wrappers(tex: str) -> str:
+    """Remove TeX document wrapper commands from a fragment."""
+    if not tex:
+        return ""
+    tex = tex.replace("\r\n", "\n").replace("\r", "\n")
+    tex = _DOC_WRAPPER_RX.sub("", tex)
+    tex = tex.replace(r"\end{document}", "").replace(r"\begin{document}", "")
+    return tex.strip()
+
+
+def _write_payload(
+    *,
+    payload_dir: Path,
+    qid: str,
+    payload: dict,
+) -> Path:
+    payload_path = payload_dir / f"{qid.replace('(', '_').replace(')', '')}.json"
+    payload_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return payload_path
+
+
+def _write_manifest(
+    *,
+    out_dir: Path,
+    manifest: dict,
+) -> Path:
+    manifest_path = out_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def _build_payloads_from_reference_pdf(
     *,
     reference_pdf: Path,
     student_tex: Path,
     out_dir: Path,
     default_max_points: float = 0.0,
 ) -> Tuple[Path, List[PayloadItem]]:
-    """Create per-question JSON payloads + a manifest.
-
-    Returns:
-      - manifest.json path
-      - list of created PayloadItem
-    """
     out_dir.mkdir(parents=True, exist_ok=True)
     payload_dir = out_dir / "payloads"
     payload_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Clean reference and detect per-question ranges
     cleanse_report = cleanse_test_pdf(reference_pdf, out_dir)
     reference_clean_pdf = cleanse_report.output_pdf
 
@@ -295,7 +319,6 @@ def build_payloads(
             "If empty, the PDF may be scanned (no selectable text)."
         )
 
-    # 2) Parse student's TeX into snippets per question/part
     student_answers, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
     if not student_answers:
         raise RuntimeError(
@@ -303,7 +326,6 @@ def build_payloads(
             "Check out/debug_student_tex_parts.txt."
         )
 
-    # 3) Create payloads only for overlapping keys
     keys = sorted(set(ref_ranges.keys()) & set(student_answers.keys()))
     if not keys:
         raise RuntimeError(
@@ -315,23 +337,23 @@ def build_payloads(
 
     for key in keys:
         start_p, end_p = ref_ranges[key]
-        ref_text = extract_reference_text(reference_clean_pdf, start_p, end_p)
-        question_text, solution_text = split_question_and_solution(ref_text)
+        ref_text = _extract_reference_text(reference_clean_pdf, start_p, end_p)
+        question_text, solution_text = _split_question_and_solution(ref_text)
 
-        # Prefer points that belong to the specific part (א/ב), because many PDFs show total question points first.
-        max_points = infer_points_for_part(question_text, key[1], default_max_points)
+        max_points = _infer_points_for_part(question_text, key[1], default_max_points)
         if not max_points:
-            max_points = infer_points(question_text, default_max_points)
+            max_points = _infer_points(question_text, default_max_points)
         if not max_points:
-            max_points = infer_points(ref_text, default_max_points)
+            max_points = _infer_points(ref_text, default_max_points)
 
         student_latex = (student_answers.get(key) or "").strip()
-        qid = qid_from_key(key)
+        qid = _qid_from_key(key)
 
-        # NEW: compact AI-facing fields (reduce LLM confusion)
         question_latexish = _normalize_reference_to_latexish(question_text)
         solution_latexish = _normalize_reference_to_latexish(solution_text)
-        required_outcome = _normalize_reference_to_latexish(_infer_required_outcome(question_text, solution_text))
+        required_outcome = _normalize_reference_to_latexish(
+            _infer_required_outcome(question_text, solution_text)
+        )
 
         payload = {
             "question_id": qid,
@@ -344,7 +366,6 @@ def build_payloads(
                 "page_range_1_based_inclusive": [start_p, end_p],
                 "question_text": question_text,
                 "solution_text": solution_text,
-                # Backward-compatible combined text (debug)
                 "text": ref_text,
             },
             "student": {
@@ -352,7 +373,6 @@ def build_payloads(
                 "latex_raw": student_latex,
                 "latex_clean": "",
             },
-            # AI-focused compact view
             "ai_input": {
                 "question_latex": question_latexish,
                 "reference_solution_latex": solution_latexish,
@@ -362,8 +382,11 @@ def build_payloads(
             },
         }
 
-        payload_path = payload_dir / f"{qid.replace('(', '_').replace(')', '')}.json"
-        payload_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload_path = _write_payload(
+            payload_dir=payload_dir,
+            qid=qid,
+            payload=payload,
+        )
 
         items.append(
             PayloadItem(
@@ -378,48 +401,38 @@ def build_payloads(
 
     manifest = {
         "version": 2,
-        "reference_pdf": str(reference_pdf.name),
-        "student_tex": str(student_tex.name),
+        "reference_pdf": reference_pdf.name,
+        "student_tex": student_tex.name,
         "count": len(items),
         "items": [
-            {
-                "qid": it.qid,
-                "payload_file": it.payload_path.name,
-            }
-            for it in items
+            {"qid": item.qid, "payload_file": item.payload_path.name}
+            for item in items
         ],
     }
 
-    manifest_path = out_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-
+    manifest_path = _write_manifest(out_dir=out_dir, manifest=manifest)
     return manifest_path, items
 
 
-def build_payloads_from_reference_tex(
+def _build_payloads_from_reference_tex(
     *,
     reference_tex: Path,
     student_tex: Path,
     out_dir: Path,
     default_max_points: float = 100.0,
 ) -> Tuple[Path, List[PayloadItem]]:
-    """Create payloads from a reference .tex (questions/solutions) + student .tex.
+    """
+    Create payloads from a reference .tex/.txt + student .tex.
 
-    This avoids PDF text extraction entirely. The reference content is assumed to
-    be *LaTeX already*, so we feed it to the LLM without escaping.
-
-    Notes:
-      - We still use the student's raw LaTeX per part.
-      - If the reference .tex doesn't contain explicit question text, the
-        question_latex field may be empty; the solution_latex remains usable.
+    This avoids PDF extraction entirely. Reference content is already LaTeX,
+    so it is passed through without escaping.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     payload_dir = out_dir / "payloads"
     payload_dir.mkdir(parents=True, exist_ok=True)
 
-    reference_tex_text = Path(reference_tex).read_text(encoding="utf-8", errors="replace")
+    reference_tex_text = reference_tex.read_text(encoding="utf-8", errors="replace")
     ref_parts = parse_reference_tex(reference_tex_text)
-
     if not ref_parts:
         raise RuntimeError(
             "Could not parse any questions/parts from reference .tex. "
@@ -433,29 +446,30 @@ def build_payloads_from_reference_tex(
             "Check out/debug_student_tex_parts.txt."
         )
 
-    # Union keys: we want payloads even if either side is missing (helps debugging).
     keys = sorted(set(ref_parts.keys()) | set(student_answers.keys()))
     items: List[PayloadItem] = []
 
     for key in keys:
-        qid = qid_from_key(key)
+        qid = _qid_from_key(key)
 
         ref = ref_parts.get(key)
-        question_tex = strip_tex_document_wrappers((ref.title if ref else "").strip())
-        solution_tex = strip_tex_document_wrappers((ref.latex_body if ref else "").strip())
-        reference_block = (question_tex + "\n\n" + solution_tex).strip() if (question_tex or solution_tex) else ""
+        question_tex = _strip_tex_document_wrappers((ref.title if ref else "").strip())
+        solution_tex = _strip_tex_document_wrappers((ref.latex_body if ref else "").strip())
+        reference_block = "\n\n".join(
+            part for part in [question_tex, solution_tex] if part
+        ).strip()
 
-        # Guardrail: never allow document terminators into downstream TeX
         if r"\end{document}" in reference_block or r"\begin{document}" in reference_block:
-            raise RuntimeError(f"Reference TeX fragment for {qid} still contains document wrapper commands.")
+            raise RuntimeError(
+                f"Reference TeX fragment for {qid} still contains document wrapper commands."
+            )
 
         student_latex = (student_answers.get(key) or "").strip()
-
-        # Points: reference .tex may not include points. Keep default_max_points.
         max_points = float(default_max_points or 0.0)
 
-        # For consistency with the PDF path, we still provide the AI-facing fields.
-        required_outcome = _normalize_reference_to_latexish(_infer_required_outcome(question_tex, solution_tex))
+        required_outcome = _normalize_reference_to_latexish(
+            _infer_required_outcome(question_tex, solution_tex)
+        )
 
         payload = {
             "question_id": qid,
@@ -475,7 +489,6 @@ def build_payloads_from_reference_tex(
                 "latex_clean": "",
             },
             "ai_input": {
-                # These are already LaTeX; do NOT escape.
                 "question_latex": question_tex,
                 "reference_solution_latex": solution_tex,
                 "student_answer_latex": student_latex,
@@ -484,8 +497,11 @@ def build_payloads_from_reference_tex(
             },
         }
 
-        payload_path = payload_dir / f"{qid.replace('(', '_').replace(')', '')}.json"
-        payload_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload_path = _write_payload(
+            payload_dir=payload_dir,
+            qid=qid,
+            payload=payload,
+        )
 
         items.append(
             PayloadItem(
@@ -500,14 +516,14 @@ def build_payloads_from_reference_tex(
 
     manifest = {
         "version": 2,
-        "reference_tex": str(reference_tex.name),
-        "student_tex": str(student_tex.name),
+        "reference_tex": reference_tex.name,
+        "student_tex": student_tex.name,
         "count": len(items),
-        "items": [{"qid": it.qid, "payload_file": it.payload_path.name} for it in items],
+        "items": [
+            {"qid": item.qid, "payload_file": item.payload_path.name}
+            for item in items
+        ],
     }
 
-    manifest_path = out_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest_path = _write_manifest(out_dir=out_dir, manifest=manifest)
     return manifest_path, items
-
-

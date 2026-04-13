@@ -29,8 +29,6 @@ AUTO_REFERENCE = os.getenv("MATHGRADE_AUTO_REFERENCE", "0").lower() in {"1", "tr
 # Ollama config (single source of truth)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
-os.environ["OLLAMA_BASE_URL"] = OLLAMA_BASE_URL
-os.environ["OLLAMA_MODEL"] = OLLAMA_MODEL
 
 # Fixed font for PDF rendering
 FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
@@ -39,3 +37,6 @@ ARIAL_FONT_PATH = Path(r"C:\Windows\Fonts\arial.ttf")
 
 OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
+
+MATHPIX_APP_ID = (os.getenv("MATHPIX_APP_ID") or "").strip()
+MATHPIX_APP_KEY = (os.getenv("MATHPIX_APP_KEY") or "").strip()

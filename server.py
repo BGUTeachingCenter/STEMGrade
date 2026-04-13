@@ -13,6 +13,7 @@ from api.grading import router as grading_router
 from api.bank import router as bank_router
 from api.progress import router as progress_router
 from api.stats import router as stats_router
+from api.ocr import router as ocr_router
 
 
 
@@ -41,3 +42,4 @@ app.include_router(bank_router)
 app.include_router(progress_router)
 app.include_router(auth_router)
 app.include_router(stats_router)
+app.include_router(ocr_router)

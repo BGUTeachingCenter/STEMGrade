@@ -26,7 +26,7 @@ from typing import Dict, Tuple
 from grader.file_handling.reference_ranges import Key
 from grader.file_handling.student_tex import parse_student_tex_answers
 
-from .payloads import build_payloads, build_payloads_from_reference_tex
+from .payloads import build_payloads
 from .grader_payloads import grade_payload_manifest
 
 
@@ -133,7 +133,7 @@ def grade_reference_tex_and_student_tex(
     """Grade by pairing reference LaTeX (question/solution) with student's LaTeX snippets."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest_json, _items = build_payloads_from_reference_tex(
+    manifest_json, _items = build_payloads(
         reference_tex=reference_tex,
         student_tex=student_tex,
         out_dir=out_dir,
