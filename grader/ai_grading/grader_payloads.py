@@ -124,11 +124,20 @@ def grade_payload_manifest(
     manifest_json: Path,
     out_dir: Path,
     model: str = "ollama",
+    debug: bool = False,
 ) -> Path:
     """Read manifest.json and grade each payload.
 
     Returns grades.json path.
+
+    When debug=True, prints extra information about the grading flow.
     """
+    if debug:
+        print(f"[grade_payload_manifest] Starting")
+        print(f"[grade_payload_manifest] manifest_json={manifest_json}")
+        print(f"[grade_payload_manifest] out_dir={out_dir}")
+        print(f"[grade_payload_manifest] model={model}")
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = json.loads(manifest_json.read_text(encoding="utf-8"))
@@ -138,6 +147,10 @@ def grade_payload_manifest(
     if not items:
         raise RuntimeError("Manifest has no items to grade.")
 
+    if debug:
+        print(f"[grade_payload_manifest] payload_dir={payload_dir}")
+        print(f"[grade_payload_manifest] items_count={len(items)}")
+
     client = _make_client(provider=model)
     schema = grading_response_schema()
     system = load_grading_prompt()
@@ -145,44 +158,67 @@ def grade_payload_manifest(
     provider = (os.getenv("MATHGRADE_PROVIDER") or "ollama").strip().lower()
     if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
         schema = _schema_for_google(schema)
+        if debug:
+            print(f"[grade_payload_manifest] provider={provider} -> using Gemini-safe schema")
+    elif debug:
+        print(f"[grade_payload_manifest] provider={provider}")
 
-    # Optional clipping limits to reduce LLM confusion
     ref_q_limit = int(os.getenv("MATHGRADE_REF_Q_LIMIT", "4500"))
     ref_sol_limit = int(os.getenv("MATHGRADE_REF_SOL_LIMIT", "6500"))
     stu_limit = int(os.getenv("MATHGRADE_STU_LIMIT", "6500"))
     stu_clean_limit = int(os.getenv("MATHGRADE_STU_CLEAN_LIMIT", "3500"))
     temperature = float(os.getenv("MATHGRADE_TEMPERATURE", "0.15"))
 
+    if debug:
+        print(
+            "[grade_payload_manifest] limits="
+            f"ref_q={ref_q_limit}, ref_sol={ref_sol_limit}, "
+            f"stu={stu_limit}, stu_clean={stu_clean_limit}, temp={temperature}"
+        )
+
     graded: List[QuestionGrade] = []
 
-    for it in items:
+    for idx, it in enumerate(items, start=1):
         payload_file = it["payload_file"]
         payload_path = payload_dir / payload_file
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
 
-        # Stable QID: do NOT trust model for this
         qid = payload.get("qid") or payload.get("question_id") or payload_path.stem
+
+        if debug:
+            print("-" * 80)
+            print(f"[grade_payload_manifest] item {idx}/{len(items)}")
+            print(f"[grade_payload_manifest] payload_file={payload_file}")
+            print(f"[grade_payload_manifest] payload_path={payload_path}")
+            print(f"[grade_payload_manifest] qid={qid}")
 
         ref_block = payload.get("reference", {}) or {}
         stu_block = payload.get("student", {}) or {}
         rubric_block = payload.get("rubric", {}) or {}
 
-        # Determine max_points from payload (never trust model)
         max_points = float(payload.get("max_points") or 0.0)
         if not max_points:
             max_points = float(rubric_block.get("score_max") or 0.0)
 
-        # Last resort: infer from reference text
         if not max_points:
             combined_text = ref_block.get("text") or ""
             solution_text = ref_block.get("solution_text") or ""
             max_points = infer_max_points(combined_text or solution_text, default_max=0.0)
 
+        if debug:
+            print(f"[grade_payload_manifest] max_points={max_points}")
+
         student_raw = str(stu_block.get("latex_raw") or "")
         no_submission = ("לא לבדיקה" in student_raw) or _is_effectively_empty_latex(student_raw)
 
-        # Deterministic no-submission (do NOT call model)
+        if debug:
+            print(f"[grade_payload_manifest] student_raw_len={len(student_raw)}")
+            print(f"[grade_payload_manifest] no_submission={no_submission}")
+
         if no_submission:
+            if debug:
+                print(f"[grade_payload_manifest] skipping model call for {qid} (deterministic no-submission)")
+
             graded.append(
                 QuestionGrade(
                     qid=qid,
@@ -202,7 +238,6 @@ def grade_payload_manifest(
             )
             continue
 
-        # IMPORTANT: Always send the exact shape the prompt describes
         model_input = {
             "question_id": qid,
             "reference": {
@@ -219,13 +254,22 @@ def grade_payload_manifest(
             },
         }
 
-        user = json.dumps(model_input, ensure_ascii=False, indent=2)
+        if debug:
+            print(
+                f"[grade_payload_manifest] clipped_lengths="
+                f"question={len(model_input['reference']['question_text'])}, "
+                f"solution={len(model_input['reference']['solution_text'])}, "
+                f"student_raw={len(model_input['student']['latex_raw'])}, "
+                f"student_clean={len(model_input['student']['latex_clean'])}"
+            )
+            print(f"[grade_payload_manifest] calling client.chat_json for qid={qid}")
 
+        user = json.dumps(model_input, ensure_ascii=False, indent=2)
         resp = client.chat_json(system=system, user=user, schema=schema, temperature=temperature)
 
-        # ---------------------------
-        # Post-process / guardrails
-        # ---------------------------
+        if debug:
+            print(f"[grade_payload_manifest] model response keys={sorted(resp.keys())}")
+
         student_raw2 = ((payload.get("student") or {}).get("latex_raw") or "").strip()
         has_student = len(student_raw2) > 0
 
@@ -240,7 +284,6 @@ def grade_payload_manifest(
         suggested_next = str(resp.get("suggested_next_step_he") or "").strip()
         confidence = max(0.0, min(float(resp.get("confidence", 0.0)), 1.0))
 
-        # Detect "no submission" language
         no_submission_lang = (
             ("לא הוגשה" in summary) or
             ("אין תשובה" in summary) or
@@ -249,8 +292,17 @@ def grade_payload_manifest(
         )
         no_submission_tag = ("no_submission" in common_errors)
 
+        if debug:
+            print(
+                f"[grade_payload_manifest] raw_score={score}, "
+                f"confidence={confidence}, has_student={has_student}, "
+                f"no_submission_lang={no_submission_lang}, no_submission_tag={no_submission_tag}"
+            )
+
         if has_student and (no_submission_lang or no_submission_tag):
-            # If work exists, don't allow a bogus "missing answer" response.
+            if debug:
+                print(f"[grade_payload_manifest] applying guardrail against false no-submission for qid={qid}")
+
             min_partial = float(os.getenv("MATHGRADE_MIN_SCORE_IF_SUBMITTED", "0"))
             score = max(score, min_partial)
 
@@ -282,9 +334,18 @@ def grade_payload_manifest(
 
             confidence = max(confidence, 0.4)
 
-        # Clamp score
         if max_points > 0:
             score = max(0.0, min(score, max_points))
+
+        if debug:
+            print(
+                f"[grade_payload_manifest] final_score={score}, "
+                f"summary_len={len(summary)}, "
+                f"correct_count={len(what_was_correct)}, "
+                f"mistakes_count={len(main_mistakes)}, "
+                f"improve_count={len(how_to_improve)}, "
+                f"errors_count={len(common_errors)}"
+            )
 
         graded.append(
             QuestionGrade(
@@ -307,10 +368,19 @@ def grade_payload_manifest(
     total_score = sum(q.score for q in graded)
     total_max = sum(q.max_points for q in graded if q.max_points)
 
+    if debug:
+        print("=" * 80)
+        print(f"[grade_payload_manifest] total_score={total_score}")
+        print(f"[grade_payload_manifest] total_max={total_max}")
+        print(f"[grade_payload_manifest] graded_items={len(graded)}")
+
     bundle = BundleGrades(total_score=total_score, total_max=total_max, question_grades=graded)
 
     grades_json = out_dir / "grades.json"
     grades_json.write_text(json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if debug:
+        print(f"[grade_payload_manifest] wrote grades_json={grades_json}")
 
     try:
         usage_summary = {
@@ -319,11 +389,19 @@ def grade_payload_manifest(
             "prompt_tokens": int(getattr(client, "total_prompt_tokens", 0) or 0),
             "candidate_tokens": int(getattr(client, "total_candidate_tokens", 0) or 0),
         }
-        (out_dir / "usage_summary.json").write_text(
+        usage_path = out_dir / "usage_summary.json"
+        usage_path.write_text(
             json.dumps(usage_summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+        if debug:
+            print(f"[grade_payload_manifest] wrote usage_summary={usage_path}")
+            print(f"[grade_payload_manifest] usage={usage_summary}")
+    except Exception as e:
+        if debug:
+            print(f"[grade_payload_manifest] failed to write usage_summary: {e}")
+
+    if debug:
+        print(f"[grade_payload_manifest] Finished successfully")
 
     return grades_json
