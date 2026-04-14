@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from grader.file_handling.tex_cleaner import clean_tex
+from grader.file_handling.clean_tex import clean_tex
 
 
 @dataclass(frozen=True)
@@ -102,7 +102,7 @@ def compile_tex_to_pdf(
     Compile a .tex file to PDF using XeLaTeX.
 
     If clean=True:
-      - Uses grader/tex_cleaner.py clean_tex_robust() (ALL cleaning is there)
+      - Uses grader/clean_tex.py clean_tex_robust() (ALL cleaning is there)
       - Writes <stem>_clean.tex and <stem>_clean_report.txt into out_dir
       - Compiles the cleaned tex
 

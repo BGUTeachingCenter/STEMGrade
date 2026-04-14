@@ -48,15 +48,6 @@ def generate_bundle(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = reference_tex.suffix.lower()
-    if suffix == ".pdf":
-        return _generate_from_reference_pdf(
-            reference_pdf=reference_tex,
-            student_tex=student_tex,
-            out_dir=out_dir,
-            bundle_stem=bundle_stem,
-            font_name=font_name,
-            compile_pdf=compile_pdf,
-        )
 
     if suffix in {".tex", ".txt"}:
         return _generate_from_reference_tex(
@@ -272,88 +263,6 @@ def _write_bundle_tex_inline_answers(
 
     parts.append(r"\end{document}")
     out_tex.write_text("\n".join(parts), encoding="utf-8")
-
-
-def _generate_from_reference_pdf(
-    *,
-    reference_pdf: Path,
-    student_tex: Path,
-    out_dir: Path,
-    bundle_stem: str,
-    font_name: str,
-    compile_pdf: bool,
-) -> QABundleOutputs:
-    cleanse_report = cleanse_test_pdf(reference_pdf, out_dir)
-    reference_clean_pdf = cleanse_report.output_pdf
-
-    ref_ranges = {
-        _norm_key(k): v
-        for k, v in find_reference_ranges(reference_clean_pdf, out_dir).items()
-    }
-    if not ref_ranges:
-        raise RuntimeError(
-            "Reference question detection failed.\n"
-            "Check build/debug_reference_pages.txt for extracted text.\n"
-            "If it is empty, your PDF may be scanned (no selectable text)."
-        )
-
-    student_answers, student_ranges = parse_student_tex_answers(student_tex, out_dir)
-    student_answers = {_norm_key(k): v for k, v in student_answers.items()}
-    student_ranges = {_norm_key(k): v for k, v in student_ranges.items()}
-
-    if not student_answers:
-        raise RuntimeError(
-            "Could not parse any student answers from the TeX.\n"
-            "Check build/debug_student_tex_parts.txt."
-        )
-
-    student_clean_pdf = compile_tex_to_pdf(
-        student_tex,
-        out_dir,
-        clean=True,
-        font_name=font_name,
-        passes=2,
-        texinputs=[student_tex.parent],
-    ).pdf
-
-    answer_pdfs = compile_student_answer_pdfs(
-        student_answers,
-        out_dir,
-        font_name,
-        clean=True,
-    )
-    answer_pdfs = {_norm_key(k): v for k, v in answer_pdfs.items()}
-
-    bundle_tex = out_dir / f"{bundle_stem}.tex"
-    _write_bundle_tex_from_pdf_reference(
-        bundle_tex,
-        title="Q/A Bundle (Reference pages + Rendered student answers)",
-        font_name=font_name,
-        reference_pdf=reference_clean_pdf,
-        ref_ranges=ref_ranges,
-        answer_pdfs=answer_pdfs,
-    )
-
-    bundle_pdf: Optional[Path] = None
-    if compile_pdf:
-        bundle_pdf = _compile_bundle_pdf(
-            bundle_tex=bundle_tex,
-            out_dir=out_dir,
-            font_name=font_name,
-            texinputs=[bundle_tex.parent],
-            bundle_stem=bundle_stem,
-        )
-
-    return QABundleOutputs(
-        bundle_tex=bundle_tex,
-        bundle_pdf=bundle_pdf,
-        student_clean_pdf=student_clean_pdf,
-        reference_clean_pdf=reference_clean_pdf,
-        cleanse_report=cleanse_report,
-        ref_ranges=ref_ranges,
-        student_ranges=student_ranges,
-        student_answer_pdfs=answer_pdfs,
-    )
 
 
 def _generate_from_reference_tex(

@@ -33,7 +33,7 @@ from api.progress import init_job, push, done, fail
 
 router = APIRouter(prefix="/api", tags=["grading"])
 
-DEBUG = True
+DEBUG = False
 
 
 # -------------------------
@@ -480,7 +480,7 @@ async def _grade_tex_flow(
                 lambda: compile_tex_to_pdf(
                     final_tex,
                     ai_dir,
-                    clean=False,
+                    clean=True,
                     font_name=FIXED_FONT,
                     passes=2,
                     texinputs=[final_tex.parent, bundle_tex.parent, feedback_tex.parent],

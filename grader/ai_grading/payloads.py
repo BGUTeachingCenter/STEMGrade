@@ -12,10 +12,11 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import fitz  # PyMuPDF
 
+from grader.file_handling.part_normalize import normalize_part
 from grader.file_handling.pdf_cleanse import cleanse_test_pdf
 from grader.file_handling.reference_ranges import Key, find_reference_ranges
 from grader.file_handling.reference_tex import parse_reference_tex
@@ -106,6 +107,7 @@ def build_payloads(
       - list of PayloadItem
     """
     suffix = reference_tex.suffix.lower()
+
     if suffix == ".pdf":
         return _build_payloads_from_reference_pdf(
             reference_pdf=reference_tex,
@@ -127,8 +129,13 @@ def build_payloads(
     )
 
 
-def _qid_from_key(key: Key) -> str:
+def _normalize_key(key: Key) -> Key:
     qnum, part = key
+    return int(qnum), normalize_part(part)
+
+
+def _qid_from_key(key: Key) -> str:
+    qnum, part = _normalize_key(key)
     return f"Q{qnum}({part})" if part else f"Q{qnum}"
 
 
@@ -311,7 +318,10 @@ def _build_payloads_from_reference_pdf(
     cleanse_report = cleanse_test_pdf(reference_pdf, out_dir)
     reference_clean_pdf = cleanse_report.output_pdf
 
-    ref_ranges = find_reference_ranges(reference_clean_pdf, out_dir)
+    ref_ranges_raw = find_reference_ranges(reference_clean_pdf, out_dir)
+    ref_ranges: Dict[Key, Tuple[int, int]] = {
+        _normalize_key(key): value for key, value in ref_ranges_raw.items()
+    }
     if not ref_ranges:
         raise RuntimeError(
             "Reference question detection failed. "
@@ -319,7 +329,10 @@ def _build_payloads_from_reference_pdf(
             "If empty, the PDF may be scanned (no selectable text)."
         )
 
-    student_answers, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    student_answers_raw, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    student_answers: Dict[Key, str] = {
+        _normalize_key(key): value for key, value in student_answers_raw.items()
+    }
     if not student_answers:
         raise RuntimeError(
             "Could not parse any student answers from the TeX. "
@@ -432,14 +445,16 @@ def _build_payloads_from_reference_tex(
     payload_dir.mkdir(parents=True, exist_ok=True)
 
     reference_tex_text = reference_tex.read_text(encoding="utf-8", errors="replace")
-    ref_parts = parse_reference_tex(reference_tex_text)
+    ref_parts_raw = parse_reference_tex(reference_tex_text)
+    ref_parts = {_normalize_key(key): value for key, value in ref_parts_raw.items()}
     if not ref_parts:
         raise RuntimeError(
             "Could not parse any questions/parts from reference .tex. "
             "Expected headings like \\section*{Question N} and \\subsection*{(a)}."
         )
 
-    student_answers, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    student_answers_raw, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
+    student_answers = {_normalize_key(key): value for key, value in student_answers_raw.items()}
     if not student_answers:
         raise RuntimeError(
             "Could not parse any student answers from the TeX. "
