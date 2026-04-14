@@ -125,6 +125,7 @@ def grade_payload_manifest(
     out_dir: Path,
     model: str = "ollama",
     debug: bool = False,
+    log_fn=None,
 ) -> Path:
     """Read manifest.json and grade each payload.
 
@@ -132,7 +133,18 @@ def grade_payload_manifest(
 
     When debug=True, prints extra information about the grading flow.
     """
+
+    def _log(msg: str) -> None:
+        if log_fn:
+            try:
+                log_fn(msg)
+            except Exception:
+                pass
+        if debug:
+            print(msg)
+
     if debug:
+        _log("[grade_payload_manifest] Starting")
         print(f"[grade_payload_manifest] Starting")
         print(f"[grade_payload_manifest] manifest_json={manifest_json}")
         print(f"[grade_payload_manifest] out_dir={out_dir}")
@@ -187,9 +199,11 @@ def grade_payload_manifest(
 
         if debug:
             print("-" * 80)
+            _log(f"[grade_payload_manifest] item {idx}/{len(items)}")
             print(f"[grade_payload_manifest] item {idx}/{len(items)}")
             print(f"[grade_payload_manifest] payload_file={payload_file}")
             print(f"[grade_payload_manifest] payload_path={payload_path}")
+            _log(f"[grade_payload_manifest] qid={qid}")
             print(f"[grade_payload_manifest] qid={qid}")
 
         ref_block = payload.get("reference", {}) or {}
@@ -373,6 +387,7 @@ def grade_payload_manifest(
         print(f"[grade_payload_manifest] total_score={total_score}")
         print(f"[grade_payload_manifest] total_max={total_max}")
         print(f"[grade_payload_manifest] graded_items={len(graded)}")
+        _log(f"[grade_payload_manifest] graded_items={len(graded)}")
 
     bundle = BundleGrades(total_score=total_score, total_max=total_max, question_grades=graded)
 
@@ -400,8 +415,10 @@ def grade_payload_manifest(
     except Exception as e:
         if debug:
             print(f"[grade_payload_manifest] failed to write usage_summary: {e}")
+            _log(f"[grade_payload_manifest] failed to write usage_summary: {e}")
 
     if debug:
         print(f"[grade_payload_manifest] Finished successfully")
+        _log(f"[grade_payload_manifest] Finished successfully")
 
     return grades_json

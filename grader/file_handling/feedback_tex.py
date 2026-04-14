@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import re
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 # If you have these already, keep them. Otherwise remove/replace accordingly.
 from grader.ai_grading.json_sanitizer import sanitize_grades_json  # optional but recommended
 
+FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
 
 def _escape_minimal(s: str) -> str:
     """
@@ -23,7 +24,7 @@ def _escape_minimal(s: str) -> str:
     return s
 
 
-def _preamble(title: str = "משוב בדיקה", font_name: str = "Arial") -> List[str]:
+def _preamble(title: str = "משוב בדיקה", font_name: str = FIXED_FONT) -> List[str]:
     return [
         r"\documentclass[10pt]{article}",
         r"\usepackage[a4paper,margin=2cm]{geometry}",
@@ -129,7 +130,6 @@ def build_feedback_tex(
     grades_json: Path,
     out_dir: Path,
     title: str = "משוב בדיקה",
-    font_name: str = "Arial",
 ) -> Path:
     """
     MAIN OUTPUT: feedback.tex (no PDF).
@@ -149,7 +149,7 @@ def build_feedback_tex(
         # if sanitizer not present / fails, just proceed
         grades = raw
 
-    tex = render_feedback_tex(grades, title=title, font_name=font_name)
+    tex = render_feedback_tex(grades, title=title)
 
     tex_path = out_dir / "feedback.tex"
     tex_path.write_text(tex, encoding="utf-8")

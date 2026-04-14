@@ -1,4 +1,4 @@
-# grader/compile_tex.py
+# grader/compile_tex_to_pdf.py
 from __future__ import annotations
 
 import os
@@ -92,7 +92,7 @@ def compile_tex_to_pdf(
     input_tex: Path,
     out_dir: Path,
     *,
-    clean: bool = True,               # ✅ optional cleaning
+    clean: bool = False,               # ✅ optional cleaning
     font_name: str = "Arial",
     passes: int = 2,
     xelatex: str = "xelatex",

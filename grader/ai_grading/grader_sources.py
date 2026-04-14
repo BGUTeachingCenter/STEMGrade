@@ -123,12 +123,14 @@ def _sanity_check_payloads(manifest_json: Path, out_dir: Path) -> None:
 #     return grades_json, student_answers
 
 
-def grade_reference_tex_and_student_tex(
+def grade_tex(
     *,
     reference_tex: Path,
     student_tex: Path,
     out_dir: Path,
     model: str | None = None,
+    debug: bool = False,
+    log_fn: str | None = None,
 ) -> Tuple[Path, Dict[Key, str]]:
     """Grade by pairing reference LaTeX (question/solution) with student's LaTeX snippets."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -147,6 +149,8 @@ def grade_reference_tex_and_student_tex(
         manifest_json=manifest_json,
         out_dir=out_dir,
         model=model,
+        debug=debug,
+        log_fn=log_fn,
     )
 
     student_answers = _parse_student_answers_for_debug(student_tex, out_dir)

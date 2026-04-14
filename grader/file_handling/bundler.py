@@ -7,7 +7,7 @@ from typing import Dict, Optional, Tuple
 
 from grader.ai_grading.payloads import build_payloads
 from grader.file_handling.answer_render import compile_student_answer_pdfs
-from grader.file_handling.compile_tex import compile_tex_to_pdf
+from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
 from grader.file_handling.part_normalize import normalize_part
 from grader.file_handling.pdf_cleanse import CleanseReport, cleanse_test_pdf
 from grader.file_handling.reference_ranges import Key, find_reference_ranges

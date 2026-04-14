@@ -49,7 +49,7 @@ def proofread_tex_with_ollama(
             meta={"env": "MATHGRADE_OLLAMA_PROOFREAD"}
         )
 
-    model = model or os.getenv("MATHGRADE_OLLAMA_MODEL") or os.getenv("OLLAMA_MODEL") or "gemma3:4b"
+    model = model or os.getenv("OLLAMA_MODEL") or "gemma3:4b"
     base_url = base_url or os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434"
 
     # Keep input bounded

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .compile_tex import compile_tex_to_pdf
+from .compile_tex_to_pdf import compile_tex_to_pdf
 from .tex_cleaner import clean_tex_robust  # if you want cleaning here
 
 def make_answer_tex(qid: str, answer_latex: str, font_name: str) -> str:

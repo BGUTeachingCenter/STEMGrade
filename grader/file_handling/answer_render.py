@@ -15,7 +15,7 @@ from typing import Dict, Optional
 import traceback
 from datetime import datetime
 
-from grader.file_handling.compile_tex import compile_tex_to_pdf
+from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
 from grader.file_handling.reference_ranges import Key
 
 
