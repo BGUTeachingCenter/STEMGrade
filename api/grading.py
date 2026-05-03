@@ -8,36 +8,33 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 from time import perf_counter
+from typing import Any, Dict, Tuple
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-
-# ✅ run blocking work off the event loop
 from starlette.concurrency import run_in_threadpool
 
-from core.config import RUNS_ROOT, FIXED_FONT, BANK_ROOT
-from core.debug import write_debug_log
-
-from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
-from grader.file_handling.bundler import generate_bundle
-from grader.ai_grading.grader_sources import grade_tex
-from grader.file_handling.feedback_tex import build_feedback_tex  # TeX-first feedback
-from grader.file_handling.unified_tex import build_unified_tex
-from grader.file_handling.student_tex import parse_student_tex_answers
-from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
-
+from api.progress import done, fail, init_job, push
 from api.student_log import log_student_submission
-from api.progress import init_job, push, done, fail
+from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
+from core.debug import write_debug_log
+from grader.ai_grading.grader_payloads import grade_payload_manifest
+from grader.ai_grading.payloads import PayloadItem, build_payloads
+from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
+from grader.file_handling.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
+from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
+from grader.file_handling.feedback_tex import build_feedback_tex
+from grader.file_handling.student_tex import parse_student_tex_answers
+from grader.file_handling.unified_tex import build_unified_tex
 
 router = APIRouter(prefix="/api", tags=["grading"])
 
-DEBUG = False
+DEBUG = True
 
 
 # -------------------------
-# Small helpers
+# Small helpers (already in your style)
 # -------------------------
 
 def _safe_str(x: Any, limit: int = 200) -> str:
@@ -120,35 +117,22 @@ def _write_student_summary(student_tex_path: Path, *, out_dir: Path) -> Path:
 
 
 def _response_for_path(p: Path) -> FileResponse:
-    """
-    If p is a PDF -> return as pdf.
-    If p is a TeX -> return as text/plain.
-    """
     if p.suffix.lower() == ".pdf":
         return FileResponse(path=str(p), media_type="application/pdf", filename="graded_test.pdf")
     return FileResponse(path=str(p), media_type="text/plain; charset=utf-8", filename="graded_union.tex")
 
 
 def _require_provider_env(provider: str) -> None:
-    provider = (provider or "").strip().lower()
-
-    if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
+    p = (provider or "").strip().lower()
+    if p in ("google", "gemini", "google_ai_studio", "aistudio"):
         google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not google_key:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing GOOGLE_API_KEY (or GEMINI_API_KEY) in environment.",
-            )
+            raise HTTPException(status_code=400, detail="Missing GOOGLE_API_KEY (or GEMINI_API_KEY) in environment.")
 
-    if provider in ("chatgpt", "openai", "gpt"):
+    if p in ("chatgpt", "openai", "gpt"):
         openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
         if not openai_key:
             raise HTTPException(status_code=400, detail="Missing OPENAI_API_KEY in environment.")
-
-
-def _debug_push(job_id: str | None, debug: bool, msg: str) -> None:
-    if job_id and debug:
-        push(job_id, msg)
 
 
 def _safe_name(s: str, fallback: str = "unknown") -> str:
@@ -209,48 +193,9 @@ def _write_result_metadata(
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _extract_bundle_tex(bundle_outputs: Any, out_dir: Path) -> Path:
-    bundle_tex = None
-
-    if hasattr(bundle_outputs, "bundle_tex") and getattr(bundle_outputs, "bundle_tex"):
-        bundle_tex = Path(getattr(bundle_outputs, "bundle_tex"))
-    elif isinstance(bundle_outputs, (str, Path)) and str(bundle_outputs).endswith(".tex"):
-        bundle_tex = Path(bundle_outputs)
-
-    if not bundle_tex or not bundle_tex.exists():
-        produced = [p.name for p in out_dir.glob("*")]
-        raise RuntimeError(f"No bundle TeX produced. Files in out/: {produced}")
-
-    return bundle_tex
-
-
-def _choose_final_result_path(
-    *,
-    raw_result_path: Path,
-    ai_dir: Path,
-    normalized_provider: str,
-) -> Path:
-    """
-    Prefer PDF if it exists.
-    Otherwise fall back to TeX.
-    """
-    if raw_result_path.exists() and raw_result_path.suffix.lower() == ".pdf":
-        return raw_result_path
-
-    fallback_tex = ai_dir / f"graded_{normalized_provider}.tex"
-    if fallback_tex.exists():
-        return fallback_tex
-
-    if raw_result_path.exists():
-        return raw_result_path
-
-    raise RuntimeError("No final output file was produced (neither PDF nor TeX).")
-
-
 # -------------------------
-# Main grading flow
+# Main grading flow (single extraction, single source-of-truth payloads)
 # -------------------------
-
 
 async def _grade_tex_flow(
     *,
@@ -262,17 +207,17 @@ async def _grade_tex_flow(
     debug: bool = False,
 ) -> FileResponse:
     """
-    Unified grading flow with debug support.
+    Canonical flow (no duplicate extraction):
 
-    New final flow:
-      1) save student upload
-      2) fetch matching reference
-      3) generate Q/A bundle TeX
-      4) grade with AI
-      5) build feedback TeX
-      6) unify bundle + feedback into one final TeX
-      7) try compiling final TeX to PDF
-      8) if compile fails, return the TeX instead
+      1) Save student upload
+      2) Match reference in solution bank
+      3) Build payloads ONCE (reference + student snippets)
+      4) Write Q/A bundle TeX from those payloads (question + solution + student)
+      5) Grade each payload (AI) -> grades.json (+ usage_summary.json)
+      6) Build feedback TeX from grades.json
+      7) Unify bundle + feedback into one TeX
+      8) Compile unified TeX to PDF (fallback to TeX)
+      9) Persist final output and return it
     """
     _require_provider_env(provider)
     normalized_provider = _normalized_provider_name(provider)
@@ -286,38 +231,27 @@ async def _grade_tex_flow(
         if job_id:
             init_job(job_id)
 
-        # =========================================================
-        # Stage 1: Create temp run workspace
-        # =========================================================
+        # Stage 1: temp workspace
         tmp_dir = Path(tempfile.mkdtemp(prefix="mathgrade_", dir=str(RUNS_ROOT)))
         out_dir = tmp_dir / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        _debug_push(job_id, debug, f"Created temp run dir: {tmp_dir}")
-        _debug_push(job_id, debug, f"Normalized provider name: {normalized_provider}")
-
-        # =========================================================
-        # Stage 2: Save student upload and generate summary
-        # =========================================================
+        # Stage 2: save student
         tex_path = tmp_dir / (student_tex.filename or "student.tex")
         tex_path.write_bytes(await student_tex.read())
-
         if job_id:
             push(job_id, "Saved student file")
-        _debug_push(job_id, debug, f"Student TeX saved at: {tex_path}")
 
+        # summary (optional)
         try:
             summary_path = _write_student_summary(tex_path, out_dir=out_dir)
             if job_id:
                 push(job_id, f"Generated student summary: {summary_path.name}")
-            _debug_push(job_id, debug, f"Student summary path: {summary_path}")
         except Exception as e:
             if job_id:
                 push(job_id, f"Student summary failed (continuing): {_safe_str(e, 220)}")
 
-        # =========================================================
-        # Stage 3: Match the submission to a reference in the bank
-        # =========================================================
+        # Stage 3: match reference
         if job_id:
             push(job_id, "Fetching reference from solution bank…")
 
@@ -333,83 +267,98 @@ async def _grade_tex_flow(
             llm_top_k=12,
         )
         ref_secs = perf_counter() - t_ref
-
         if job_id:
             push(job_id, f"Fetched: {exam_id} (reference match {ref_secs:.1f}s)")
-        _debug_push(job_id, debug, f"Chosen reference: {chosen_ref}")
 
         ref_path = tmp_dir / Path(chosen_ref).name
         ref_path.write_text(
             Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
             encoding="utf-8",
         )
-        _debug_push(job_id, debug, f"Copied reference to: {ref_path}")
 
-        # =========================================================
-        # Stage 4: Build the Q/A bundle first
-        # =========================================================
+        # Stage 4: build payloads ONCE (source-of-truth)
+        if job_id:
+            push(job_id, "Extracting parts (building payloads)…")
+
+        payload_out = out_dir / "payloads_run"
+        payload_out.mkdir(parents=True, exist_ok=True)
+
+        t_payloads = perf_counter()
+        manifest_json, items = await run_in_threadpool(
+            build_payloads,
+            reference_tex=ref_path,
+            student_tex=tex_path,
+            out_dir=payload_out,
+            default_max_points=0.0,
+        )
+        payload_secs = perf_counter() - t_payloads
+
+        if job_id:
+            push(job_id, f"Payloads ready ({payload_secs:.1f}s)")
+
+        # Stage 4b: write bundle TeX from the SAME payloads (no re-extraction)
         if job_id:
             push(job_id, "Generating Q/A bundle (TeX)…")
 
-        t_bundle = perf_counter()
-        bundle_outputs = await run_in_threadpool(
-            generate_bundle,
-            reference_tex=ref_path,
-            student_tex=tex_path,
-            out_dir=out_dir,
+        reference_snippets: Dict[Tuple[int, str | None], str] = {}
+        student_answers: Dict[Tuple[int, str | None], str] = {}
+
+        # We reuse the payload json content; keep keys aligned with bundler expectations.
+        for it in items:
+            data = json.loads(it.payload_path.read_text(encoding="utf-8"))
+            key_dict = data.get("key") or {}
+            qnum = int(key_dict.get("qnum"))
+            part = key_dict.get("part") or ""
+            key = (qnum, part)
+
+            q_text = (data.get("reference") or {}).get("question_text") or ""
+            sol_text = (data.get("reference") or {}).get("solution_text") or ""
+            ref_block = "\n\n".join([x for x in [q_text.strip(), sol_text.strip()] if x.strip()]).strip()
+            reference_snippets[key] = ref_block
+
+            stu_raw = (data.get("student") or {}).get("latex_raw") or ""
+            student_answers[key] = stu_raw.strip()
+
+        bundle_tex = out_dir / "qa_bundle.tex"
+        await run_in_threadpool(
+            _write_bundle_tex_inline_answers,
+            bundle_tex,
+            title="Q/A Bundle (Reference + Student Answer)",
             font_name=FIXED_FONT,
-            compile_pdf=False,
+            reference_snippets=reference_snippets,
+            student_answers=student_answers,
         )
-        bundle_secs = perf_counter() - t_bundle
-
         if job_id:
-            push(job_id, f"Q/A bundle TeX ready ({bundle_secs:.1f}s)")
+            push(job_id, "Q/A bundle TeX ready")
 
-        bundle_tex = _extract_bundle_tex(bundle_outputs, out_dir)
-        _debug_push(job_id, debug, f"Bundle TeX path: {bundle_tex}")
-
-        # =========================================================
-        # Stage 5: Grade with AI
-        # =========================================================
+        # Stage 5: grade each payload (AI) using the SAME manifest
         ai_dir = out_dir / "ai_grade"
         ai_dir.mkdir(parents=True, exist_ok=True)
-        _debug_push(job_id, debug, f"AI output dir: {ai_dir}")
 
         if job_id:
             push(job_id, "Grading please wait…")
 
         t_grade = perf_counter()
-        grades_json, _ = await run_in_threadpool(
-            grade_tex,
-            reference_tex=ref_path,
-            student_tex=tex_path,
+        grades_json = await run_in_threadpool(
+            grade_payload_manifest,
+            manifest_json=manifest_json,
             out_dir=ai_dir,
             model=provider,
             debug=debug,
             log_fn=(lambda msg: push(job_id, msg)) if job_id else None,
         )
         grade_secs = perf_counter() - t_grade
-
         if job_id:
             push(job_id, f"Grading finished ({grade_secs:.1f}s)")
-        _debug_push(job_id, debug, f"Grades JSON path: {grades_json}")
 
-        # =========================================================
-        # Stage 6: Read usage info and log submission
-        # =========================================================
+        # Stage 6: read usage and log submission (students only; admins are skipped in logger)
         gemini_tokens = 0
         try:
             usage_path = ai_dir / "usage_summary.json"
             if usage_path.exists():
                 usage = json.loads(usage_path.read_text(encoding="utf-8"))
-                if (usage.get("provider") or "").lower() in (
-                    "google",
-                    "gemini",
-                    "google_ai_studio",
-                    "aistudio",
-                ):
+                if (usage.get("provider") or "").lower() in ("google", "gemini", "google_ai_studio", "aistudio"):
                     gemini_tokens = int(usage.get("total_tokens") or 0)
-                _debug_push(job_id, debug, f"Usage summary path: {usage_path}")
         except Exception:
             gemini_tokens = 0
 
@@ -428,9 +377,7 @@ async def _grade_tex_flow(
         except Exception:
             pass
 
-        # =========================================================
-        # Stage 7: Build feedback TeX
-        # =========================================================
+        # Stage 7: feedback TeX
         if job_id:
             push(job_id, "Generating feedback (TeX)…")
 
@@ -441,14 +388,10 @@ async def _grade_tex_flow(
             out_dir=ai_dir,
         )
         fb_secs = perf_counter() - t_fb
-
         if job_id:
             push(job_id, f"Feedback TeX ready ({fb_secs:.1f}s)")
-        _debug_push(job_id, debug, f"Feedback TeX path: {feedback_tex}")
 
-        # =========================================================
-        # Stage 8: Unify bundle + feedback into one final TeX
-        # =========================================================
+        # Stage 8: unify bundle + feedback into one final TeX
         if job_id:
             push(job_id, "Combining Q/A bundle with feedback…")
 
@@ -461,20 +404,15 @@ async def _grade_tex_flow(
             output_stem=f"graded_{normalized_provider}",
         )
         union_secs = perf_counter() - t_union
-
         if job_id:
             push(job_id, f"Unified TeX ready ({union_secs:.1f}s)")
-        _debug_push(job_id, debug, f"Unified TeX path: {final_tex}")
 
-        # =========================================================
-        # Stage 9: Final step only — try compiling unified TeX to PDF
-        # =========================================================
+        # Stage 9: compile final TeX to PDF (fallback to TeX)
         if job_id:
             push(job_id, "Compiling final unified TeX to PDF…")
 
         result_path: Path
         t_pdf = perf_counter()
-
         try:
             compiled_pdf = await run_in_threadpool(
                 lambda: compile_tex_to_pdf(
@@ -486,7 +424,6 @@ async def _grade_tex_flow(
                     texinputs=[final_tex.parent, bundle_tex.parent, feedback_tex.parent],
                 ).pdf
             )
-
             compiled_pdf = Path(compiled_pdf)
             pdf_secs = perf_counter() - t_pdf
 
@@ -494,24 +431,17 @@ async def _grade_tex_flow(
                 result_path = compiled_pdf
                 if job_id:
                     push(job_id, f"PDF build finished ({pdf_secs:.1f}s)")
-                    push(job_id, "Final output is PDF")
             else:
                 result_path = final_tex
                 if job_id:
-                    push(job_id, f"PDF build did not produce a valid PDF ({pdf_secs:.1f}s)")
-                    push(job_id, "Falling back to TeX")
+                    push(job_id, f"PDF build did not produce a valid PDF ({pdf_secs:.1f}s) — falling back to TeX")
         except Exception as e:
             pdf_secs = perf_counter() - t_pdf
             result_path = final_tex
-            _debug_push(job_id, debug, f"Final PDF compile failed: {_safe_str(e, 500)}")
             if job_id:
-                push(job_id, f"PDF compile failed ({pdf_secs:.1f}s); falling back to TeX")
+                push(job_id, f"PDF compile failed ({pdf_secs:.1f}s); falling back to TeX: {_safe_str(e, 220)}")
 
-        _debug_push(job_id, debug, f"Chosen final result path: {result_path}")
-
-        # =========================================================
-        # Stage 10: Persist final output and return it
-        # =========================================================
+        # Stage 10: persist final output
         final_persistent_path = _build_persistent_result_path(
             persistent_root=persistent_results_dir,
             student_code=student_code,
@@ -542,16 +472,13 @@ async def _grade_tex_flow(
         raise
 
     except Exception as e:
-        log_path = write_debug_log(f"grade_tex_{normalized_provider}", e)
+        log_path = write_debug_log(f"grade_tex_{_normalized_provider_name(provider)}", e)
         if job_id:
             push(job_id, f"FAILED: {_safe_str(e, 400)}")
             fail(job_id, f"{e}")
         raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
 
     finally:
-        # =========================================================
-        # Stage 11: Cleanup temp run dir unless debug mode is on
-        # =========================================================
         if tmp_dir and tmp_dir.exists():
             if debug:
                 if job_id:
@@ -591,8 +518,9 @@ async def grade_tex_google(
     student_code: str | None = Form(None),
     request: Request = None,
 ):
+    # IMPORTANT: pass "google" (not "gemini") so client selection + schema pruning match
     return await _grade_tex_flow(
-        provider="gemini",
+        provider="google",
         student_tex=student_tex,
         job_id=job_id,
         student_code=student_code,
