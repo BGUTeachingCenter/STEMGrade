@@ -167,7 +167,7 @@ def grade_payload_manifest(
     schema = grading_response_schema()
     system = load_grading_prompt()
 
-    provider = (os.getenv("MATHGRADE_PROVIDER") or "ollama").strip().lower()
+    provider = (model or "ollama").strip().lower()
     if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
         schema = _schema_for_google(schema)
         if debug:
