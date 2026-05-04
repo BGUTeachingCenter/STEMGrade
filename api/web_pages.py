@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from core.config import PROJECT_ROOT
 from core.security import require_teacher_password
 
@@ -23,3 +23,11 @@ def serve_teacher(p: str | None = None):
     if not pth.exists():
         raise HTTPException(status_code=404, detail="web/teacher.html not found")
     return pth.read_text(encoding="utf-8", errors="replace")
+
+
+@router.get("/teacher-login")
+def teacher_login():
+    p = PROJECT_ROOT / "web" / "teacher_login.html"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="web/teacher_login.html not found")
+    return FileResponse(str(p))
