@@ -1,0 +1,6 @@
+{% set icon = "⚠️" %}
+{% set label = "Request error" %}
+{% set title = "Something needs attention" %}
+{% set message = detail or "The request could not be completed." %}
+{% set note = "Try again or return to the homepage." %}
+{% include "errors/error_base.html" %}

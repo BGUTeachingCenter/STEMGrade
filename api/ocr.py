@@ -5,10 +5,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from core.config import RUNS_ROOT, MATHPIX_APP_ID, MATHPIX_APP_KEY
+from core.security import require_session
 from grader.ocr.mathpix_client import process_image_or_pdf, MathpixError
 
 router = APIRouter(prefix="/api", tags=["ocr"])
@@ -17,7 +18,10 @@ ALLOWED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".pdf"}
 
 
 @router.post("/ocr_handwritten")
-async def ocr_handwritten(file: UploadFile = File(...)) -> dict:
+async def ocr_handwritten(
+    file: UploadFile = File(...),
+    _session: dict = Depends(require_session),
+) -> dict:
     if not MATHPIX_APP_ID or not MATHPIX_APP_KEY:
         raise HTTPException(status_code=400, detail="Missing MATHPIX_APP_ID / MATHPIX_APP_KEY in environment.")
 

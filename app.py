@@ -1,12 +1,13 @@
 # app.py
 from __future__ import annotations
 
-import traceback
-from fastapi import FastAPI, Request
+import logging
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.auth import router as auth_router
+from api.error_handlers import register_error_handlers
 from api.health import router as health_router
 from api.web_pages import router as web_router
 from api.grading import router as grading_router
@@ -14,25 +15,42 @@ from api.bank import router as bank_router
 from api.progress import router as progress_router
 from api.stats import router as stats_router
 from api.ocr import router as ocr_router
+from core.config import ALLOWED_ORIGINS, PRODUCTION, PROJECT_ROOT
+from core.security import SESSION_SECRET_CONFIGURED
 
-
+logger = logging.getLogger("mathgrade")
 
 app = FastAPI(title="MathGrade Bundle Generator", version="1.0")
+register_error_handlers(app)
 
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    return JSONResponse(
-        status_code=500,
-        content={"error": str(exc), "traceback": tb, "path": str(request.url)},
-    )
+app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")
 
+
+@app.on_event("startup")
+async def _warn_on_insecure_config() -> None:
+    if not SESSION_SECRET_CONFIGURED:
+        logger.warning(
+            "SESSION_SECRET is not set — sessions are signed with an ephemeral "
+            "per-process secret. Set SESSION_SECRET in the environment for "
+            "stable, multi-worker sessions."
+        )
+    if PRODUCTION and not ALLOWED_ORIGINS:
+        logger.warning(
+            "PRODUCTION=1 but ALLOWED_ORIGINS is empty. CORS will reject all "
+            "cross-origin requests; if the frontend is on another origin, set "
+            "ALLOWED_ORIGINS=https://your.site."
+        )
+
+
+# Cookies require a specific origin (not "*") plus allow_credentials=True. If
+# ALLOWED_ORIGINS is empty we serve only same-origin (frontend served by this
+# app), so CORS is effectively disabled.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev-friendly; lock down in production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(health_router)

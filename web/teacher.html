@@ -1,174 +1,9 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Teacher Solution Bank</title>
-  <style>
-    :root{
-      --text:#e5e7eb; --muted:#a7b0c0;
-      --shadow:0 30px 80px rgba(0,0,0,.35);
-      --radius:18px; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
-      --btn:#f59e0b; --btnText:#06101f;
-      --cardBg: rgba(11,18,32,.60);
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      color:var(--text);
-      background:
-        radial-gradient(1200px 800px at 10% 10%, rgba(245,158,11,.20), transparent 55%),
-        radial-gradient(900px 700px at 90% 20%, rgba(56,189,248,.20), transparent 55%),
-        radial-gradient(900px 700px at 70% 90%, rgba(167,139,250,.15), transparent 55%),
-        linear-gradient(135deg, #050816, #070a1a 35%, #040615);
-      min-height:100vh;
-    }
-    .wrap{max-width:1200px;margin:0 auto;padding:34px 18px 70px;}
-    .top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
-    h1{margin:0;font-size:24px;letter-spacing:-.01em;}
-    .sub{margin-top:8px;color:var(--muted);max-width:80ch;font-size:14px;line-height:1.5;}
-    .pillRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-    .pill{
-      display:inline-flex;align-items:center;gap:10px;
-      padding:8px 10px;border:1px solid rgba(255,255,255,.12);
-      border-radius:999px;background: rgba(255,255,255,.06);
-      color:var(--muted);font-size:12px;white-space:nowrap;text-decoration:none;
-      cursor:pointer;
-      user-select:none;
-    }
-
-    .layout{
-      display:grid;
-      grid-template-columns: 300px 1fr 1fr;
-      gap:16px;
-      align-items:start;
-    }
-    @media (max-width: 1100px){ .layout{grid-template-columns: 1fr;} }
-
-    .statsLayout{
-      display:grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap:16px;
-      align-items:stretch;
-      margin-bottom:16px;
-    }
-    @media (max-width: 1100px){ .statsLayout{grid-template-columns: 1fr;} }
-
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
-      border:1px solid rgba(255,255,255,.12);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-    }
-    .cardInner{padding:18px;background: var(--cardBg); backdrop-filter: blur(10px);}
-
-    .row{display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
-    label{font-size:12px;color:var(--muted);}
-    input[type="text"], select{
-      background: rgba(0,0,0,.25);
-      border: 1px solid rgba(255,255,255,.14);
-      color: var(--text);
-      border-radius: 12px;
-      padding: 10px 12px;
-      outline:none;
-      width:100%;
-    }
-
-    /* Drop zone */
-    .drop{
-      margin-top:10px;
-      position:relative;
-      border:1px dashed rgba(255,255,255,.20);
-      border-radius: 16px;
-      padding:16px;
-      background: rgba(0,0,0,.18);
-      transition: .15s ease;
-      min-height: 140px;
-      display:flex;flex-direction:column;gap:10px;justify-content:center;
-      cursor:pointer;
-    }
-    .drop:hover{border-color: rgba(245,158,11,.55)}
-    .drop.drag{border-color: rgba(34,197,94,.75); background: rgba(34,197,94,.08)}
-    .labelBig{font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px;}
-    .hint{color:var(--muted);font-size:13px;line-height:1.4}
-    .chip{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:8px 10px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06);
-      width: fit-content;max-width: 100%;
-      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-      font-size:13px;color:var(--text);
-    }
-    .chip span{color:var(--muted)}
-    input[type="file"]{display:none}
-
-    button{
-      appearance:none;border:0;border-radius:14px;padding:12px 14px;cursor:pointer;
-      font-weight:900;color:var(--btnText);background: var(--btn);
-      box-shadow:0 10px 30px rgba(0,0,0,.18);
-      transition:transform .1s ease, filter .15s ease, opacity .15s ease;
-      display:inline-flex;align-items:center;gap:10px;
-    }
-    button:hover{filter: brightness(1.06)}
-    button:active{transform: translateY(1px)}
-    button:disabled{opacity:.55;cursor:not-allowed}
-
-    button.secondary{
-      background: rgba(255,255,255,.10);
-      color: var(--text);
-      border: 1px solid rgba(255,255,255,.12);
-      font-weight: 750;
-    }
-    button.danger{
-      background: rgba(239,68,68,.18);
-      color: #fecaca;
-      border: 1px solid rgba(239,68,68,.35);
-      font-weight: 850;
-    }
-
-    .statusBox{
-      margin-top:12px;border-radius:16px;border:1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.18);
-      padding: 12px 14px;color:var(--muted);white-space: pre-wrap;min-height: 54px;font-size:12px;
-    }
-
-    /* Exam list */
-    .examList{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
-    .examItem{
-      border:1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.18);
-      border-radius: 14px;
-      padding:10px 12px;
-      cursor:pointer;
-      display:flex;justify-content:space-between;align-items:center;gap:10px;
-    }
-    .examItem:hover{border-color: rgba(245,158,11,.45)}
-    .examItem.active{border-color: rgba(34,197,94,.65); background: rgba(34,197,94,.08)}
-    .examName{font-weight:800;font-size:13px}
-    .small{color:var(--muted);font-size:11px}
-
-    /* File list */
-    .list{margin-top:10px;display:flex;flex-direction:column;gap:10px}
-    .item{border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:10px;background: rgba(0,0,0,.18);}
-    .item .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-    .meta{color:var(--muted);font-size:12px}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px;white-space:pre-wrap;line-height:1.35}
-    .preview{margin-top:8px;border-top:1px dashed rgba(255,255,255,.12);padding-top:8px;display:none;}
-    .tag{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;border:1px solid rgba(255,255,255,.12);color:var(--muted)}
-
-    canvas{
-      width:100%;
-      height:220px;
-      border-radius:14px;
-      background: rgba(0,0,0,.10);
-      border:1px solid rgba(255,255,255,.10);
-    }
-  </style>
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}Teacher Portal · MathGrade{% endblock %}
+{% block header_title %}Teacher Solution Bank{% endblock %}
+{% block header_subtitle %}Browse exams, upload references, and review student usage statistics{% endblock %}
+{% block header_actions %}<a class="secondary-btn small" href="/">Back to grader</a>{% endblock %}
+{% block content %}
 <div class="wrap">
   <div class="top">
     <div>
@@ -284,35 +119,22 @@
 </div>
 
 <script>
-  const API_BASE = "http://localhost:8000";
+  // Same-origin: the FastAPI server serves this page, so relative URLs
+  // keep the auth cookie first-party.
+  const API_BASE = "";
   const $ = (id)=>document.getElementById(id);
 
-  // Teacher password is passed from /teacher?p=... and used as X-Teacher-Password header
-  function qp(name){ return new URL(window.location.href).searchParams.get(name); }
-  const TEACHER_PW = qp("p") || "";
-
+  // Auth comes from the httpOnly session cookie — no password in the URL,
+  // no header, no localStorage.
   async function authedFetch(url, options = {}){
-    const headers = new Headers(options.headers || {});
-    headers.set("X-Teacher-Password", TEACHER_PW);
-    return fetch(url, { ...options, headers });
+    return fetch(url, { credentials: "same-origin", ...options });
   }
 
   // --- LOGOUT ---
-  const LS_ROLE = "mathgrade_role";
-  const LS_CODE = "mathgrade_code";
-  $("logoutPill").addEventListener("click", () => {
+  $("logoutPill").addEventListener("click", async () => {
     try {
-      localStorage.removeItem(LS_ROLE);
-      localStorage.removeItem(LS_CODE);
+      await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
     } catch(_) {}
-
-    // Remove the password query param from URL (avoid leaving it in history)
-    try {
-      const u = new URL(window.location.href);
-      u.searchParams.delete("p");
-      history.replaceState({}, "", u.toString());
-    } catch(_) {}
-
     window.location.href = "/";
   });
 
@@ -716,5 +538,4 @@
 
   window.addEventListener("load", () => loadExams());
 </script>
-</body>
-</html>
+{% endblock %}

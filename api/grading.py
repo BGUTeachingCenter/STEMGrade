@@ -11,7 +11,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, Tuple
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -19,6 +19,7 @@ from api.progress import done, fail, init_job, push
 from api.student_log import log_student_submission
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
 from core.debug import write_debug_log
+from core.security import require_session
 from grader.ai_grading.grader_payloads import grade_payload_manifest
 from grader.ai_grading.payloads import PayloadItem, build_payloads
 from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
@@ -202,10 +203,12 @@ async def _grade_tex_flow(
     provider: str,
     student_tex: UploadFile,
     job_id: str | None,
-    student_code: str | None,
+    session: dict,
     request: Request | None,
     debug: bool = False,
 ) -> FileResponse:
+    # Trust only the session for identity; never the form field.
+    student_code = session["sub"] if session.get("role") == "student" else None
     """
     Canonical flow (no duplicate extraction):
 
@@ -496,16 +499,16 @@ async def _grade_tex_flow(
 
 @router.post("/grade_tex_ollama")
 async def grade_tex_ollama(
+    request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
-    student_code: str | None = Form(None),
-    request: Request = None,
+    session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(
         provider="ollama",
         student_tex=student_tex,
         job_id=job_id,
-        student_code=student_code,
+        session=session,
         request=request,
         debug=DEBUG,
     )
@@ -513,17 +516,17 @@ async def grade_tex_ollama(
 
 @router.post("/grade_tex_google")
 async def grade_tex_google(
+    request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
-    student_code: str | None = Form(None),
-    request: Request = None,
+    session: dict = Depends(require_session),
 ):
     # IMPORTANT: pass "google" (not "gemini") so client selection + schema pruning match
     return await _grade_tex_flow(
         provider="google",
         student_tex=student_tex,
         job_id=job_id,
-        student_code=student_code,
+        session=session,
         request=request,
         debug=DEBUG,
     )
@@ -531,16 +534,16 @@ async def grade_tex_google(
 
 @router.post("/grade_tex_chatgpt")
 async def grade_tex_chatgpt(
+    request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
-    student_code: str | None = Form(None),
-    request: Request = None,
+    session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(
         provider="chatgpt",
         student_tex=student_tex,
         job_id=job_id,
-        student_code=student_code,
+        session=session,
         request=request,
         debug=DEBUG,
     )

@@ -20,6 +20,20 @@ DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 # Teacher auth
 TEACHER_PASSWORD = os.getenv("TEACHER_PASSWORD", "").strip()
 
+# Session auth
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))  # 8h
+# Cookies are Secure unless explicitly disabled for local HTTP dev
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1").lower() in {"1", "true", "yes"}
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax").lower()
+
+# CORS: comma-separated origin allowlist. Empty => same-origin only.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
+# Production mode hides internal error details from API responses
+PRODUCTION = os.getenv("PRODUCTION", "0").lower() in {"1", "true", "yes"}
+
 # Bank config
 BANK_ROOT = Path(os.getenv("MATHGRADE_SOLUTION_BANK_DIR", PROJECT_ROOT / "solution_bank"))
 BANK_ROOT.mkdir(parents=True, exist_ok=True)

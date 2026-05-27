@@ -8,10 +8,10 @@ import shutil
 from pydantic import BaseModel
 from core.storage import exam_dir  # add this import
 
-from fastapi import APIRouter, File, UploadFile, Form, Header, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from core.security import require_teacher_password
+from core.security import require_teacher
 from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary
 from core.config import BANK_ROOT
 from grader.file_handling.reference_tex import parse_reference_tex
@@ -23,7 +23,7 @@ async def upload_to_bank(
     exam_id: str = Form(...),
     content_type: str = Form(...),
     tex_file: UploadFile = File(...),
-    x_teacher_password: str | None = Header(None),
+    _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher TeX file into the solution bank.
 
@@ -31,8 +31,6 @@ async def upload_to_bank(
     - saves file as reference_current.tex / questions_only_current.tex
     - writes a lightweight .meta.json for fast preview/list
     """
-    require_teacher_password(x_teacher_password)
-
     exam_id = require_safe_exam_id(exam_id)
     if content_type not in {"reference", "questions_only"}:
         raise HTTPException(status_code=400, detail="content_type must be reference or questions_only")
@@ -91,9 +89,8 @@ async def upload_to_bank(
 @router.get("/list")
 def list_exam_files(
     exam_id: str,
-    x_teacher_password: str | None = Header(None),
+    _session: dict = Depends(require_teacher),
 ):
-    require_teacher_password(x_teacher_password)
     exam_id = require_safe_exam_id(exam_id)
     uploads = uploads_dir(exam_id)
 
@@ -118,8 +115,7 @@ def list_exam_files(
     return {"exam_id": exam_id, "items": items}
 
 @router.get("/preview")
-def preview_file(exam_id: str, filename: str, x_teacher_password: str | None = Header(None)):
-    require_teacher_password(x_teacher_password)
+def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
     exam_id = require_safe_exam_id(exam_id)
     filename = require_safe_filename(filename)
 
@@ -142,8 +138,7 @@ def preview_file(exam_id: str, filename: str, x_teacher_password: str | None = H
     return {"filename": filename, "keys": keys[:50], "preview_text": "\n".join(preview_lines)}
 
 @router.get("/raw")
-def raw_file(exam_id: str, filename: str, x_teacher_password: str | None = Header(None)):
-    require_teacher_password(x_teacher_password)
+def raw_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
     exam_id = require_safe_exam_id(exam_id)
     filename = require_safe_filename(filename)
 
@@ -155,8 +150,7 @@ def raw_file(exam_id: str, filename: str, x_teacher_password: str | None = Heade
     return FileResponse(str(tex_path), media_type="text/plain; charset=utf-8", filename=filename)
 
 @router.delete("/delete")
-def delete_file(exam_id: str, filename: str, x_teacher_password: str | None = Header(None)):
-    require_teacher_password(x_teacher_password)
+def delete_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
     exam_id = require_safe_exam_id(exam_id)
     filename = require_safe_filename(filename)
 
@@ -172,8 +166,7 @@ def delete_file(exam_id: str, filename: str, x_teacher_password: str | None = He
     return PlainTextResponse("Deleted")
 
 @router.get("/exams")
-def list_exams(x_teacher_password: str | None = Header(None)):
-    require_teacher_password(x_teacher_password)
+def list_exams(_session: dict = Depends(require_teacher)):
     BANK_ROOT.mkdir(parents=True, exist_ok=True)
 
     exam_ids = sorted([p.name for p in BANK_ROOT.iterdir() if p.is_dir()])
@@ -183,10 +176,8 @@ class ExamDeleteReq(BaseModel):
     exam_id: str
 
 @router.post("/exam/delete")
-def delete_exam(req: ExamDeleteReq, x_teacher_password: str | None = Header(None)):
+def delete_exam(req: ExamDeleteReq, _session: dict = Depends(require_teacher)):
     """Delete an entire exam_id folder (uploads + meta + files)."""
-    require_teacher_password(x_teacher_password)
-
     exam_id = require_safe_exam_id(req.exam_id)
     d = exam_dir(exam_id)  # BANK_ROOT/exam_id
 
@@ -206,10 +197,8 @@ class ExamRenameReq(BaseModel):
     new_exam_id: str
 
 @router.post("/exam/rename")
-def rename_exam(req: ExamRenameReq, x_teacher_password: str | None = Header(None)):
+def rename_exam(req: ExamRenameReq, _session: dict = Depends(require_teacher)):
     """Rename an exam_id folder (and update meta exam_id fields)."""
-    require_teacher_password(x_teacher_password)
-
     old_id = require_safe_exam_id(req.old_exam_id)
     new_id = require_safe_exam_id(req.new_exam_id)
 

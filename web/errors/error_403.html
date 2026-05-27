@@ -1,0 +1,6 @@
+{% set icon = "🔒" %}
+{% set label = "Access denied" %}
+{% set title = "Forbidden" %}
+{% set message = detail if detail and status_code not in [404] else "You do not have permission to open this page." %}
+{% set note = "Login with the correct account and try again." %}
+{% include "errors/error_base.html" %}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}MathGrade{% endblock %}</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% block shell %}
+  <header class="brandbar">
+    <div class="brandbar-inner mathgrade-brandbar-inner">
+      <a href="/" class="app-logo-link mathgrade-logo-link" aria-label="MathGrade home">
+        <span class="mathgrade-logo-mark">∑</span>
+        <span class="mathgrade-logo-text">MathGrade</span>
+      </a>
+
+      <div class="portal-header-copy">
+        <div class="portal-header-title">{% block header_title %}MathGrade{% endblock %}</div>
+        <div class="portal-header-subtitle">{% block header_subtitle %}AI-assisted math grading and solution-bank management{% endblock %}</div>
+      </div>
+
+      <div class="portal-header-actions">
+        {% block header_actions %}{% endblock %}
+      </div>
+    </div>
+  </header>
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

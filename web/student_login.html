@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Student Login · MathGrade{% endblock %}
+{% block header_title %}MathGrade{% endblock %}
+{% block header_subtitle %}Student submission and feedback portal{% endblock %}
+{% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
+{% endblock %}
+
+{% block content %}
+  <main class="mg-agent-login-page">
+    <section class="mg-agent-login-card">
+      <div class="mg-agent-login-visual" aria-hidden="true">
+        <div class="mg-agent-orb mg-agent-orb-one"></div>
+        <div class="mg-agent-orb mg-agent-orb-two"></div>
+
+        <div class="mg-agent-phone">
+          <div class="mg-agent-phone-top">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+
+          <div class="mg-agent-message-row bot">
+            <div class="mg-agent-avatar">∑</div>
+            <div class="mg-agent-message">
+              <strong>Welcome back</strong>
+              <span>Enter your student code.</span>
+            </div>
+          </div>
+
+          <div class="mg-agent-message-row user">
+            <div class="mg-agent-message">
+              <strong>My solution is ready</strong>
+              <span>Upload LaTeX or handwritten work.</span>
+            </div>
+            <div class="mg-agent-avatar">🎓</div>
+          </div>
+
+          <div class="mg-agent-message-row bot">
+            <div class="mg-agent-avatar">✓</div>
+            <div class="mg-agent-message">
+              <strong>Feedback page unlocked</strong>
+              <span>Grading tools open after login.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mg-agent-login-copy">
+        <div class="badge">MathGrade</div>
+        <h1>Student Login</h1>
+        <p class="lead">
+          Use your personal student code to open the feedback and submission page.
+        </p>
+
+        <div id="studentLoginNotice" class="alert error" style="display:none;"></div>
+
+        <form id="studentLoginForm" class="bot-form mg-agent-login-form" autocomplete="off">
+          <label>
+            <span>Student code</span>
+            <input
+              id="studentCodeInput"
+              type="text"
+              name="student_code"
+              placeholder="Enter your code…"
+              required
+              dir="auto"
+              autocomplete="off"
+            />
+          </label>
+
+          <button id="studentLoginBtn" type="submit" class="primary-btn mg-agent-login-submit">
+            <span>Continue as student</span>
+            <span class="mg-btn-arrow">→</span>
+          </button>
+        </form>
+
+        <div class="mg-agent-login-footer">
+          <span>Teacher?</span>
+          <a href="/teacher-login" class="secondary-btn small">Open Teacher Login</a>
+        </div>
+      </div>
+    </section>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const loginForm = document.getElementById("studentLoginForm");
+    const codeInput = document.getElementById("studentCodeInput");
+    const loginBtn = document.getElementById("studentLoginBtn");
+    const notice = document.getElementById("studentLoginNotice");
+
+    function showNotice(message) {
+      if (!notice) return;
+      notice.textContent = message || "Login failed.";
+      notice.style.display = "block";
+    }
+
+    function hideNotice() {
+      if (!notice) return;
+      notice.textContent = "";
+      notice.style.display = "none";
+    }
+
+    async function checkExistingSession() {
+      try {
+        const res = await fetch("/api/me", { credentials: "same-origin", cache: "no-store" });
+        const data = await res.json();
+        if (data && data.ok && data.role === "student") {
+          window.location.replace("/feedback");
+        }
+      } catch (_) {}
+    }
+
+    async function doStudentLogin(event) {
+      event.preventDefault();
+      hideNotice();
+
+      const code = (codeInput.value || "").trim();
+      if (!code) {
+        showNotice("Please enter your student code.");
+        return;
+      }
+
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = "Checking code…";
+
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code })
+        });
+
+        let data = null;
+        try { data = await res.json(); } catch (_) {}
+
+        if (!res.ok || !data || !data.ok) {
+          const detail = data && data.detail ? data.detail : "Invalid student code.";
+          showNotice(detail);
+          return;
+        }
+
+        codeInput.value = "";
+
+        if (data.role === "student") {
+          window.location.href = "/feedback";
+          return;
+        }
+
+        if (data.role === "teacher") {
+          window.location.href = "/teacher";
+          return;
+        }
+
+        showNotice("This login is not a student account.");
+      } catch (err) {
+        showNotice("Login error: " + (err && err.message ? err.message : String(err)));
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.innerHTML = '<span>Continue as student</span><span class="mg-btn-arrow">→</span>';
+      }
+    }
+
+    loginForm.addEventListener("submit", doStudentLogin);
+    checkExistingSession();
+  </script>
+{% endblock %}

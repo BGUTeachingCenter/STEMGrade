@@ -1,0 +1,1301 @@
+
+:root{
+  --bg1:#f5f5f5;
+  --bg2:#ececec;
+  --card:#ffffffee;
+  --text:#4f4f52;
+  --muted:#6a6a6d;
+  --line:#d8d8da;
+  --primary:#f39a1e;
+  --primary-2:#d97f08;
+  --primary-soft:#fff3e3;
+  --success:#2f7d32;
+  --error:#c43d2f;
+  --shadow:0 18px 50px rgba(79,79,82,.12);
+  --radius:24px;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;}
+html,body{margin:0;padding:0;font-family:Inter,Arial,sans-serif;color:var(--text)}
+body{
+  min-height:100vh;
+  background:
+    radial-gradient(circle at top left, rgba(243,154,30,.18) 0%, transparent 32%),
+    radial-gradient(circle at bottom right, rgba(120,120,124,.10) 0%, transparent 34%),
+    linear-gradient(135deg,var(--bg1),var(--bg2));
+}
+a{color:inherit}
+
+.brandbar{
+  position:sticky;
+  top:0;
+  z-index:40;
+  background:rgba(255,255,255,.94);
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(10px);
+}
+.brandbar-inner{
+  max-width:1280px;
+  margin:0 auto;
+  padding:14px 20px;
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:18px;
+}
+.mathgrade-logo-link{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  text-decoration:none;
+}
+.mathgrade-logo-mark{
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  border-radius:18px;
+  background:linear-gradient(135deg,var(--primary),var(--primary-2));
+  color:white;
+  font-size:28px;
+  font-weight:950;
+  box-shadow:0 10px 24px rgba(243,154,30,.22);
+}
+.mathgrade-logo-text{
+  font-size:22px;
+  font-weight:950;
+  letter-spacing:-.03em;
+  color:var(--text);
+}
+.portal-header-copy{min-width:0;display:flex;flex-direction:column;justify-content:center;}
+.portal-header-title{font-size:18px;font-weight:900;color:var(--text);line-height:1.1;margin:0;}
+.portal-header-subtitle{font-size:14px;color:var(--muted);line-height:1.35;margin-top:4px;word-break:break-word;}
+.portal-header-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;}
+
+.wrap,
+.page-shell{
+  max-width:1100px;
+  margin:0 auto;
+  padding:40px 20px 70px;
+}
+body:has(.layout) .wrap{max-width:1280px;}
+.hero,
+.top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:18px;
+  margin-bottom:18px;
+  flex-wrap:wrap;
+}
+.hero h1,
+.top h1,
+h1{
+  margin:0 0 10px;
+  font-size:clamp(32px,4vw,44px);
+  line-height:1.08;
+  letter-spacing:-.035em;
+  color:var(--text);
+  background:none;
+  -webkit-background-clip:initial;
+  background-clip:initial;
+}
+.sub,
+.lead{
+  margin:0;
+  color:var(--muted);
+  max-width:85ch;
+  font-size:17px;
+  line-height:1.6;
+}
+
+.card,
+.hero-card{
+  background:var(--card);
+  border:1px solid rgba(255,255,255,.72);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  backdrop-filter:blur(8px);
+}
+.cardInner,
+.inner{
+  padding:22px;
+  background:linear-gradient(180deg,#ffffff 0%, #faf8f5 100%);
+  backdrop-filter:none;
+}
+.panel,
+.form-card,
+.info-box{
+  border:1px solid var(--line);
+  border-radius:20px;
+  background:white;
+  padding:18px;
+}
+.topGrid{
+  display:grid;
+  grid-template-columns:360px 1fr;
+  gap:14px;
+  align-items:stretch;
+  margin-bottom:14px;
+}
+.layout{
+  display:grid;
+  grid-template-columns:300px 1fr 1fr;
+  gap:16px;
+  align-items:start;
+}
+.statsLayout{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:16px;
+  align-items:stretch;
+  margin-bottom:16px;
+}
+
+.badge,
+.pill,
+.tag{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 14px;
+  border-radius:999px;
+  background:var(--primary-soft);
+  border:1px solid #f1dcc0;
+  color:var(--primary-2);
+  font-weight:800;
+  font-size:13px;
+  text-decoration:none;
+  white-space:nowrap;
+}
+.pill:hover{background:#fff8ef;border-color:#f6b766;transform:translateY(-1px);}
+.pillRow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.dot{width:10px;height:10px;border-radius:999px;background:#f59e0b;box-shadow:0 0 0 6px rgba(245,158,11,.15);}
+.dot.ok{background:var(--success);box-shadow:0 0 0 6px rgba(47,125,50,.15);}
+.dot.err{background:var(--error);box-shadow:0 0 0 6px rgba(196,61,47,.15);}
+
+.row,
+.actions-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.loginRow{display:flex;gap:10px;align-items:center;margin-top:10px;}
+.label,
+.labelBig{font-weight:900;font-size:15px;display:flex;align-items:center;gap:10px;color:var(--text);}
+label{font-size:13px;color:var(--muted);font-weight:800;}
+.mini,.hint,.small,.meta,.statsHint{color:var(--muted);font-size:13px;line-height:1.45;}
+.statsTitle{font-weight:900;font-size:14px;}
+
+input[type="text"],
+input[type="password"],
+select,
+.loginInput{
+  width:100%;
+  min-height:46px;
+  padding:0 14px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:white;
+  color:var(--text);
+  font-size:15px;
+  outline:none;
+  font-family:inherit;
+}
+.loginInput{flex:1;min-width:0;}
+input:focus,
+select:focus{
+  border-color:var(--primary);
+  box-shadow:0 0 0 4px rgba(243,154,30,.14);
+}
+select{
+  appearance:none;
+  cursor:pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:calc(100% - 20px) calc(50% - 3px), calc(100% - 14px) calc(50% - 3px);
+  background-size:6px 6px,6px 6px;
+  background-repeat:no-repeat;
+  padding-right:42px;
+}
+
+button,
+.primary-btn,
+.secondary-btn{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  min-height:48px;
+  padding:12px 22px;
+  border-radius:14px;
+  border:1px solid transparent;
+  text-decoration:none;
+  font-weight:900;
+  cursor:pointer;
+  font-size:15px;
+  font-family:inherit;
+  transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease,box-shadow .18s ease,opacity .18s ease;
+  white-space:nowrap;
+}
+button:not(.secondary):not(.danger):not(.btnSubtle),
+.primary-btn,
+.btnOllama,
+.btnGoogle,
+.btnGpt{
+  background:#f59e0b;
+  color:white;
+  border-color:#f59e0b;
+  box-shadow:0 4px 14px rgba(245,158,11,.18);
+}
+button:not(.secondary):not(.danger):not(.btnSubtle):hover,
+.primary-btn:hover,
+.btnOllama:hover,
+.btnGoogle:hover,
+.btnGpt:hover{
+  background:#ea8f00;
+  border-color:#ea8f00;
+  transform:translateY(-1px);
+  box-shadow:0 8px 18px rgba(245,158,11,.22);
+}
+.secondary-btn,
+button.secondary,
+.btnSubtle{
+  background:white;
+  color:var(--text);
+  border:1px solid var(--line);
+  box-shadow:0 8px 18px rgba(17,24,39,.06);
+}
+.secondary-btn:hover,
+button.secondary:hover,
+.btnSubtle:hover{background:#fff8ef;border-color:#f6b766;transform:translateY(-1px);}
+button.danger{background:#fff1ef;color:#b93d30;border:1px solid #f2c4bd;box-shadow:none;}
+button.danger:hover{background:#ffe5e1;color:#9f2f25;transform:translateY(-1px);}
+button:disabled{opacity:.55;cursor:not-allowed;transform:none!important;}
+.secondary-btn.small{min-height:40px;padding:10px 14px;font-size:14px;border-radius:999px;}
+
+.drop{
+  position:relative;
+  border:2px dashed #e8c28a;
+  border-radius:18px;
+  padding:18px;
+  background:linear-gradient(180deg,#fffaf4 0%,#f8f6f3 100%);
+  transition:.18s ease;
+  min-height:150px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  justify-content:center;
+  margin-top:10px;
+  cursor:pointer;
+}
+.drop:hover{border-color:var(--primary);background:#fff6ea;}
+.drop.drag{border-color:var(--primary);background:#fff2e0;box-shadow:0 0 0 4px rgba(243,154,30,.10);transform:translateY(-1px);}
+input[type=file]{display:none;}
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid #f1dcc0;
+  background:#fff7eb;
+  width:fit-content;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  color:var(--text);
+  font-weight:800;
+}
+.chip span:first-child{color:var(--muted);}
+
+.statusBox{
+  margin-top:14px;
+  border-radius:16px;
+  border:1px solid var(--line);
+  background:#faf8f5;
+  padding:12px 14px;
+  color:var(--muted);
+  white-space:pre-wrap;
+  min-height:120px;
+  font-size:12px;
+  line-height:1.45;
+  overflow:auto;
+}
+.statusBox.err{color:#9f2f25;border-color:#f2c4bd;background:#fff1ef;}
+.statusBox.ok{border-color:#cfe7d1;background:#edf7ee;color:#2f7d32;}
+.statusBox.work{border-color:#f6d39b;background:#fff7eb;color:#8a5a17;}
+
+.placeholderGrid{margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.placeholderCard,
+.examItem,
+.item{
+  border:1px solid var(--line);
+  background:linear-gradient(180deg,#ffffff 0%,#faf8f5 100%);
+  border-radius:14px;
+  padding:12px;
+}
+.examList,.list{margin-top:10px;display:flex;flex-direction:column;gap:10px;}
+.examItem{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;transition:.15s ease;}
+.examItem:hover{border-color:var(--primary);transform:translateY(-1px);box-shadow:0 10px 24px rgba(79,79,82,.06);}
+.examItem.active{border-color:#86d696;background:#edf7ee;}
+.examName{font-weight:900;font-size:14px;color:var(--text);}
+.item .hdr{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+.preview{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px;display:none;}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12px;white-space:pre-wrap;line-height:1.45;}
+canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px solid #ece6dd;}
+.icon{width:28px;height:28px;border-radius:10px;display:inline-grid;place-items:center;background:var(--primary-soft);border:1px solid #f1dcc0;color:var(--primary-2);}
+.sectionDivider{height:1px;background:var(--line);margin:16px 0;}
+.sectionTitle{font-size:14px;font-weight:900;color:var(--text);margin-bottom:8px;}
+
+@media (max-width:1100px){
+  .layout,.statsLayout{grid-template-columns:1fr;}
+}
+@media (max-width:900px){
+  .topGrid{grid-template-columns:1fr;}
+}
+@media (max-width:760px){
+  .brandbar-inner{grid-template-columns:1fr;align-items:flex-start;padding:12px 16px;}
+  .portal-header-actions{justify-content:flex-start;width:100%;}
+  .wrap{padding:28px 16px 50px;}
+  .cardInner,.inner{padding:18px;}
+  .loginRow{flex-direction:column;align-items:stretch;}
+  .placeholderGrid{grid-template-columns:1fr;}
+  button,.primary-btn,.secondary-btn{width:100%;}
+  .mathgrade-logo-mark{width:42px;height:42px;border-radius:15px;}
+}
+
+
+/* =========================================================
+   MathGrade public index — chatbot-agent style landing page
+   ========================================================= */
+
+.mg-public-shell{
+  max-width:1180px;
+  margin:0 auto;
+  padding:48px 20px 78px;
+}
+
+.mg-public-hero-card{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden;
+  min-height:520px;
+  display:grid;
+  grid-template-columns:minmax(0, 1.05fr) minmax(360px, .95fr);
+  gap:34px;
+  align-items:center;
+  padding:46px;
+  border-radius:34px;
+  border:1px solid rgba(216,216,218,.85);
+  background:
+    radial-gradient(circle at 9% 12%, rgba(243,154,30,.18) 0%, transparent 28%),
+    radial-gradient(circle at 95% 15%, rgba(120,120,124,.13) 0%, transparent 32%),
+    linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(250,248,245,.96) 100%);
+  box-shadow:0 24px 70px rgba(79,79,82,.14);
+}
+
+.mg-public-hero-card::before{
+  content:"";
+  position:absolute;
+  inset:auto -90px -150px auto;
+  width:360px;
+  height:360px;
+  border-radius:999px;
+  background:radial-gradient(circle, rgba(243,154,30,.22) 0%, transparent 68%);
+  z-index:-1;
+}
+
+.mg-public-copy{
+  position:relative;
+  z-index:2;
+  max-width:620px;
+}
+
+.mg-public-copy h1{
+  margin:0 0 16px;
+  font-size:clamp(42px, 6vw, 72px);
+  line-height:.95;
+  letter-spacing:-.055em;
+  color:#4f4f52;
+}
+
+.mg-public-copy .lead{
+  max-width:560px;
+  margin-bottom:30px;
+  font-size:20px;
+  color:#68686c;
+}
+
+.mg-public-actions{
+  display:flex;
+  gap:14px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+.mg-public-main-btn{
+  min-height:60px;
+  padding:15px 28px;
+  border-radius:999px;
+  font-size:17px;
+  font-weight:900;
+  box-shadow:0 16px 34px rgba(245,158,11,.26);
+}
+
+.mg-public-teacher-btn{
+  min-height:60px;
+  padding:15px 24px;
+  border-radius:999px;
+  font-size:16px;
+  font-weight:900;
+}
+
+.mg-btn-arrow{
+  display:inline-flex;
+  transition:transform .18s ease;
+}
+
+.mg-public-main-btn:hover .mg-btn-arrow{
+  transform:translateX(4px);
+}
+
+.mg-public-visual{
+  position:relative;
+  min-height:430px;
+  border-radius:30px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255,255,255,.95) 0%, rgba(255,255,255,0) 46%),
+    linear-gradient(180deg,#fff8ef 0%, #f2eee8 100%);
+  border:1px solid #eadfd1;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75), 0 18px 44px rgba(79,79,82,.08);
+  overflow:hidden;
+}
+
+.mg-orbit{
+  position:absolute;
+  border-radius:999px;
+  border:1px dashed rgba(217,127,8,.28);
+}
+
+.mg-orbit-one{
+  width:320px;
+  height:320px;
+  right:-78px;
+  top:-58px;
+}
+
+.mg-orbit-two{
+  width:250px;
+  height:250px;
+  left:-74px;
+  bottom:-66px;
+}
+
+.mg-chat-stack{
+  position:absolute;
+  inset:34px 28px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:18px;
+}
+
+.mg-chat-bubble{
+  display:grid;
+  grid-template-columns:56px 1fr;
+  gap:14px;
+  align-items:center;
+  width:min(100%, 410px);
+  padding:16px 18px;
+  border-radius:24px;
+  border:1px solid rgba(216,216,218,.8);
+  background:rgba(255,255,255,.88);
+  box-shadow:0 14px 30px rgba(79,79,82,.09);
+  backdrop-filter:blur(8px);
+}
+
+.mg-chat-bubble strong{
+  display:block;
+  color:#444447;
+  font-size:17px;
+  line-height:1.2;
+}
+
+.mg-chat-bubble span{
+  display:block;
+  margin-top:5px;
+  color:#727276;
+  font-size:14px;
+  line-height:1.35;
+}
+
+.mg-bubble-icon{
+  width:56px;
+  height:56px;
+  border-radius:20px;
+  display:grid;
+  place-items:center;
+  background:#fff3e3;
+  border:1px solid #f3d2a4;
+  color:#a65e00;
+  font-weight:950;
+  font-size:24px;
+}
+
+.mg-chat-bubble-bot{
+  align-self:flex-start;
+}
+
+.mg-chat-bubble-user{
+  align-self:flex-end;
+  background:linear-gradient(135deg, #f39a1e, #d97f08);
+  border-color:rgba(217,127,8,.36);
+  color:white;
+  transform:translateX(-8px);
+}
+
+.mg-chat-bubble-user strong,
+.mg-chat-bubble-user span{
+  color:white;
+}
+
+.mg-chat-bubble-user .mg-bubble-icon{
+  background:rgba(255,255,255,.22);
+  border-color:rgba(255,255,255,.34);
+  color:white;
+}
+
+.mg-chat-bubble-feedback{
+  align-self:center;
+  transform:translateX(22px);
+}
+
+@media (max-width: 900px){
+  .mg-public-shell{
+    padding-top:28px;
+  }
+
+  .mg-public-hero-card{
+    grid-template-columns:1fr;
+    padding:34px;
+  }
+
+  .mg-public-visual{
+    min-height:360px;
+  }
+}
+
+@media (max-width: 640px){
+  .mg-public-shell{
+    padding:20px 14px 56px;
+  }
+
+  .mg-public-hero-card{
+    padding:24px;
+    border-radius:26px;
+    min-height:0;
+  }
+
+  .mg-public-copy h1{
+    font-size:40px;
+  }
+
+  .mg-public-copy .lead{
+    font-size:17px;
+  }
+
+  .mg-public-actions,
+  .mg-public-actions a{
+    width:100%;
+  }
+
+  .mg-public-visual{
+    min-height:330px;
+    border-radius:24px;
+  }
+
+  .mg-chat-stack{
+    inset:22px 16px;
+  }
+
+  .mg-chat-bubble{
+    grid-template-columns:46px 1fr;
+    padding:14px;
+    border-radius:20px;
+  }
+
+  .mg-bubble-icon{
+    width:46px;
+    height:46px;
+    border-radius:16px;
+    font-size:20px;
+  }
+
+  .mg-chat-bubble-user,
+  .mg-chat-bubble-feedback{
+    transform:none;
+  }
+}
+
+
+
+/* =========================================================
+   MathGrade student login + submission page fixes
+   ========================================================= */
+.mg-student-shell{
+  max-width:1180px;
+  margin:0 auto;
+  padding:34px 20px 70px;
+}
+
+.mg-student-login-hero{
+  margin-bottom:26px;
+}
+
+.login-session-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:16px;
+  min-height:40px;
+}
+
+.mg-submission-panel{
+  scroll-margin-top:100px;
+}
+
+.mg-compact-lead{
+  margin-bottom:0;
+  font-size:16px;
+}
+
+.mg-upload-grid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:18px;
+  margin-top:18px;
+}
+
+.mg-upload-label{
+  font-weight:900;
+  font-size:16px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+
+.mg-action-panel{
+  margin-top:18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:18px;
+  flex-wrap:wrap;
+}
+
+.mg-model-meta{
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.5;
+  max-width:460px;
+}
+
+@media (max-width:900px){
+  .mg-upload-grid{grid-template-columns:1fr;}
+}
+
+@media (max-width:640px){
+  .mg-student-shell{padding:24px 16px 52px;}
+  .login-session-row{flex-direction:column; align-items:stretch;}
+}
+
+/* =========================================================
+   MathGrade error pages
+   ========================================================= */
+.mg-error-shell{
+  min-height:calc(100vh - 74px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:34px 18px;
+}
+
+.mg-error-card{
+  width:min(760px, 100%);
+  background:rgba(255,255,255,.94);
+  border:1px solid var(--line);
+  border-radius:28px;
+  box-shadow:var(--shadow);
+  padding:34px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+}
+
+.mg-error-card::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  height:8px;
+  background:linear-gradient(90deg,var(--primary),var(--primary-2));
+}
+
+.mg-error-icon{
+  width:92px;
+  height:92px;
+  margin:8px auto 18px;
+  border-radius:28px;
+  display:grid;
+  place-items:center;
+  background:#fff4e3;
+  border:1px solid #ffd7a2;
+  font-size:44px;
+  box-shadow:0 14px 30px rgba(243,154,30,.14);
+}
+
+.mg-error-code{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
+  padding:5px 14px;
+  border-radius:999px;
+  background:#f3f4f6;
+  color:#5f6368;
+  font-size:13px;
+  font-weight:800;
+  margin-bottom:14px;
+}
+
+.mg-error-card h1{
+  margin:0 0 10px;
+  font-size:clamp(32px,5vw,48px);
+  line-height:1.05;
+  color:var(--text);
+}
+
+.mg-error-card p{
+  margin:0 auto;
+  max-width:560px;
+  color:var(--muted);
+  font-size:17px;
+  line-height:1.65;
+}
+
+.mg-error-actions{
+  margin-top:26px;
+  display:flex;
+  gap:12px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+
+.mg-error-note{
+  margin-top:22px;
+  padding:14px 16px;
+  border-radius:18px;
+  background:#faf8f5;
+  border:1px dashed var(--line);
+  color:var(--muted);
+  font-size:14px;
+  line-height:1.5;
+}
+
+@media (max-width:640px){
+  .mg-error-card{padding:28px 20px; border-radius:22px;}
+  .mg-error-icon{width:78px; height:78px; font-size:38px; border-radius:24px;}
+}
+
+
+/* =========================================================
+   MathGrade chatbot-agent style student login
+   ========================================================= */
+.mg-agent-login-page{
+  max-width:1180px;
+  margin:0 auto;
+  padding:38px 20px 72px;
+}
+
+.mg-agent-login-card{
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) minmax(380px, .82fr);
+  gap:34px;
+  align-items:center;
+  min-height:620px;
+  border:1px solid rgba(216,216,218,.95);
+  border-radius:34px;
+  background:
+    radial-gradient(circle at top left, rgba(243,154,30,.12) 0%, transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(250,248,245,.96) 100%);
+  box-shadow:0 24px 70px rgba(79,79,82,.12);
+  padding:34px;
+  overflow:hidden;
+}
+
+.mg-agent-login-visual{
+  position:relative;
+  min-height:540px;
+  border-radius:30px;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255,255,255,.96) 0%, rgba(255,255,255,0) 48%),
+    linear-gradient(180deg,#fff8ef 0%, #f2eee8 100%);
+  border:1px solid #eadfd1;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75), 0 18px 44px rgba(79,79,82,.08);
+  overflow:hidden;
+}
+
+.mg-agent-orb{
+  position:absolute;
+  border-radius:999px;
+  border:1px dashed rgba(217,127,8,.30);
+}
+
+.mg-agent-orb-one{width:360px;height:360px;right:-90px;top:-70px;}
+.mg-agent-orb-two{width:260px;height:260px;left:-78px;bottom:-62px;}
+
+.mg-agent-phone{
+  position:absolute;
+  inset:44px 38px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:18px;
+}
+
+.mg-agent-phone-top{
+  position:absolute;
+  top:0;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:7px;
+}
+
+.mg-agent-phone-top span{
+  width:8px;
+  height:8px;
+  border-radius:999px;
+  background:#d9d9dc;
+}
+
+.mg-agent-message-row{
+  display:flex;
+  align-items:flex-end;
+  gap:10px;
+}
+
+.mg-agent-message-row.bot{justify-content:flex-start;}
+.mg-agent-message-row.user{justify-content:flex-end;}
+
+.mg-agent-avatar{
+  width:46px;
+  height:46px;
+  flex:0 0 46px;
+  display:grid;
+  place-items:center;
+  border-radius:16px;
+  background:#fff3e3;
+  border:1px solid #f3d2a4;
+  color:#a65e00;
+  font-weight:950;
+  font-size:20px;
+  box-shadow:0 10px 22px rgba(79,79,82,.07);
+}
+
+.mg-agent-message{
+  width:min(100%, 360px);
+  padding:16px 18px;
+  border-radius:24px;
+  border:1px solid rgba(216,216,218,.86);
+  background:rgba(255,255,255,.88);
+  box-shadow:0 14px 30px rgba(79,79,82,.09);
+  backdrop-filter:blur(8px);
+}
+
+.mg-agent-message strong{
+  display:block;
+  color:#444447;
+  font-size:17px;
+  line-height:1.2;
+}
+
+.mg-agent-message span{
+  display:block;
+  margin-top:5px;
+  color:#727276;
+  font-size:14px;
+  line-height:1.35;
+}
+
+.mg-agent-message-row.user .mg-agent-message{
+  background:linear-gradient(135deg, var(--primary), var(--primary-2));
+  border-color:rgba(217,127,8,.36);
+}
+
+.mg-agent-message-row.user .mg-agent-message strong,
+.mg-agent-message-row.user .mg-agent-message span{
+  color:#fff;
+}
+
+.mg-agent-message-row.user .mg-agent-avatar{
+  background:rgba(255,255,255,.88);
+}
+
+.mg-agent-login-copy{
+  position:relative;
+  z-index:1;
+}
+
+.mg-agent-login-copy h1{
+  margin:0 0 12px;
+  font-size:clamp(42px, 5vw, 66px);
+  line-height:.95;
+  letter-spacing:-.055em;
+}
+
+.mg-agent-login-copy .lead{
+  margin-bottom:24px;
+  max-width:520px;
+}
+
+.mg-agent-login-form{
+  margin-top:8px;
+  padding:20px;
+  border:1px solid var(--line);
+  border-radius:24px;
+  background:rgba(255,255,255,.72);
+  box-shadow:0 12px 30px rgba(79,79,82,.055);
+}
+
+.mg-agent-login-submit{
+  width:100%;
+  min-height:58px;
+  border-radius:999px;
+  font-size:17px;
+  font-weight:950;
+}
+
+.mg-agent-login-footer{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-top:18px;
+  color:var(--muted);
+  font-weight:800;
+}
+
+.mg-feedback-shell{
+  max-width:1180px;
+  margin:0 auto;
+  padding:34px 20px 70px;
+}
+
+.mg-feedback-card{
+  position:relative;
+  overflow:hidden;
+}
+
+.mg-feedback-card::before{
+  content:"";
+  position:absolute;
+  right:-110px;
+  top:-110px;
+  width:260px;
+  height:260px;
+  border-radius:999px;
+  background:radial-gradient(circle, rgba(243,154,30,.15) 0%, transparent 70%);
+  pointer-events:none;
+}
+
+@media (max-width: 980px){
+  .mg-agent-login-card{
+    grid-template-columns:1fr;
+    min-height:0;
+  }
+
+  .mg-agent-login-visual{
+    min-height:390px;
+    order:2;
+  }
+}
+
+@media (max-width: 640px){
+  .mg-agent-login-page,
+  .mg-feedback-shell{
+    padding:22px 14px 54px;
+  }
+
+  .mg-agent-login-card{
+    padding:22px;
+    border-radius:26px;
+    gap:22px;
+  }
+
+  .mg-agent-login-visual{
+    min-height:350px;
+    border-radius:24px;
+  }
+
+  .mg-agent-phone{
+    inset:34px 16px;
+  }
+
+  .mg-agent-message{
+    padding:13px 14px;
+    border-radius:20px;
+  }
+
+  .mg-agent-avatar{
+    width:40px;
+    height:40px;
+    flex-basis:40px;
+    border-radius:14px;
+  }
+
+  .mg-agent-login-copy h1{
+    font-size:42px;
+  }
+
+  .mg-agent-login-footer,
+  .mg-agent-login-footer a{
+    width:100%;
+  }
+}
+
+/* Student login spacing refinement */
+.student-login-form,
+.login-student-form,
+.login-card form,
+.student-login-card form {
+  display: grid;
+  gap: 22px;
+}
+
+.student-login-form label,
+.login-student-form label,
+.login-card form label,
+.student-login-card form label {
+  display: grid;
+  gap: 14px;
+}
+
+.student-login-form input,
+.login-student-form input,
+.login-card form input,
+.student-login-card form input {
+  margin-top: 4px;
+}
+
+.student-login-form .primary-btn,
+.login-student-form .primary-btn,
+.login-card form .primary-btn,
+.student-login-card form .primary-btn {
+  margin-top: 12px;
+}
+
+/* Student login: larger spacing inside the code form */
+/* Student login: spacing + smaller submit button */
+.mg-agent-login-form {
+  display: grid !important;
+  gap: 26px !important;
+  padding: 28px !important;
+}
+
+.mg-agent-login-form label {
+  display: grid !important;
+  gap: 16px !important;
+  margin: 0 !important;
+}
+
+.mg-agent-login-form #studentCodeInput {
+  min-height: 62px;
+  padding: 0 20px;
+  border-radius: 18px;
+  font-size: 18px;
+}
+
+.mg-agent-login-form .mg-agent-login-submit {
+  width: 82%;
+  justify-self: center;
+  margin-top: 2px !important;
+  min-height: 58px;
+  padding: 12px 26px;
+  border-radius: 999px;
+  font-size: 17px;
+}
+
+/* Feedback page: more breathing room */
+.mg-feedback-shell {
+  max-width: 1280px;
+  padding: 54px 32px 90px;
+}
+
+.mg-feedback-card {
+  padding: 42px !important;
+}
+
+.mg-feedback-card .section-heading {
+  margin-bottom: 34px;
+}
+
+.mg-upload-grid {
+  gap: 28px;
+  margin-top: 30px;
+}
+
+.mg-upload-grid .drop {
+  padding: 34px 28px;
+  min-height: 190px;
+}
+
+.mg-action-panel {
+  margin-top: 28px;
+  gap: 28px;
+}
+
+.mg-action-panel .btnRow {
+  gap: 14px;
+}
+
+.mg-model-meta {
+  padding-top: 6px;
+}
+
+.mg-feedback-card .statusBox {
+  margin-top: 26px;
+  padding: 20px 22px;
+  min-height: 150px;
+}
+
+/* Feedback page busy indicator */
+.mg-feedback-card {
+  position: relative;
+}
+
+.mg-busy-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 26px;
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(3px);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.mg-busy-overlay.show {
+  display: flex;
+}
+
+.mg-busy-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 520px;
+  padding: 16px 20px;
+  border-radius: 999px;
+  border: 1px solid #f4d4a7;
+  background: rgba(255, 250, 243, 0.96);
+  box-shadow: 0 18px 42px rgba(79, 79, 82, 0.16);
+}
+
+.mg-spinner {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 50%;
+  border: 4px solid #f7d6a5;
+  border-top-color: #f59e0b;
+  animation: mgSpin 0.85s linear infinite;
+}
+
+.mg-busy-title {
+  font-weight: 950;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.mg-busy-text {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@keyframes mgSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Busy overlay only over upload/dropzone area */
+.mg-upload-busy-wrap {
+  position: relative;
+}
+
+.mg-upload-busy-wrap .mg-busy-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(3px);
+  border-radius: 24px;
+  pointer-events: none;
+}
+
+.mg-upload-busy-wrap .mg-busy-overlay.show {
+  display: flex;
+}
+
+.mg-upload-busy-wrap .mg-busy-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 520px;
+  padding: 16px 20px;
+  border-radius: 999px;
+  border: 1px solid #f4d4a7;
+  background: rgba(255, 250, 243, 0.96);
+  box-shadow: 0 18px 42px rgba(79, 79, 82, 0.16);
+}
+
+.mg-upload-busy-wrap .mg-spinner {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 50%;
+  border: 4px solid #f7d6a5;
+  border-top-color: #f59e0b;
+  animation: mgSpin 0.85s linear infinite;
+}
+
+.mg-upload-busy-wrap .mg-busy-title {
+  font-weight: 950;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.mg-upload-busy-wrap .mg-busy-text {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@keyframes mgSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
