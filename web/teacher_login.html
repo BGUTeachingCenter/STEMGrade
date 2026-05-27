@@ -90,11 +90,7 @@
   </div>
 
 <script>
-  const API_BASE = "http://localhost:8000";
-  const ENDPOINT_LOGIN = API_BASE + "/api/login";
-
-  const LS_ROLE = "mathgrade_role";
-  const LS_CODE = "mathgrade_code";
+  const ENDPOINT_LOGIN = "/api/login";
 
   const pwEl = document.getElementById("pw");
   const msgEl = document.getElementById("msg");
@@ -108,16 +104,17 @@
     msgEl.textContent = "Checking…";
 
     try {
-      // Use the same /api/login endpoint; it returns role=teacher for admin code
       const res = await fetch(ENDPOINT_LOGIN, {
         method: "POST",
+        credentials: "same-origin",
         headers: {"content-type":"application/json"},
         body: JSON.stringify({ code }),
       });
 
       if (!res.ok) {
-        const t = await res.text();
-        msgEl.textContent = "Login failed: " + t;
+        let detail = `(${res.status})`;
+        try { const j = await res.json(); if (j && j.detail) detail = j.detail; } catch (_) {}
+        msgEl.textContent = "Login failed: " + detail;
         return;
       }
 
@@ -127,12 +124,10 @@
         return;
       }
 
-      // Save session so index logout works consistently
-      localStorage.setItem(LS_ROLE, "teacher");
-      localStorage.setItem(LS_CODE, code);
-
-      // Redirect into teacher portal (same pattern you already use)
-      window.location.href = API_BASE + "/teacher?p=" + encodeURIComponent(code);
+      // Clear the code from the DOM and navigate; the auth cookie is set
+      // server-side, no need to ever pass the password in the URL.
+      pwEl.value = "";
+      window.location.href = "/teacher";
     } catch (e) {
       msgEl.textContent = "Login error: " + (e?.message || String(e));
     }

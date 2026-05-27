@@ -284,35 +284,22 @@
 </div>
 
 <script>
-  const API_BASE = "http://localhost:8000";
+  // Same-origin: the FastAPI server serves this page, so relative URLs
+  // keep the auth cookie first-party.
+  const API_BASE = "";
   const $ = (id)=>document.getElementById(id);
 
-  // Teacher password is passed from /teacher?p=... and used as X-Teacher-Password header
-  function qp(name){ return new URL(window.location.href).searchParams.get(name); }
-  const TEACHER_PW = qp("p") || "";
-
+  // Auth comes from the httpOnly session cookie — no password in the URL,
+  // no header, no localStorage.
   async function authedFetch(url, options = {}){
-    const headers = new Headers(options.headers || {});
-    headers.set("X-Teacher-Password", TEACHER_PW);
-    return fetch(url, { ...options, headers });
+    return fetch(url, { credentials: "same-origin", ...options });
   }
 
   // --- LOGOUT ---
-  const LS_ROLE = "mathgrade_role";
-  const LS_CODE = "mathgrade_code";
-  $("logoutPill").addEventListener("click", () => {
+  $("logoutPill").addEventListener("click", async () => {
     try {
-      localStorage.removeItem(LS_ROLE);
-      localStorage.removeItem(LS_CODE);
+      await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
     } catch(_) {}
-
-    // Remove the password query param from URL (avoid leaving it in history)
-    try {
-      const u = new URL(window.location.href);
-      u.searchParams.delete("p");
-      history.replaceState({}, "", u.toString());
-    } catch(_) {}
-
     window.location.href = "/";
   });
 

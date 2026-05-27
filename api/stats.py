@@ -6,11 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends
 from openpyxl import load_workbook
 
 from core.config import RUNS_ROOT
-from core.security import require_teacher_password
+from core.security import require_teacher
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
@@ -41,9 +41,7 @@ def _read_rows() -> list[dict[str, Any]]:
 
 
 @router.get("/teacher_dashboard")
-def teacher_dashboard(x_teacher_password: str | None = Header(None)):
-    require_teacher_password(x_teacher_password)
-
+def teacher_dashboard(_session: dict = Depends(require_teacher)):
     rows = _read_rows()
 
     # 1) usage per day (submissions/day)

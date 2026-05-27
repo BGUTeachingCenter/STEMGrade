@@ -387,13 +387,22 @@
   </div>
 
   <script>
-    const API_BASE = "http://localhost:8000";
+    // Same-origin: the FastAPI server serves this HTML, so relative URLs
+    // keep cookies first-party and avoid CORS entirely.
+    const API_BASE = "";
     const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
     const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";
     const ENDPOINT_OCR          = API_BASE + "/api/ocr_handwritten";
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
     const ENDPOINT_LOGIN = API_BASE + "/api/login";
+    const ENDPOINT_LOGOUT = API_BASE + "/api/logout";
+    const ENDPOINT_ME = API_BASE + "/api/me";
+
+    // Always send cookies, never store the code in JS-accessible storage.
+    function authedFetch(url, options = {}) {
+      return fetch(url, { credentials: "same-origin", ...options });
+    }
 
     const statusEl = document.getElementById("status");
 
@@ -424,13 +433,14 @@
 
     const adminPortalBtn = document.getElementById("adminPortalBtn");
 
-    const LS_ROLE = "mathgrade_role";
-    const LS_CODE = "mathgrade_code";
+    // Session state lives in an httpOnly cookie. We only cache the role here
+    // (non-sensitive) so the UI can render correctly between /api/me calls.
+    let currentRole = null;
 
     // ✅ Admin portal button works regardless of login
     if (adminPortalBtn) {
       adminPortalBtn.addEventListener("click", () => {
-        window.location.href = API_BASE + "/teacher-login";
+        window.location.href = "/teacher-login";
       });
     }
 
@@ -475,7 +485,7 @@
 
     async function loadHealth() {
       try {
-        const res = await fetch(API_BASE + "/health");
+        const res = await fetch("/health");
         const j = await res.json();
         document.getElementById("ollamaModelName").textContent = j.ollama_model || "unknown";
         document.getElementById("googleModelName").textContent = j.google_model || "not configured";
@@ -560,25 +570,8 @@
       "Wrong file type. Please upload PNG, JPG, JPEG, WEBP, or PDF."
     );
 
-    function getSession() {
-      return {
-        role: localStorage.getItem(LS_ROLE) || "",
-        code: localStorage.getItem(LS_CODE) || "",
-      };
-    }
-    function setSession(role, code) {
-      localStorage.setItem(LS_ROLE, role);
-      localStorage.setItem(LS_CODE, code);
-    }
-    function clearSession() {
-      localStorage.removeItem(LS_ROLE);
-      localStorage.removeItem(LS_CODE);
-    }
-
     function renderSessionUI() {
-      const { role, code } = getSession();
-
-      if (!role || !code) {
+      if (!currentRole) {
         appPanel.style.display = "none";
         logoutBtn.style.display = "none";
         whoami.textContent = "";
@@ -588,12 +581,21 @@
       }
 
       logoutBtn.style.display = "inline-flex";
-      whoami.textContent = `Logged in as: ${role.toUpperCase()}`;
-
-      // Teacher: allow usage of grader too (admin submissions aren’t logged server-side)
+      whoami.textContent = `Logged in as: ${currentRole.toUpperCase()}`;
       appPanel.style.display = "block";
-      setBadge("ok", "Ready", role === "teacher" ? "Teacher mode: grading + portal" : "Choose grading or OCR");
+      setBadge("ok", "Ready", currentRole === "teacher" ? "Teacher mode: grading + portal" : "Choose grading or OCR");
       updateUI();
+    }
+
+    async function refreshSession() {
+      try {
+        const r = await authedFetch(ENDPOINT_ME);
+        const j = await r.json();
+        currentRole = (j && j.ok) ? (j.role || null) : null;
+      } catch (_) {
+        currentRole = null;
+      }
+      renderSessionUI();
     }
 
     async function doLogin() {
@@ -605,15 +607,16 @@
       whoami.textContent = "Checking code…";
 
       try {
-        const res = await fetch(ENDPOINT_LOGIN, {
+        const res = await authedFetch(ENDPOINT_LOGIN, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ code }),
         });
 
         if (!res.ok) {
-          const t = await res.text();
-          whoami.textContent = "Login failed: " + t;
+          let msg = `Login failed (${res.status})`;
+          try { const j = await res.json(); if (j && j.detail) msg = "Login failed: " + j.detail; } catch (_) {}
+          whoami.textContent = msg;
           return;
         }
 
@@ -623,29 +626,36 @@
           return;
         }
 
-        setSession(j.role, code);
+        // Clear the code from the input so it doesn't sit in the DOM
+        codeInput.value = "";
+        currentRole = j.role;
         renderSessionUI();
       } catch (e) {
         whoami.textContent = "Login error: " + (e?.message || String(e));
       }
     }
 
+    async function doLogout() {
+      try {
+        await authedFetch(ENDPOINT_LOGOUT, { method: "POST" });
+      } catch (_) {}
+      currentRole = null;
+      codeInput.value = "";
+      renderSessionUI();
+    }
+
     loginBtn.addEventListener("click", doLogin);
     codeInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doLogin();
     });
-    logoutBtn.addEventListener("click", () => {
-      clearSession();
-      codeInput.value = "";
-      renderSessionUI();
-    });
+    logoutBtn.addEventListener("click", doLogout);
 
     async function pollProgress(jobId, lines, stopSignal) {
       let lastSeq = 0;
 
       while (!stopSignal.stopped) {
         try {
-          const r = await fetch(ENDPOINT_PROGRESS(jobId), { cache: "no-store" });
+          const r = await authedFetch(ENDPOINT_PROGRESS(jobId), { cache: "no-store" });
           if (r.ok) {
             const j = await r.json();
 
@@ -683,8 +693,7 @@
     }
 
     async function postAndDownload(url, downloadName, providerLabel) {
-      const { role, code } = getSession();
-      if (!role || !code) {
+      if (!currentRole) {
         alert("Please login first.");
         return;
       }
@@ -705,13 +714,9 @@
         const form = new FormData();
         form.append("student_tex", stu);
         form.append("job_id", jobId);
+        // No student_code: the server reads identity from the session cookie.
 
-        // Only students are logged on the server; teachers/admins should not be logged
-        if (role === "student") {
-          form.append("student_code", code);
-        }
-
-        const res = await fetch(url, { method: "POST", body: form });
+        const res = await authedFetch(url, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
         if (!res.ok) {
@@ -768,8 +773,7 @@
     }
 
     async function runOcr() {
-      const { role, code } = getSession();
-      if (!role || !code) {
+      if (!currentRole) {
         alert("Please login first.");
         return;
       }
@@ -789,7 +793,7 @@
         const form = new FormData();
         form.append("file", hw);
 
-        const res = await fetch(ENDPOINT_OCR, {
+        const res = await authedFetch(ENDPOINT_OCR, {
           method: "POST",
           body: form
         });
@@ -854,7 +858,7 @@
     );
     ocrBtn.addEventListener("click", runOcr);
 
-    renderSessionUI();
+    refreshSession();
   </script>
 </body>
 </html>
