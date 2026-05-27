@@ -4,3 +4,11 @@
 /midtermCalc2sol.pdf
 /solution_bank/exam_solutions_clean.tex
 /.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime output
+/runs/
+/debug_logs/
