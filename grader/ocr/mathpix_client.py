@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from grader.ocr.exam_structure import structure_to_student_tex_template
+
 MATHPIX_TEXT_URL = "https://api.mathpix.com/v3/text"
 MATHPIX_PDF_URL = "https://api.mathpix.com/v3/pdf"
 
@@ -188,8 +190,9 @@ def _download_pdf_text(
             last_error = str(e)
             continue
 
-        if resp.status_code == 200 and resp.text.strip():
-            return resp.text, ext
+        if resp.status_code == 200 and resp.content.strip():
+            text = resp.content.decode("utf-8", errors="replace")
+            return text, ext
 
         last_error = f"HTTP {resp.status_code}: {resp.text[:500]}"
 
@@ -390,8 +393,30 @@ def _normalize_ocr_lines_for_student_parser(text: str) -> str:
     return body
 
 
-def mathpix_text_to_student_tex(text: str, *, source_name: str = "") -> str:
-    body = _normalize_ocr_lines_for_student_parser(text)
+def mathpix_text_to_student_tex(
+    text: str,
+    *,
+    source_name: str = "",
+    exam_structure: dict[str, Any] | None = None,
+) -> str:
+    if exam_structure:
+        skeleton = structure_to_student_tex_template(
+            exam_structure,
+            placeholder="% Paste / review OCR answer here.",
+        )
+
+        body = "\n".join(
+            [
+                skeleton,
+                "",
+                r"\section*{Raw OCR text for review}",
+                r"% Copy answers from this raw OCR section into the matching question/part above.",
+                "",
+                _normalize_ocr_lines_for_student_parser(text),
+            ]
+        ).strip()
+    else:
+        body = _normalize_ocr_lines_for_student_parser(text)
 
     return "\n".join(
         [

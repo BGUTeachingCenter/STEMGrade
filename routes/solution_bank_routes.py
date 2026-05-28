@@ -1,6 +1,7 @@
 # routes/solution_bank_routes.py
 from __future__ import annotations
 
+from pathlib import Path
 import json
 import re
 from datetime import datetime
@@ -16,11 +17,53 @@ from core.storage import require_safe_exam_id, require_safe_filename, uploads_di
 from core.config import BANK_ROOT
 from grader.file_handling.reference_tex import parse_reference_tex
 
+from core.config import MATHPIX_APP_ID, MATHPIX_APP_KEY
+from grader.ocr.mathpix_client import MathpixError, process_image_or_pdf
+from grader.ocr.exam_structure import extract_exam_structure
+
+from grader.file_handling.pdf_text_extract import (
+    extract_pdf_text_layer,
+    looks_like_useful_pdf_text,
+    repair_pdf_text_mojibake,
+)
 router = APIRouter(prefix="/routes/bank", tags=["bank"])
 
 #-----------
 # Helpers
 #-----------
+
+
+def _plain_text_to_bank_tex(*, text: str, source_name: str) -> str:
+    """
+    Store extracted typed-PDF text inside a TeX document.
+
+    This is mainly for solution-bank preview/structure extraction.
+    It avoids Mathpix mojibake for PDFs that already contain selectable text.
+    """
+    return "\n".join(
+        [
+            r"\documentclass[12pt]{article}",
+            r"\usepackage[a4paper,margin=1in]{geometry}",
+            r"\usepackage{amsmath,amssymb,mathtools}",
+            r"\usepackage{fontspec}",
+            r"\usepackage{polyglossia}",
+            r"\setmainlanguage{hebrew}",
+            r"\setotherlanguage{english}",
+            r"\newfontfamily\hebrewfont{Arial}",
+            r"\setlength{\parindent}{0pt}",
+            r"\setlength{\parskip}{0.6em}",
+            "",
+            r"\begin{document}",
+            rf"% Text extracted from typed PDF. Source: {source_name}",
+            r"% This file was not sent to Mathpix because the PDF had an embedded text layer.",
+            "",
+            text.strip(),
+            "",
+            r"\end{document}",
+            "",
+        ]
+    )
+
 
 def _cleanup_empty_exam_folder(exam_id: str) -> None:
     """
@@ -68,6 +111,185 @@ class ExamRenameReq(BaseModel):
 class ExamDeleteReq(BaseModel):
     exam_id: str
 
+
+TEX_SUFFIXES = {".tex", ".txt"}
+OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
+ALL_BANK_UPLOAD_SUFFIXES = TEX_SUFFIXES | OCR_SUFFIXES
+
+
+def _safe_bank_upload_filename(name: str) -> str:
+    """
+    Safe filename for teacher uploads into the solution bank.
+
+    Do NOT use require_safe_filename here because that helper is currently
+    TeX-specific in this project and rejects PDFs/images.
+    """
+    safe = Path(name or "upload.bin").name.strip()
+
+    if not safe:
+        raise HTTPException(status_code=400, detail="Empty filename")
+
+    if safe in {".", ".."} or "/" in safe or "\\" in safe:
+        raise HTTPException(status_code=400, detail="Unsafe filename")
+
+    suffix = Path(safe).suffix.lower()
+    if suffix not in ALL_BANK_UPLOAD_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Upload .tex, .txt, .pdf, .png, .jpg, .jpeg, or .webp.",
+        )
+
+    return safe
+
+
+async def _bank_upload_to_tex(
+    *,
+    upload: UploadFile,
+    exam_id: str,
+    content_type: str,
+) -> tuple[bytes, dict]:
+    """
+    Convert either a TeX upload or an OCR-able upload into TeX bytes.
+
+    Returns:
+      (tex_bytes, extra_meta)
+    """
+    original_name = upload.filename or "upload.bin"
+    safe_original_name = _safe_bank_upload_filename(original_name)
+    suffix = Path(safe_original_name).suffix.lower()
+
+    raw = await upload.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload")
+
+    if suffix not in ALL_BANK_UPLOAD_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Upload .tex, .txt, .pdf, .png, .jpg, .jpeg, or .webp.",
+        )
+
+    if suffix in TEX_SUFFIXES:
+        return raw, {
+            "source_kind": "tex",
+            "original_filename": safe_original_name,
+            "ocr_used": False,
+            "pdf_text_layer_used": False,
+        }
+
+    uploads = uploads_dir(exam_id)
+
+    if suffix == ".pdf":
+        originals_dir = uploads / "originals"
+        originals_dir.mkdir(parents=True, exist_ok=True)
+
+        original_path = originals_dir / safe_original_name
+        original_path.write_bytes(raw)
+
+        extracted_text = extract_pdf_text_layer(original_path)
+        extracted_text = repair_pdf_text_mojibake(extracted_text)
+
+        # Defensive second pass for PDFs that contain mixed Hebrew/math mojibake.
+        if "×" in extracted_text or "â" in extracted_text or "Â" in extracted_text:
+            extracted_text = repair_pdf_text_mojibake(extracted_text)
+
+        if looks_like_useful_pdf_text(extracted_text):
+            tex = _plain_text_to_bank_tex(
+                text=extracted_text,
+                source_name=safe_original_name,
+            )
+
+            extracted_path = uploads / f"{content_type}_pdf_text_layer.txt"
+            extracted_path.write_text(extracted_text, encoding="utf-8")
+
+            debug_repair_path = uploads / f"{content_type}_pdf_text_layer_repair_debug.txt"
+            debug_repair_path.write_text(
+                "\n".join(
+                    [
+                        f"source={safe_original_name}",
+                        f"contains_mojibake_x={'×' in extracted_text}",
+                        f"contains_mojibake_a={'â' in extracted_text}",
+                        "",
+                        extracted_text[:3000],
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            return tex.encode("utf-8"), {
+                "source_kind": "pdf_text_layer",
+                "original_filename": safe_original_name,
+                "ocr_used": False,
+                "pdf_text_layer_used": True,
+                "pdf_text_layer_path": str(extracted_path),
+                "pdf_text_layer_repair_debug_path": str(debug_repair_path),
+            }
+
+    if not MATHPIX_APP_ID or not MATHPIX_APP_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing MATHPIX_APP_ID / MATHPIX_APP_KEY in environment.",
+        )
+
+    originals_dir = uploads / "originals"
+    originals_dir.mkdir(parents=True, exist_ok=True)
+
+    original_path = originals_dir / safe_original_name
+    original_path.write_bytes(raw)
+
+    try:
+        result = process_image_or_pdf(
+            file_path=original_path,
+            app_id=MATHPIX_APP_ID,
+            app_key=MATHPIX_APP_KEY,
+            include_line_data=True,
+        )
+    except MathpixError as e:
+        raise HTTPException(status_code=502, detail=f"Mathpix OCR failed: {e}") from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
+
+    ocr_raw_path = uploads / f"{content_type}_mathpix_raw.json"
+    ocr_raw_path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    ocr_text = result.get("text", "") or ""
+    ocr_text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", ocr_text)
+
+    tex = "\n".join(
+        [
+            r"\documentclass[12pt]{article}",
+            r"\usepackage[a4paper,margin=1in]{geometry}",
+            r"\usepackage{amsmath,amssymb,mathtools}",
+            r"\usepackage{fontspec}",
+            r"\usepackage{polyglossia}",
+            r"\setmainlanguage{hebrew}",
+            r"\setotherlanguage{english}",
+            r"\newfontfamily\hebrewfont{Arial}",
+            r"\setlength{\parindent}{0pt}",
+            r"\setlength{\parskip}{0.6em}",
+            "",
+            r"\begin{document}",
+            rf"% OCR generated for solution bank. Source: {safe_original_name}",
+            "",
+            ocr_text.strip(),
+            "",
+            r"\end{document}",
+            "",
+        ]
+    )
+
+    return tex.encode("utf-8"), {
+        "source_kind": "ocr",
+        "original_filename": safe_original_name,
+        "ocr_used": True,
+        "ocr_raw_path": str(ocr_raw_path),
+        "mathpix_mode": result.get("_mathpix_mode"),
+        "pdf_id": result.get("pdf_id"),
+        "downloaded_ext": result.get("downloaded_ext"),
+    }
+
 #-----------
 # Routes
 #-----------
@@ -89,9 +311,11 @@ async def upload_to_bank(
     if content_type not in {"reference", "questions_only"}:
         raise HTTPException(status_code=400, detail="content_type must be reference or questions_only")
 
-    raw = await tex_file.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty upload")
+    raw, extra_meta = await _bank_upload_to_tex(
+        upload=tex_file,
+        exam_id=exam_id,
+        content_type=content_type,
+    )
 
     uploads = uploads_dir(exam_id)
 
@@ -99,6 +323,23 @@ async def upload_to_bank(
     filename = f"{suffix}_current.tex"
     tex_path = uploads / filename
     tex_path.write_bytes(raw)
+    tex_text_for_structure = raw.decode("utf-8", errors="replace")
+
+    structure = None
+    structure_path = None
+
+    if content_type == "questions_only":
+        try:
+            structure = extract_exam_structure(tex_text_for_structure)
+            structure_path = uploads / "exam_structure.json"
+            structure_path.write_text(
+                json.dumps(structure, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            structure = None
+            structure_path = None
+
     # create/update reference_summary.json for fast matching
     if content_type == "reference":
         try:
@@ -127,13 +368,24 @@ async def upload_to_bank(
     meta = {
         "exam_id": exam_id,
         "filename": filename,
-        "original_filename": tex_file.filename,
+        "original_filename": extra_meta.get("original_filename") or tex_file.filename,
         "content_type": content_type,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "q_count": q_count,
         "part_count": part_count,
         "keys_preview": keys[:50],
         "preview_text": preview_text[:4000],
+        "source_kind": extra_meta.get("source_kind"),
+        "ocr_used": extra_meta.get("ocr_used", False),
+        "mathpix_mode": extra_meta.get("mathpix_mode"),
+        "pdf_id": extra_meta.get("pdf_id"),
+        "downloaded_ext": extra_meta.get("downloaded_ext"),
+        "exam_structure_path": str(structure_path) if structure_path else None,
+        "exam_structure_question_count": structure.get("question_count") if structure else None,
+        "exam_structure_part_count": structure.get("part_count") if structure else None,
+        "pdf_text_layer_used": extra_meta.get("pdf_text_layer_used", False),
+        "pdf_text_layer_path": extra_meta.get("pdf_text_layer_path"),
+        "pdf_text_layer_repair_debug_path": extra_meta.get("pdf_text_layer_repair_debug_path"),
     }
 
     meta_path = uploads / (filename + ".meta.json")
@@ -164,6 +416,12 @@ def list_exam_files(
             "created_at": meta.get("created_at"),
             "q_count": meta.get("q_count"),
             "part_count": meta.get("part_count"),
+            "source_kind": meta.get("source_kind"),
+            "ocr_used": meta.get("ocr_used", False),
+            "mathpix_mode": meta.get("mathpix_mode"),
+            "exam_structure_question_count": meta.get("exam_structure_question_count"),
+            "exam_structure_part_count": meta.get("exam_structure_part_count"),
+            "pdf_text_layer_used": meta.get("pdf_text_layer_used", False),
         })
 
     return {"exam_id": exam_id, "items": items}
@@ -201,7 +459,16 @@ def raw_file(exam_id: str, filename: str, _session: dict = Depends(require_teach
     if not tex_path.exists():
         raise HTTPException(status_code=404, detail="Not found")
 
-    return FileResponse(str(tex_path), media_type="text/plain; charset=utf-8", filename=filename)
+    text = tex_path.read_text(encoding="utf-8", errors="replace")
+
+    return PlainTextResponse(
+        text,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 @router.delete("/delete")
 def delete_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
