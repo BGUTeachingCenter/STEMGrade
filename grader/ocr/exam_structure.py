@@ -6,34 +6,36 @@ from pathlib import Path
 from typing import Any
 
 
-_HEBREW_PARTS = set("אבגדהוזחטיכלמנסעפצקרשת")
-_LATIN_PARTS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+_HEBREW_PARTS = list("אבגדהוזחטיכלמנסעפצקרשת")
+_LATIN_PARTS = list("abcdefghijklmnopqrstuvwxyz")
 
-# Handles lines like:
-# .1 מצאו...
-# 1 מצאו...
-# 1. מצאו...
-QUESTION_LINE_RE = re.compile(
-    r"^\s*\.?\s*([0-9]{1,2})(?:\s+|[.)])",
+
+QUESTION_WITH_TEXT_RE = re.compile(
+    r"^\s*\.?\s*([1-9][0-9]?)(?:[.)]\s*|\s+).+",
     re.UNICODE,
 )
 
-# Handles part labels like:
-# (א)
-# (ב(
-# (a)
-# [א]
-PART_PAREN_RE = re.compile(
-    r"[\(\[]\s*([א-תa-zA-Z])\s*[\)\]]|[\(\[]\s*([א-תa-zA-Z])\s*$",
+BARE_QUESTION_RE = re.compile(
+    r"^\s*([1-9][0-9]?)\s*$",
     re.UNICODE,
 )
 
-# Handles OCR weirdness like:
-# א)
-# ב.
-# ג:
-PART_STANDALONE_RE = re.compile(
-    r"^\s*([א-תa-zA-Z])\s*[\)\].:]",
+# Handles Hebrew exam extraction patterns:
+#   (א)
+#   (א(
+#   )א
+#   )א(
+#   |x − 2| ≤ 5)א
+HEBREW_PART_NEAR_PAREN_RE = re.compile(
+    r"[\(\)]\s*([אבגדהוזחטיכלמנסעפצקרשת])\s*[\(\)]?",
+    re.UNICODE,
+)
+
+# English fallback:
+#   (a)
+#   a)
+LATIN_PART_RE = re.compile(
+    r"(?:[\(\[]\s*([a-zA-Z])\s*[\)\]]|^\s*([a-zA-Z])\s*[\).:])",
     re.UNICODE,
 )
 
@@ -48,9 +50,22 @@ def _clean_line(line: str) -> str:
     )
 
 
-def _valid_part(label: str) -> bool:
-    label = (label or "").strip()
-    return label in _HEBREW_PARTS or label in _LATIN_PARTS
+def _looks_like_question_context(lines: list[str], idx: int) -> bool:
+    """
+    Bare PDF extraction often gives:
+      1
+      על ציר המספרים
+      |x − 2| ≤ 5)א
+      פתרון:
+
+    This decides whether a bare number is probably a question number.
+    """
+    window = "\n".join(lines[idx + 1 : idx + 9])
+    if "פתרון" in window:
+        return True
+    if HEBREW_PART_NEAR_PAREN_RE.search(window):
+        return True
+    return False
 
 
 def _add_question(
@@ -66,45 +81,71 @@ def _add_question(
     return by_id[qid]
 
 
+def _add_part(q: dict[str, Any], part: str) -> None:
+    part = (part or "").strip()
+    if not part:
+        return
+    if part not in q["parts"]:
+        q["parts"].append(part)
+
+
 def extract_exam_structure(reference_text: str) -> dict[str, Any]:
     """
-    Extract stable question/part structure from a typed exam form or OCR text.
+    Extract a stable structure from a typed exam / OCR text.
 
-    This is intentionally based on the exam form, not on student handwriting.
+    Goal:
+      Question 1: א, ב, ג...
+      Question 2: א, ב, ג...
+
+    This is intentionally not used as final grading content. It is only the
+    stable skeleton that later answers can be inserted into.
     """
+    lines = [_clean_line(x) for x in (reference_text or "").splitlines()]
+    lines = [x for x in lines if x]
+
     questions: list[dict[str, Any]] = []
     by_id: dict[str, dict[str, Any]] = {}
     current_q: str | None = None
+    last_qnum = 0
 
-    for raw in (reference_text or "").splitlines():
-        line = _clean_line(raw)
-        if not line:
-            continue
+    for idx, line in enumerate(lines):
+        qid: str | None = None
 
-        q_match = QUESTION_LINE_RE.match(line)
+        q_match = QUESTION_WITH_TEXT_RE.match(line)
         if q_match:
-            current_q = q_match.group(1)
+            possible = int(q_match.group(1))
+            if possible == last_qnum + 1 or (last_qnum == 0 and possible <= 3):
+                qid = str(possible)
+
+        if qid is None:
+            bare_match = BARE_QUESTION_RE.match(line)
+            if bare_match:
+                possible = int(bare_match.group(1))
+
+                # Avoid dates/page numbers like 20. Prefer natural sequence.
+                if (
+                    (possible == last_qnum + 1 or (last_qnum == 0 and possible <= 3))
+                    and _looks_like_question_context(lines, idx)
+                ):
+                    qid = str(possible)
+
+        if qid is not None:
+            current_q = qid
+            last_qnum = int(qid)
             _add_question(questions=questions, by_id=by_id, qid=current_q)
 
         if current_q is None:
             continue
 
-        candidate_parts: list[str] = []
+        q = _add_question(questions=questions, by_id=by_id, qid=current_q)
 
-        for a, b in PART_PAREN_RE.findall(line):
-            part = a or b
-            if _valid_part(part):
-                candidate_parts.append(part)
+        for part in HEBREW_PART_NEAR_PAREN_RE.findall(line):
+            _add_part(q, part)
 
-        standalone = PART_STANDALONE_RE.match(line)
-        if standalone and _valid_part(standalone.group(1)):
-            candidate_parts.append(standalone.group(1))
-
-        if candidate_parts:
-            q = _add_question(questions=questions, by_id=by_id, qid=current_q)
-            for part in candidate_parts:
-                if part not in q["parts"]:
-                    q["parts"].append(part)
+        for a, b in LATIN_PART_RE.findall(line):
+            part = (a or b or "").lower()
+            if part in _LATIN_PARTS:
+                _add_part(q, part)
 
     return {
         "questions": questions,
@@ -113,11 +154,53 @@ def extract_exam_structure(reference_text: str) -> dict[str, Any]:
     }
 
 
+def structure_to_reference_tex_template(
+    structure: dict[str, Any],
+    *,
+    placeholder: str = "% Answer goes here.",
+) -> str:
+    """
+    Canonical solution-bank/reference format.
+
+    This is the format parse_reference_tex already expects:
+      \\section*{Question 1}
+      \\subsection*{(א)}
+    """
+    out: list[str] = []
+
+    for q in structure.get("questions", []):
+        qid = str(q.get("question_id", "")).strip()
+        if not qid:
+            continue
+
+        out.append("")
+        out.append(rf"\section*{{Question {qid}}}")
+
+        parts = q.get("parts") or []
+        if parts:
+            for part in parts:
+                part = str(part).strip()
+                if not part:
+                    continue
+                out.append("")
+                out.append(rf"\subsection*{{({part})}}")
+                out.append(placeholder)
+        else:
+            out.append("")
+            out.append(r"\subsection*{(a)}")
+            out.append(placeholder)
+
+    return "\n".join(out).strip()
+
+
 def structure_to_student_tex_template(
     structure: dict[str, Any],
     *,
     placeholder: str = "% Paste / review OCR answer here.",
 ) -> str:
+    """
+    Student-answer format for the OCR review page.
+    """
     out: list[str] = []
 
     for q in structure.get("questions", []):

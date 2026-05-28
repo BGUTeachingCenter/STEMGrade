@@ -568,11 +568,25 @@ function renderSolutionList(items) {
 
       const j2 = await r2.json();
 
-      previewEl.innerHTML =
-        `<div><b>Parsed keys:</b> ${escapeHtml((j2.keys || []).join(", "))}</div>` +
-        `<div style="height:8px"></div>` +
-        `<div><b>Preview:</b></div>` +
-        `<div>${escapeHtml(j2.preview_text || "")}</div>`;
+      const keyLabel = j2.content_type === "questions_only"
+      ? "Detected structure"
+      : "Parsed keys";
+
+    const sourceTags = [
+      j2.pdf_text_layer_used ? "PDF text layer" : "",
+      j2.ocr_used ? "OCR" : "",
+      j2.source_kind ? String(j2.source_kind) : "",
+    ].filter(Boolean).join(" · ");
+
+    previewEl.innerHTML =
+      `<div class="mg-preview-meta-row">` +
+        `<b>${escapeHtml(keyLabel)}:</b> ` +
+        `${escapeHtml((j2.keys || []).join(", ") || "No keys detected")}` +
+      `</div>` +
+      (sourceTags ? `<div class="mg-preview-source">${escapeHtml(sourceTags)}</div>` : "") +
+      `<div style="height:10px"></div>` +
+      `<div><b>Preview:</b></div>` +
+      `<pre class="mg-hebrew-preview-text">${escapeHtml(j2.preview_text || "")}</pre>`;
     };
 
     div.querySelector('[data-action="download"]').onclick = async () => {

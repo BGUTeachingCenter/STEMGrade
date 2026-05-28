@@ -19,13 +19,9 @@ from grader.file_handling.reference_tex import parse_reference_tex
 
 from core.config import MATHPIX_APP_ID, MATHPIX_APP_KEY
 from grader.ocr.mathpix_client import MathpixError, process_image_or_pdf
-from grader.ocr.exam_structure import extract_exam_structure
+from grader.ocr.exam_structure import extract_exam_structure, structure_to_reference_tex_template
 
-from grader.file_handling.pdf_text_extract import (
-    extract_pdf_text_layer,
-    looks_like_useful_pdf_text,
-    repair_pdf_text_mojibake,
-)
+
 router = APIRouter(prefix="/routes/bank", tags=["bank"])
 
 #-----------
@@ -58,6 +54,37 @@ def _plain_text_to_bank_tex(*, text: str, source_name: str) -> str:
             r"% This file was not sent to Mathpix because the PDF had an embedded text layer.",
             "",
             text.strip(),
+            "",
+            r"\end{document}",
+            "",
+        ]
+    )
+
+
+def _canonical_bank_tex_document(
+    *,
+    body: str,
+    source_name: str,
+    note: str,
+) -> str:
+    return "\n".join(
+        [
+            r"\documentclass[12pt]{article}",
+            r"\usepackage[a4paper,margin=1in]{geometry}",
+            r"\usepackage{amsmath,amssymb,mathtools}",
+            r"\usepackage{fontspec}",
+            r"\usepackage{polyglossia}",
+            r"\setmainlanguage{hebrew}",
+            r"\setotherlanguage{english}",
+            r"\newfontfamily\hebrewfont{Arial}",
+            r"\setlength{\parindent}{0pt}",
+            r"\setlength{\parskip}{0.6em}",
+            "",
+            r"\begin{document}",
+            rf"% {note}",
+            rf"% Source: {source_name}",
+            "",
+            body.strip(),
             "",
             r"\end{document}",
             "",
@@ -178,51 +205,9 @@ async def _bank_upload_to_tex(
 
     uploads = uploads_dir(exam_id)
 
-    if suffix == ".pdf":
-        originals_dir = uploads / "originals"
-        originals_dir.mkdir(parents=True, exist_ok=True)
-
-        original_path = originals_dir / safe_original_name
-        original_path.write_bytes(raw)
-
-        extracted_text = extract_pdf_text_layer(original_path)
-        extracted_text = repair_pdf_text_mojibake(extracted_text)
-
-        # Defensive second pass for PDFs that contain mixed Hebrew/math mojibake.
-        if "×" in extracted_text or "â" in extracted_text or "Â" in extracted_text:
-            extracted_text = repair_pdf_text_mojibake(extracted_text)
-
-        if looks_like_useful_pdf_text(extracted_text):
-            tex = _plain_text_to_bank_tex(
-                text=extracted_text,
-                source_name=safe_original_name,
-            )
-
-            extracted_path = uploads / f"{content_type}_pdf_text_layer.txt"
-            extracted_path.write_text(extracted_text, encoding="utf-8")
-
-            debug_repair_path = uploads / f"{content_type}_pdf_text_layer_repair_debug.txt"
-            debug_repair_path.write_text(
-                "\n".join(
-                    [
-                        f"source={safe_original_name}",
-                        f"contains_mojibake_x={'×' in extracted_text}",
-                        f"contains_mojibake_a={'â' in extracted_text}",
-                        "",
-                        extracted_text[:3000],
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            return tex.encode("utf-8"), {
-                "source_kind": "pdf_text_layer",
-                "original_filename": safe_original_name,
-                "ocr_used": False,
-                "pdf_text_layer_used": True,
-                "pdf_text_layer_path": str(extracted_path),
-                "pdf_text_layer_repair_debug_path": str(debug_repair_path),
-            }
+    # PDFs intentionally go through Mathpix.
+    # Do not use embedded PDF text-layer extraction here because it destroys
+    # Hebrew spacing and math structure in many exams.
 
     if not MATHPIX_APP_ID or not MATHPIX_APP_KEY:
         raise HTTPException(
@@ -255,7 +240,13 @@ async def _bank_upload_to_tex(
     )
 
     ocr_text = result.get("text", "") or ""
-    ocr_text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", ocr_text)
+
+    mathpix_text_path = uploads / f"{content_type}_mathpix_text.{result.get('downloaded_ext') or 'txt'}"
+    mathpix_text_path.write_text(ocr_text, encoding="utf-8")
+
+    # Remove Mathpix markdown image links. They are useful for debugging,
+    # but not valid inside the temporary TeX.
+    ocr_text_for_tex = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", ocr_text)
 
     tex = "\n".join(
         [
@@ -273,7 +264,7 @@ async def _bank_upload_to_tex(
             r"\begin{document}",
             rf"% OCR generated for solution bank. Source: {safe_original_name}",
             "",
-            ocr_text.strip(),
+            ocr_text_for_tex.strip(),
             "",
             r"\end{document}",
             "",
@@ -281,14 +272,87 @@ async def _bank_upload_to_tex(
     )
 
     return tex.encode("utf-8"), {
-        "source_kind": "ocr",
+        "source_kind": "mathpix",
         "original_filename": safe_original_name,
         "ocr_used": True,
         "ocr_raw_path": str(ocr_raw_path),
+        "mathpix_text_path": str(mathpix_text_path),
         "mathpix_mode": result.get("_mathpix_mode"),
         "pdf_id": result.get("pdf_id"),
         "downloaded_ext": result.get("downloaded_ext"),
     }
+
+
+def _strip_tex_wrapper_for_preview(tex_text: str) -> str:
+    """
+    Show useful body text for teacher preview without forcing reference-parser format.
+    """
+    text = (tex_text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    begin = text.find(r"\begin{document}")
+    end = text.find(r"\end{document}")
+
+    if begin >= 0:
+        text = text[begin + len(r"\begin{document}"):]
+    if end >= 0:
+        text = text[:end]
+
+    # Remove comments and excessive empty lines for preview readability.
+    lines = []
+    for line in text.splitlines():
+        if line.strip().startswith("%"):
+            continue
+        lines.append(line)
+
+    text = "\n".join(lines).strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
+
+
+def _preview_from_exam_structure(structure: dict | None, tex_text: str) -> tuple[list[str], str]:
+    """
+    Preview questions-only files using the extracted exam structure,
+    not parse_reference_tex.
+    """
+    structure = structure or {}
+    questions = structure.get("questions") or []
+
+    keys: list[str] = []
+    preview_lines: list[str] = []
+
+    if questions:
+        preview_lines.append("Detected exam structure:")
+        preview_lines.append("")
+
+        for q in questions:
+            qid = str(q.get("question_id", "")).strip()
+            if not qid:
+                continue
+
+            parts = [str(p).strip() for p in (q.get("parts") or []) if str(p).strip()]
+
+            if parts:
+                keys.extend([f"Q{qid}{p}" for p in parts])
+                preview_lines.append(f"Question {qid}: parts {', '.join(parts)}")
+            else:
+                keys.append(f"Q{qid}")
+                preview_lines.append(f"Question {qid}: no parts detected")
+
+        preview_lines.append("")
+        preview_lines.append("Extracted text preview:")
+        preview_lines.append("")
+
+    else:
+        preview_lines.append("No structure detected yet.")
+        preview_lines.append("")
+        preview_lines.append("Extracted text preview:")
+        preview_lines.append("")
+
+    body_preview = _strip_tex_wrapper_for_preview(tex_text)
+    preview_lines.append(body_preview[:3500])
+
+    return keys[:80], "\n".join(preview_lines).strip()
+
 
 #-----------
 # Routes
@@ -322,7 +386,6 @@ async def upload_to_bank(
     suffix = "reference" if content_type == "reference" else "questions_only"
     filename = f"{suffix}_current.tex"
     tex_path = uploads / filename
-    tex_path.write_bytes(raw)
     tex_text_for_structure = raw.decode("utf-8", errors="replace")
 
     structure = None
@@ -336,9 +399,25 @@ async def upload_to_bank(
                 json.dumps(structure, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+
+            canonical_body = structure_to_reference_tex_template(
+                structure,
+                placeholder="% Empty question form. Official solution can be added later.",
+            )
+
+            if canonical_body.strip():
+                raw = _canonical_bank_tex_document(
+                    body=canonical_body,
+                    source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                    note="Canonical MathGrade questions-only structure generated from upload.",
+                ).encode("utf-8")
+
         except Exception:
             structure = None
             structure_path = None
+
+    tex_path.write_bytes(raw)
+    tex_text_for_structure = raw.decode("utf-8", errors="replace")
 
     # create/update reference_summary.json for fast matching
     if content_type == "reference":
@@ -350,20 +429,40 @@ async def upload_to_bank(
             pass
 
     # Parse for metadata
-    try:
-        parts = parse_reference_tex(tex_path)
-        keys = sorted([f"Q{k.qnum}{k.part}" for k in parts.values()])
-        qnums = sorted({rp.qnum for rp in parts.values()})
-        part_count = len(parts)
-        q_count = len(qnums)
-        preview_lines = []
-        for rp in list(parts.values())[:12]:
-            title = re.sub(r"\s+", " ", (rp.title or "").strip())
-            preview_lines.append(f"Q{rp.qnum}{rp.part}: {title[:120]}")
-        preview_text = "\n".join(preview_lines)
-    except Exception as e:
-        keys, q_count, part_count = [], None, None
-        preview_text = f"Parse error: {e}"
+    # Preview / metadata
+    if content_type == "questions_only":
+        try:
+            parts = parse_reference_tex(tex_path)
+            keys = sorted([f"Q{k.qnum}{k.part}" for k in parts.values()])
+            qnums = sorted({rp.qnum for rp in parts.values()})
+            part_count = len(parts)
+            q_count = len(qnums)
+
+            preview_lines = []
+            preview_lines.append("Canonical questions-only structure:")
+            preview_lines.append("")
+            for rp in list(parts.values())[:30]:
+                preview_lines.append(f"Q{rp.qnum}{rp.part}")
+            preview_text = "\n".join(preview_lines)
+        except Exception:
+            keys, preview_text = _preview_from_exam_structure(structure, tex_text_for_structure)
+            q_count = structure.get("question_count") if structure else None
+            part_count = structure.get("part_count") if structure else None
+    else:
+        try:
+            parts = parse_reference_tex(tex_path)
+            keys = sorted([f"Q{k.qnum}{k.part}" for k in parts.values()])
+            qnums = sorted({rp.qnum for rp in parts.values()})
+            part_count = len(parts)
+            q_count = len(qnums)
+            preview_lines = []
+            for rp in list(parts.values())[:12]:
+                title = re.sub(r"\s+", " ", (rp.title or "").strip())
+                preview_lines.append(f"Q{rp.qnum}{rp.part}: {title[:120]}")
+            preview_text = "\n".join(preview_lines)
+        except Exception as e:
+            keys, q_count, part_count = [], None, None
+            preview_text = f"Parse error: {e}"
 
     meta = {
         "exam_id": exam_id,
@@ -383,9 +482,7 @@ async def upload_to_bank(
         "exam_structure_path": str(structure_path) if structure_path else None,
         "exam_structure_question_count": structure.get("question_count") if structure else None,
         "exam_structure_part_count": structure.get("part_count") if structure else None,
-        "pdf_text_layer_used": extra_meta.get("pdf_text_layer_used", False),
-        "pdf_text_layer_path": extra_meta.get("pdf_text_layer_path"),
-        "pdf_text_layer_repair_debug_path": extra_meta.get("pdf_text_layer_repair_debug_path"),
+        "mathpix_text_path": extra_meta.get("mathpix_text_path"),
     }
 
     meta_path = uploads / (filename + ".meta.json")
@@ -421,7 +518,6 @@ def list_exam_files(
             "mathpix_mode": meta.get("mathpix_mode"),
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
             "exam_structure_part_count": meta.get("exam_structure_part_count"),
-            "pdf_text_layer_used": meta.get("pdf_text_layer_used", False),
         })
 
     return {"exam_id": exam_id, "items": items}
@@ -439,15 +535,39 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
     meta_path = uploads / (filename + ".meta.json")
     if meta_path.exists():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        return {"filename": filename, "keys": meta.get("keys_preview", []), "preview_text": meta.get("preview_text", "")}
 
-    parts = parse_reference_tex(tex_path)
-    keys = sorted([f"Q{rp.qnum}{rp.part}" for rp in parts.values()])
-    preview_lines = []
-    for rp in list(parts.values())[:12]:
-        title = re.sub(r"\s+", " ", (rp.title or "").strip())
-        preview_lines.append(f"Q{rp.qnum}{rp.part}: {title[:120]}")
-    return {"filename": filename, "keys": keys[:50], "preview_text": "\n".join(preview_lines)}
+        return {
+            "filename": filename,
+            "content_type": meta.get("content_type"),
+            "source_kind": meta.get("source_kind"),
+            "keys": meta.get("keys_preview", []),
+            "preview_text": meta.get("preview_text", ""),
+            "q_count": meta.get("q_count"),
+            "part_count": meta.get("part_count"),
+            "exam_structure_question_count": meta.get("exam_structure_question_count"),
+            "exam_structure_part_count": meta.get("exam_structure_part_count"),
+            "ocr_used": meta.get("ocr_used", False),
+        }
+
+    tex_text = tex_path.read_text(encoding="utf-8", errors="replace")
+
+    try:
+        parts = parse_reference_tex(tex_text)
+        keys = sorted([f"Q{rp.qnum}{rp.part}" for rp in parts.values()])
+        preview_lines = []
+        for rp in list(parts.values())[:12]:
+            title = re.sub(r"\s+", " ", (rp.title or "").strip())
+            preview_lines.append(f"Q{rp.qnum}{rp.part}: {title[:120]}")
+        preview_text = "\n".join(preview_lines)
+    except Exception:
+        keys = []
+        preview_text = _strip_tex_wrapper_for_preview(tex_text)[:4000]
+
+    return {
+        "filename": filename,
+        "keys": keys[:80],
+        "preview_text": preview_text,
+    }
 
 @router.get("/raw")
 def raw_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
