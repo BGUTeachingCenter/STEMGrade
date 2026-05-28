@@ -425,9 +425,13 @@ async function loadExams() {
   }
 
   if (!r.ok) {
-    setExamStatus(await r.text());
-    return;
-  }
+      const errorText = await r.text();
+      setExamStatus(`Could not load solution bank.\nStatus: ${r.status}\n\n${errorText}`);
+      if ($("solutionBankCount")) {
+        $("solutionBankCount").textContent = "Load failed";
+      }
+      return;
+    }
 
   const j = await r.json();
   const ids = j.exam_ids || [];
@@ -619,10 +623,14 @@ async function refreshFiles() {
     await loadExams();
   }
 
-  $("uploadBtn").onclick = upload;
-  $("refreshFilesBtn").onclick = refreshFiles;
-  $("refreshExamsBtn").onclick = loadExams;
+  const uploadBtn = $("uploadBtn");
+    const refreshFilesBtn = $("refreshFilesBtn");
+    const refreshExamsBtn = $("refreshExamsBtn");
 
-  window.addEventListener("load", () => loadExams());
+    if (uploadBtn) uploadBtn.onclick = upload;
+    if (refreshFilesBtn) refreshFilesBtn.onclick = refreshFiles;
+    if (refreshExamsBtn) refreshExamsBtn.onclick = loadExams;
+
+    window.addEventListener("load", () => loadExams());
 </script>
 {% endblock %}

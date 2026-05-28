@@ -60,6 +60,14 @@ def _cleanup_empty_exam_folder(exam_id: str) -> None:
         pass
 
 
+class ExamRenameReq(BaseModel):
+    old_exam_id: str
+    new_exam_id: str
+
+
+class ExamDeleteReq(BaseModel):
+    exam_id: str
+
 #-----------
 # Routes
 #-----------
@@ -250,9 +258,7 @@ def delete_exam(req: ExamDeleteReq, _session: dict = Depends(require_teacher)):
     return {"ok": True, "deleted": exam_id}
 
 
-class ExamRenameReq(BaseModel):
-    old_exam_id: str
-    new_exam_id: str
+
 
 @router.post("/exam/rename")
 def rename_exam(req: ExamRenameReq, _session: dict = Depends(require_teacher)):
