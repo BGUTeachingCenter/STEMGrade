@@ -14,7 +14,7 @@ from routes.grading_routes import router as grading_router
 from routes.solution_bank_routes import router as bank_router
 from routes.progress import router as progress_router
 from routes.stats import router as stats_router
-from routes.ocr import router as ocr_router
+from routes.ocr_routes import router as ocr_router
 from core.config import ALLOWED_ORIGINS, PRODUCTION, PROJECT_ROOT
 from core.security import SESSION_SECRET_CONFIGURED
 
