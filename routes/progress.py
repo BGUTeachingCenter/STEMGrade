@@ -1,4 +1,4 @@
-# api/progress.py
+# routes/progress.py
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ from fastapi import APIRouter
 
 from core.config import RUNS_ROOT
 
-router = APIRouter(prefix="/api", tags=["progress"])
+router = APIRouter(prefix="/routes", tags=["progress"])
 
 _lock = Lock()
 

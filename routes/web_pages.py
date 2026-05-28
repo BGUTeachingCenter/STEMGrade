@@ -1,4 +1,4 @@
-# api/web_pages.py
+# routes/web_pages.py
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
@@ -8,8 +8,8 @@ from fastapi.templating import Jinja2Templates
 from core.config import PROJECT_ROOT
 from core.security import get_session
 
-router = APIRouter(tags=["web"])
-templates = Jinja2Templates(directory=str(PROJECT_ROOT / "web"))
+router = APIRouter(tags=["templates"])
+templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 def _render(request: Request, name: str, context: dict | None = None, status_code: int = 200):
@@ -23,9 +23,9 @@ def _render(request: Request, name: str, context: dict | None = None, status_cod
 
 @router.get("/")
 def serve_index(request: Request):
-    p = PROJECT_ROOT / "web" / "index.html"
+    p = PROJECT_ROOT / "templates" / "index.html"
     if not p.exists():
-        raise HTTPException(status_code=404, detail="web/index.html not found")
+        raise HTTPException(status_code=404, detail="templates/index.html not found")
     return _render(request, "index.html")
 
 
@@ -37,9 +37,9 @@ def serve_feedback(request: Request):
     if s.get("role") == "teacher":
         return RedirectResponse(url="/teacher", status_code=303)
 
-    p = PROJECT_ROOT / "web" / "feedback.html"
+    p = PROJECT_ROOT / "templates" / "feedback.html"
     if not p.exists():
-        raise HTTPException(status_code=404, detail="web/feedback.html not found")
+        raise HTTPException(status_code=404, detail="templates/feedback.html not found")
     return _render(request, "feedback.html")
 
 
@@ -48,17 +48,17 @@ def serve_teacher(request: Request):
     s = get_session(request)
     if not s or s.get("role") != "teacher":
         return RedirectResponse(url="/teacher-login", status_code=303)
-    pth = PROJECT_ROOT / "web" / "teacher.html"
+    pth = PROJECT_ROOT / "templates" / "teacher.html"
     if not pth.exists():
-        raise HTTPException(status_code=404, detail="web/teacher.html not found")
+        raise HTTPException(status_code=404, detail="templates/teacher.html not found")
     return _render(request, "teacher.html")
 
 
 @router.get("/teacher-login")
 def teacher_login(request: Request):
-    p = PROJECT_ROOT / "web" / "teacher_login.html"
+    p = PROJECT_ROOT / "templates" / "teacher_login.html"
     if not p.exists():
-        raise HTTPException(status_code=404, detail="web/teacher_login.html not found")
+        raise HTTPException(status_code=404, detail="templates/teacher_login.html not found")
     return _render(request, "teacher_login.html")
 
 
@@ -70,7 +70,7 @@ def student_login(request: Request):
     if s and s.get("role") == "teacher":
         return RedirectResponse(url="/teacher", status_code=303)
 
-    p = PROJECT_ROOT / "web" / "student_login.html"
+    p = PROJECT_ROOT / "templates" / "student_login.html"
     if not p.exists():
-        raise HTTPException(status_code=404, detail="web/student_login.html not found")
+        raise HTTPException(status_code=404, detail="templates/student_login.html not found")
     return _render(request, "student_login.html")

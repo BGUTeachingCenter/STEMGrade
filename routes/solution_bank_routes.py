@@ -1,4 +1,4 @@
-# api/bank.py
+# routes/solution_bank_routes.py
 from __future__ import annotations
 
 import json
@@ -16,7 +16,53 @@ from core.storage import require_safe_exam_id, require_safe_filename, uploads_di
 from core.config import BANK_ROOT
 from grader.file_handling.reference_tex import parse_reference_tex
 
-router = APIRouter(prefix="/api/bank", tags=["bank"])
+router = APIRouter(prefix="/routes/bank", tags=["bank"])
+
+#-----------
+# Helpers
+#-----------
+
+def _cleanup_empty_exam_folder(exam_id: str) -> None:
+    """
+    Remove empty solution-bank folders after the last reference file is deleted.
+
+    Expected structure:
+      BANK_ROOT / exam_id / uploads / reference_current.tex
+    """
+    d = exam_dir(exam_id)
+    uploads = uploads_dir(exam_id)
+
+    # If there are still TeX files anywhere under this exam, keep the folder.
+    if d.exists() and any(d.rglob("*.tex")):
+        return
+
+    # Remove empty uploads folder first.
+    try:
+        if uploads.exists() and not any(uploads.iterdir()):
+            uploads.rmdir()
+    except Exception:
+        pass
+
+    # Remove known generated summary if it is now orphaned.
+    for orphan_name in ("reference_summary.json",):
+        orphan = d / orphan_name
+        try:
+            if orphan.exists():
+                orphan.unlink()
+        except Exception:
+            pass
+
+    # Remove exam folder only if it is empty.
+    try:
+        if d.exists() and not any(d.iterdir()):
+            d.rmdir()
+    except Exception:
+        pass
+
+
+#-----------
+# Routes
+#-----------
 
 @router.post("/upload")
 async def upload_to_bank(
@@ -163,17 +209,29 @@ def delete_file(exam_id: str, filename: str, _session: dict = Depends(require_te
 
     tex_path.unlink(missing_ok=True)
     meta_path.unlink(missing_ok=True)
-    return PlainTextResponse("Deleted")
+
+    _cleanup_empty_exam_folder(exam_id)
+
+    return {
+        "ok": True,
+        "deleted": filename,
+        "exam_id": exam_id,
+    }
 
 @router.get("/exams")
 def list_exams(_session: dict = Depends(require_teacher)):
     BANK_ROOT.mkdir(parents=True, exist_ok=True)
 
-    exam_ids = sorted([p.name for p in BANK_ROOT.iterdir() if p.is_dir()])
-    return {"exam_ids": exam_ids}
+    exam_ids = []
+    for p in sorted(BANK_ROOT.iterdir()):
+        if not p.is_dir():
+            continue
 
-class ExamDeleteReq(BaseModel):
-    exam_id: str
+        # Only show exams that still contain at least one TeX solution/reference file.
+        if any(p.rglob("*.tex")):
+            exam_ids.append(p.name)
+
+    return {"exam_ids": exam_ids}
 
 @router.post("/exam/delete")
 def delete_exam(req: ExamDeleteReq, _session: dict = Depends(require_teacher)):

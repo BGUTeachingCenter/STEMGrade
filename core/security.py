@@ -23,7 +23,7 @@ COOKIE_NAME = "mathgrade_session"
 
 # If SESSION_SECRET is not configured, fall back to an ephemeral per-process
 # secret so the app still works in dev — but sessions won't survive restarts
-# and a deployer running multiple workers will see broken auth. The /api/login
+# and a deployer running multiple workers will see broken auth. The /routes/login
 # endpoint surfaces a warning when this happens.
 _RUNTIME_SECRET = SESSION_SECRET or secrets.token_urlsafe(48)
 SESSION_SECRET_CONFIGURED = bool(SESSION_SECRET)

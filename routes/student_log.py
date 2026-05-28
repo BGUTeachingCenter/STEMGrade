@@ -1,4 +1,4 @@
-# api/student_log.py
+# routes/student_log.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,7 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from core.config import RUNS_ROOT
-from api.auth import is_teacher_code
+from routes.auth import is_teacher_code
 
 SUBMISSIONS_XLSX = RUNS_ROOT / "student_submissions.xlsx"
 SUBMISSIONS_SHEET = "submissions"

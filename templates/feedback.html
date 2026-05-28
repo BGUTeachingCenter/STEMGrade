@@ -83,13 +83,13 @@
 {% block scripts %}
   <script>
     const API_BASE = "";
-    const ENDPOINT_GRADE_OLLAMA = API_BASE + "/api/grade_tex_ollama";
-    const ENDPOINT_GRADE_GOOGLE = API_BASE + "/api/grade_tex_google";
-    const ENDPOINT_GRADE_GPT    = API_BASE + "/api/grade_tex_chatgpt";
-    const ENDPOINT_OCR          = API_BASE + "/api/ocr_handwritten";
-    const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/api/progress/" + encodeURIComponent(jobId);
-    const ENDPOINT_LOGOUT = API_BASE + "/api/logout";
-    const ENDPOINT_ME = API_BASE + "/api/me";
+    const ENDPOINT_GRADE_OLLAMA = API_BASE + "/routes/grade_tex_ollama";
+    const ENDPOINT_GRADE_GOOGLE = API_BASE + "/routes/grade_tex_google";
+    const ENDPOINT_GRADE_GPT    = API_BASE + "/routes/grade_tex_chatgpt";
+    const ENDPOINT_OCR          = API_BASE + "/routes/ocr_handwritten";
+    const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
+    const ENDPOINT_LOGOUT = API_BASE + "/routes/logout";
+    const ENDPOINT_ME = API_BASE + "/routes/me";
 
     const busyOverlay = document.getElementById("busyOverlay");
     const busyOverlayText = document.getElementById("busyOverlayText");

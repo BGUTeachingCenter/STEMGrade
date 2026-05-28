@@ -6,15 +6,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from api.auth import router as auth_router
-from api.error_handlers import register_error_handlers
-from api.health import router as health_router
-from api.web_pages import router as web_router
-from api.grading import router as grading_router
-from api.bank import router as bank_router
-from api.progress import router as progress_router
-from api.stats import router as stats_router
-from api.ocr import router as ocr_router
+from routes.auth import router as auth_router
+from routes.error_handlers import register_error_handlers
+from routes.health import router as health_router
+from routes.web_pages import router as web_router
+from routes.grading import router as grading_router
+from routes.solution_bank_routes import router as bank_router
+from routes.progress import router as progress_router
+from routes.stats import router as stats_router
+from routes.ocr import router as ocr_router
 from core.config import ALLOWED_ORIGINS, PRODUCTION, PROJECT_ROOT
 from core.security import SESSION_SECRET_CONFIGURED
 

@@ -1299,3 +1299,968 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     transform: rotate(360deg);
   }
 }
+
+/* Teacher login: match student login form sizing */
+.mg-agent-login-form #teacherCodeInput {
+  min-height: 62px;
+  padding: 0 20px;
+  border-radius: 18px;
+  font-size: 18px;
+}
+
+.mg-teacher-login-page .mg-agent-message-row.user .mg-agent-avatar {
+  color: #a65e00;
+}
+
+/* =========================================================
+   Teacher portal dashboard: Teacher Bot Factory style
+   ========================================================= */
+
+.mg-teacher-portal {
+  max-width: 1500px;
+  padding: 34px 26px 80px;
+}
+
+.mg-teacher-portal .top {
+  position: relative;
+  overflow: hidden;
+  align-items: center;
+  padding: 34px 38px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(216,216,218,.86);
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 7% 0%, rgba(243,154,30,.18) 0%, transparent 30%),
+    linear-gradient(180deg, rgba(255,255,255,.96), rgba(250,248,245,.96));
+  box-shadow: 0 24px 70px rgba(79,79,82,.12);
+}
+
+.mg-teacher-portal .top::after {
+  content: "";
+  position: absolute;
+  right: -95px;
+  top: -110px;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(243,154,30,.18), transparent 70%);
+  pointer-events: none;
+}
+
+.mg-teacher-portal .top h1 {
+  margin-bottom: 12px;
+  font-size: clamp(42px, 5vw, 66px);
+  line-height: .95;
+  letter-spacing: -.055em;
+}
+
+.mg-teacher-portal .top .sub {
+  max-width: 900px;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.mg-teacher-portal .pillRow {
+  position: relative;
+  z-index: 1;
+}
+
+.mg-teacher-tabs {
+  position: sticky;
+  top: 77px;
+  z-index: 30;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 22px;
+  padding: 14px 0;
+  background: rgba(245,245,245,.78);
+  backdrop-filter: blur(10px);
+}
+
+.mg-teacher-tabs a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.92);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(17,24,39,.05);
+  transition: .18s ease;
+}
+
+.mg-teacher-tabs a:hover {
+  background: #fff8ef;
+  border-color: #f6b766;
+  transform: translateY(-1px);
+}
+
+.mg-teacher-portal .statsLayout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.mg-teacher-portal .statsLayout .card,
+.mg-teacher-portal .layout .card {
+  border-radius: 28px;
+  border: 1px solid rgba(216,216,218,.92);
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 20px 56px rgba(79,79,82,.10);
+}
+
+.mg-teacher-portal .statsLayout .cardInner,
+.mg-teacher-portal .layout .cardInner {
+  padding: 26px;
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.07), transparent 34%),
+    linear-gradient(180deg, #fff, #faf8f5);
+}
+
+.mg-teacher-portal .statsLayout .cardInner > div:first-child {
+  font-size: 21px;
+  letter-spacing: -.025em;
+  color: var(--text);
+}
+
+.mg-teacher-portal canvas {
+  height: 260px;
+  border-radius: 22px;
+  background: #fffdfa;
+  border: 1px solid #ece6dd;
+}
+
+.mg-teacher-portal .layout {
+  grid-template-columns: 360px minmax(420px, 1fr) minmax(420px, 1fr);
+  gap: 20px;
+}
+
+.mg-teacher-portal .layout .card {
+  min-height: 100%;
+}
+
+.mg-teacher-portal .row label {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.mg-teacher-portal input[type="text"],
+.mg-teacher-portal select {
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 18px;
+  font-size: 17px;
+}
+
+.mg-teacher-portal .drop {
+  margin-top: 14px;
+  min-height: 190px;
+  padding: 34px 28px;
+  border-radius: 24px;
+}
+
+.mg-teacher-portal .labelBig {
+  font-size: 22px;
+}
+
+.mg-teacher-portal .examItem,
+.mg-teacher-portal .item {
+  border-radius: 22px;
+  padding: 16px;
+  background: rgba(255,255,255,.92);
+}
+
+.mg-teacher-portal .examItem.active {
+  background: #edf7ee;
+  border-color: #8fd69a;
+}
+
+.mg-teacher-portal .examName {
+  font-size: 17px;
+}
+
+.mg-teacher-portal .statusBox {
+  margin-top: 18px;
+  min-height: 130px;
+  padding: 18px;
+  border-radius: 22px;
+  background: #fffdfa;
+}
+
+.mg-teacher-portal .tag,
+.mg-teacher-portal .pill {
+  min-height: 36px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.mg-teacher-portal button {
+  border-radius: 999px;
+}
+
+@media (max-width: 1200px) {
+  .mg-teacher-portal .statsLayout,
+  .mg-teacher-portal .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-teacher-tabs {
+    position: static;
+  }
+}
+
+@media (max-width: 700px) {
+  .mg-teacher-portal {
+    padding: 24px 16px 58px;
+  }
+
+  .mg-teacher-portal .top {
+    padding: 26px 22px;
+    border-radius: 24px;
+  }
+
+  .mg-teacher-tabs a {
+    width: 100%;
+  }
+}
+
+/* =========================================================
+   Teacher dashboard: Bot Factory portal style
+   ========================================================= */
+
+.mg-teacher-page {
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 34px 26px 84px;
+}
+
+.mg-teacher-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 38px 42px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(216,216,218,.9);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(243,154,30,.18) 0%, transparent 32%),
+    radial-gradient(circle at 92% 18%, rgba(120,120,124,.11) 0%, transparent 28%),
+    linear-gradient(180deg, rgba(255,255,255,.97), rgba(250,248,245,.97));
+  box-shadow: 0 24px 70px rgba(79,79,82,.13);
+}
+
+.mg-teacher-hero::after {
+  content: "";
+  position: absolute;
+  right: -110px;
+  top: -120px;
+  width: 320px;
+  height: 320px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(243,154,30,.17), transparent 70%);
+  pointer-events: none;
+}
+
+.mg-teacher-hero h1 {
+  margin: 14px 0 12px;
+  font-size: clamp(42px, 5vw, 68px);
+  line-height: .95;
+  letter-spacing: -.055em;
+}
+
+.mg-teacher-hero .lead {
+  max-width: 760px;
+  font-size: 19px;
+}
+
+.mg-teacher-hero-meta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.mg-teacher-tabs {
+  position: sticky;
+  top: 77px;
+  z-index: 35;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 22px;
+  padding: 14px 0;
+  background: rgba(245,245,245,.82);
+  backdrop-filter: blur(10px);
+}
+
+.mg-teacher-tabs a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.94);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(17,24,39,.05);
+  transition: .18s ease;
+}
+
+.mg-teacher-tabs a:hover {
+  background: #fff8ef;
+  border-color: #f6b766;
+  transform: translateY(-1px);
+}
+
+.mg-teacher-section {
+  margin-top: 22px;
+  padding: 26px;
+  border-radius: 32px;
+  border: 1px solid rgba(216,216,218,.84);
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.08), transparent 34%),
+    rgba(255,255,255,.72);
+  box-shadow: 0 20px 58px rgba(79,79,82,.10);
+}
+
+.mg-teacher-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.mg-teacher-section-head h2 {
+  margin: 0 0 6px;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: -.035em;
+  color: var(--text);
+}
+
+.mg-teacher-section-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.mg-teacher-page .statsLayout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 0;
+}
+
+.mg-teacher-page .layout {
+  grid-template-columns: 360px minmax(420px, 1fr) minmax(420px, 1fr);
+  gap: 20px;
+}
+
+.mg-teacher-page .card {
+  border-radius: 28px;
+  border: 1px solid rgba(216,216,218,.92);
+  background: rgba(255,255,255,.95);
+  box-shadow: 0 18px 46px rgba(79,79,82,.08);
+}
+
+.mg-teacher-page .cardInner {
+  padding: 26px;
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.055), transparent 34%),
+    linear-gradient(180deg, #fff, #faf8f5);
+}
+
+.mg-teacher-page .statsLayout .cardInner > div:first-child {
+  font-size: 21px;
+  letter-spacing: -.025em;
+  color: var(--text);
+}
+
+.mg-teacher-page canvas {
+  height: 260px;
+  border-radius: 22px;
+  background: #fffdfa;
+  border: 1px solid #ece6dd;
+}
+
+.mg-teacher-page input[type="text"],
+.mg-teacher-page select {
+  min-height: 58px;
+  padding: 0 18px;
+  border-radius: 18px;
+  font-size: 17px;
+}
+
+.mg-teacher-page .drop {
+  margin-top: 14px;
+  min-height: 190px;
+  padding: 34px 28px;
+  border-radius: 24px;
+}
+
+.mg-teacher-page .labelBig {
+  font-size: 22px;
+}
+
+.mg-teacher-page .examItem,
+.mg-teacher-page .item {
+  border-radius: 22px;
+  padding: 16px;
+  background: rgba(255,255,255,.94);
+}
+
+.mg-teacher-page .examItem.active {
+  background: #edf7ee;
+  border-color: #8fd69a;
+}
+
+.mg-teacher-page .examName {
+  font-size: 17px;
+}
+
+.mg-teacher-page .statusBox {
+  margin-top: 18px;
+  min-height: 130px;
+  padding: 18px;
+  border-radius: 22px;
+  background: #fffdfa;
+}
+
+.mg-teacher-page .tag,
+.mg-teacher-page .pill {
+  min-height: 36px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.mg-teacher-page button {
+  border-radius: 999px;
+}
+
+@media (max-width: 1200px) {
+  .mg-teacher-page .statsLayout,
+  .mg-teacher-page .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-teacher-tabs {
+    position: static;
+  }
+
+  .mg-teacher-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 700px) {
+  .mg-teacher-page {
+    padding: 24px 16px 58px;
+  }
+
+  .mg-teacher-hero,
+  .mg-teacher-section {
+    padding: 24px 20px;
+    border-radius: 24px;
+  }
+
+  .mg-teacher-tabs a {
+    width: 100%;
+  }
+}
+
+/* Teacher portal: keep top tabs sticky */
+.mg-teacher-tabs {
+  position: sticky !important;
+  top: 77px !important;
+  z-index: 39;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 22px;
+  padding: 14px 0;
+  background: rgba(245,245,245,.92);
+  backdrop-filter: blur(10px);
+}
+
+/* Do not disable sticky tabs on medium screens */
+@media (max-width: 1200px) {
+  .mg-teacher-tabs {
+    position: sticky !important;
+    top: 77px !important;
+  }
+}
+
+/* On very small screens, allow normal flow because stacked buttons take too much height */
+@media (max-width: 700px) {
+  .mg-teacher-tabs {
+    position: static !important;
+  }
+}
+
+/* Teacher portal: prevent sticky header/tabs from hiding anchor targets */
+.mg-teacher-page section,
+.mg-teacher-page [id] {
+  scroll-margin-top: 170px;
+}
+
+#overview,
+#teacherStats,
+#teacherBank,
+#examList,
+#dropTex,
+#itemsList {
+  scroll-margin-top: 170px;
+}
+
+/* Teacher solution bank: clearer human-readable cards */
+.mg-bank-card-title {
+  font-size: 21px;
+  font-weight: 950;
+  line-height: 1.15;
+  letter-spacing: -.025em;
+  color: var(--text);
+}
+
+.mg-bank-card-help {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.mg-teacher-page .layout .cardInner > .mg-bank-card-help {
+  margin-bottom: 18px;
+}
+
+.mg-teacher-page .layout .cardInner > .row:first-child {
+  margin-top: 16px;
+}
+
+.mg-exam-label,
+.mg-file-kind {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  border: 1px solid #f1dcc0;
+  color: var(--primary-2);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mg-file-name {
+  margin-bottom: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.mg-file-card-head {
+  align-items: flex-start;
+}
+
+.mg-file-actions {
+  justify-content: flex-end;
+}
+
+.mg-teacher-page .item {
+  border-radius: 24px;
+  padding: 22px;
+}
+
+.mg-teacher-page .examItem {
+  align-items: flex-start;
+  padding: 18px 20px;
+}
+
+.mg-teacher-page .examItem.active {
+  box-shadow: 0 10px 28px rgba(47,125,50,.10);
+}
+
+.mg-teacher-page .statusBox {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.mg-teacher-page .statusBox::before {
+  content: "Status";
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 950;
+  color: var(--text);
+}
+
+/* =========================================================
+   Teacher solution bank: large card layout
+   ========================================================= */
+
+.mg-solution-bank-section,
+.mg-upload-reference-section {
+  scroll-margin-top: 180px;
+}
+
+.mg-bank-big-card {
+  border-radius: 30px;
+  overflow: hidden;
+}
+
+.mg-bank-big-card .cardInner {
+  padding: 30px;
+}
+
+.mg-bank-toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr auto;
+  gap: 18px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.mg-bank-select-wrap label,
+.mg-upload-reference-grid label {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.mg-bank-select-wrap select,
+.mg-upload-reference-grid input,
+.mg-upload-reference-grid select {
+  min-height: 58px;
+  border-radius: 18px;
+  font-size: 17px;
+}
+
+.mg-bank-current {
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 11px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fffdfa;
+}
+
+.mg-bank-current-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.mg-bank-current-value {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.mg-bank-help-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.mg-bank-help-strip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  border: 1px solid #f1dcc0;
+  color: var(--primary-2);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.mg-solution-list {
+  display: grid;
+  gap: 16px;
+}
+
+.mg-solution-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.06), transparent 36%),
+    #fff;
+  box-shadow: 0 12px 32px rgba(79,79,82,.06);
+}
+
+.mg-solution-main {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.mg-solution-icon {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  color: white;
+  font-size: 26px;
+  font-weight: 950;
+  box-shadow: 0 12px 24px rgba(243,154,30,.18);
+}
+
+.mg-solution-info {
+  min-width: 0;
+}
+
+.mg-solution-type {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 7px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  border: 1px solid #f1dcc0;
+  color: var(--primary-2);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.mg-solution-title {
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 950;
+  letter-spacing: -.03em;
+}
+
+.mg-solution-file {
+  margin-top: 5px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 14px;
+  font-weight: 850;
+  word-break: break-word;
+}
+
+.mg-solution-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mg-solution-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.mg-solution-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mg-solution-preview {
+  grid-column: 1 / -1;
+  display: none;
+  margin-top: 4px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px dashed var(--line);
+  background: #faf8f5;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.mg-empty-bank {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 26px;
+  border: 1px dashed var(--line);
+  border-radius: 24px;
+  background: #fffdfa;
+  color: var(--muted);
+}
+
+.mg-empty-bank-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--primary-soft);
+  border: 1px solid #f1dcc0;
+  font-size: 26px;
+}
+
+.mg-empty-bank strong {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.mg-empty-bank p {
+  margin: 4px 0 0;
+}
+
+.mg-upload-reference-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.mg-field-help {
+  margin-top: 7px;
+}
+
+.mg-upload-reference-drop {
+  min-height: 220px;
+  padding: 42px 34px;
+  border-radius: 28px;
+}
+
+.mg-upload-reference-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+@media (max-width: 1050px) {
+  .mg-bank-toolbar,
+  .mg-upload-reference-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-solution-card {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-solution-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .mg-bank-big-card .cardInner {
+    padding: 22px;
+  }
+
+  .mg-solution-main {
+    flex-direction: column;
+  }
+
+  .mg-solution-actions button {
+    width: 100%;
+  }
+}
+
+/* Solution bank: all-solutions list view */
+.mg-bank-list-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.mg-solution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mg-solution-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.055), transparent 34%),
+    #fff;
+  box-shadow: 0 12px 30px rgba(79,79,82,.06);
+}
+
+.mg-solution-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mg-solution-row .mg-solution-title {
+  font-size: 22px;
+}
+
+.mg-solution-row .mg-solution-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mg-solution-row .mg-solution-preview {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1000px) {
+  .mg-solution-row {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-solution-row .mg-solution-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .mg-solution-row-main {
+    flex-direction: column;
+  }
+
+  .mg-solution-row .mg-solution-actions button {
+    width: 100%;
+  }
+}

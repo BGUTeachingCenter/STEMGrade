@@ -106,7 +106,7 @@
 
     async function checkExistingSession() {
       try {
-        const res = await fetch("/api/me", { credentials: "same-origin", cache: "no-store" });
+        const res = await fetch("/routes/me", { credentials: "same-origin", cache: "no-store" });
         const data = await res.json();
         if (data && data.ok && data.role === "student") {
           window.location.replace("/feedback");
@@ -128,7 +128,7 @@
       loginBtn.innerHTML = "Checking code…";
 
       try {
-        const res = await fetch("/api/login", {
+        const res = await fetch("/routes/login", {
           method: "POST",
           credentials: "same-origin",
           headers: { "content-type": "application/json" },

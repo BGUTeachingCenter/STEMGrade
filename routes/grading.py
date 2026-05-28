@@ -1,4 +1,4 @@
-# api/grading.py
+# routes/grading.py
 from __future__ import annotations
 
 import json
@@ -15,8 +15,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from api.progress import done, fail, init_job, push
-from api.student_log import log_student_submission
+from routes.progress import done, fail, init_job, push
+from routes.student_log import log_student_submission
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
 from core.debug import write_debug_log
 from core.security import require_session
@@ -29,7 +29,7 @@ from grader.file_handling.feedback_tex import build_feedback_tex
 from grader.file_handling.student_tex import parse_student_tex_answers
 from grader.file_handling.unified_tex import build_unified_tex
 
-router = APIRouter(prefix="/api", tags=["grading"])
+router = APIRouter(prefix="/routes", tags=["grading"])
 
 DEBUG = True
 

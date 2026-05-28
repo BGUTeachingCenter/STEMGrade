@@ -12,7 +12,7 @@ from core.config import RUNS_ROOT, MATHPIX_APP_ID, MATHPIX_APP_KEY
 from core.security import require_session
 from grader.ocr.mathpix_client import process_image_or_pdf, MathpixError
 
-router = APIRouter(prefix="/api", tags=["ocr"])
+router = APIRouter(prefix="/routes", tags=["ocr"])
 
 ALLOWED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".pdf"}
 

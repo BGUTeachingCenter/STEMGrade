@@ -134,10 +134,10 @@ def _ollama_chat(
     temperature: float,
 ) -> str:
     """
-    Calls Ollama /api/chat with stream=False and returns assistant content.
+    Calls Ollama /routes/chat with stream=False and returns assistant content.
     Raises on final failure (caller catches).
     """
-    url = base_url.rstrip("/") + "/api/chat"
+    url = base_url.rstrip("/") + "/routes/chat"
     payload = {
         "model": model,
         "stream": False,

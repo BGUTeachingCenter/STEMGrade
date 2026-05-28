@@ -1,4 +1,4 @@
-# api/error_handlers.py
+# routes/error_handlers.py
 from __future__ import annotations
 
 import logging
@@ -14,12 +14,12 @@ from core.config import PRODUCTION, PROJECT_ROOT
 from core.debug import write_debug_log
 
 logger = logging.getLogger("mathgrade")
-templates = Jinja2Templates(directory=str(PROJECT_ROOT / "web"))
+templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
 def _wants_json(request: Request) -> bool:
     """Keep API endpoints API-like, while browser page errors get HTML."""
-    if request.url.path.startswith("/api") or request.url.path == "/health":
+    if request.url.path.startswith("/routes") or request.url.path == "/health":
         return True
 
     accept = request.headers.get("accept", "")

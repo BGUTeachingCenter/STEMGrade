@@ -1,4 +1,4 @@
-# api/stats.py
+# routes/stats.py
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 from core.config import RUNS_ROOT
 from core.security import require_teacher
 
-router = APIRouter(prefix="/api", tags=["stats"])
+router = APIRouter(prefix="/routes", tags=["stats"])
 
 SUBMISSIONS_XLSX = RUNS_ROOT / "student_submissions.xlsx"
 SHEET = "submissions"
