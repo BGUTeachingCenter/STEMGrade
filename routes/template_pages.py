@@ -55,10 +55,10 @@ def serve_teacher(request: Request):
     s = get_session(request)
     if not s or s.get("role") != "teacher":
         return RedirectResponse(url="/teacher-login", status_code=303)
-    pth = PROJECT_ROOT / "templates" / "teacher.html"
+    pth = PROJECT_ROOT / "templates" / "teacher_page.html"
     if not pth.exists():
-        raise HTTPException(status_code=404, detail="templates/teacher.html not found")
-    return _render(request, "teacher.html")
+        raise HTTPException(status_code=404, detail="templates/teacher_page.html not found")
+    return _render(request, "teacher_page.html")
 
 
 @router.get("/teacher-login")

@@ -4,7 +4,19 @@
 {% block header_title %}MathGrade{% endblock %}
 {% block header_subtitle %}Upload your work and receive feedback{% endblock %}
 {% block header_actions %}
-  <button id="logoutBtnTop" class="secondary-btn small" type="button">Logout</button>
+  <a
+    id="backToTeacherBtn"
+    class="primary-btn small mg-feedback-teacher-back"
+    href="/teacher"
+    style="display:none;"
+  >
+    <span class="mg-feedback-teacher-back-icon">←</span>
+    <span>Back to teacher page</span>
+  </a>
+
+  <button id="logoutBtnTop" class="secondary-btn small mg-feedback-logout-btn" type="button">
+    Logout
+  </button>
 {% endblock %}
 
 {% block content %}
@@ -115,6 +127,7 @@
     const gradeGptBtn = document.getElementById("gradeGptBtn");
     const ocrBtn = document.getElementById("ocrBtn");
     const logoutBtnTop = document.getElementById("logoutBtnTop");
+    const backToTeacherBtn = document.getElementById("backToTeacherBtn");
 
     let currentRole = null;
     let currentUserCode = null;
@@ -164,6 +177,9 @@
           loginIndicator.textContent = label;
           loginIndicator.classList.toggle("teacher", currentRole === "teacher");
           loginIndicator.classList.toggle("student", currentRole === "student");
+        }
+        if (backToTeacherBtn) {
+          backToTeacherBtn.style.display = currentRole === "teacher" ? "inline-flex" : "none";
         }
       } catch (_) {
         currentRole = null;
