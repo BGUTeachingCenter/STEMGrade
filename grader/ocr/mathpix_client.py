@@ -220,6 +220,20 @@ def _process_pdf(
     }
 
 
+_MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
+_LATEX_HEADING_RE = re.compile(
+    r"^\s*\\(?:section|subsection|subsubsection)\*?\{([^}]*)\}\s*$",
+    re.UNICODE,
+)
+_LEADING_NUMBER_IN_HEADING_RE = re.compile(
+    r"^\s*([0-9]{1,2})(?:\s+|[).:\-–])+(.*)$",
+    re.UNICODE,
+)
+_HEBREW_PART_WORD_RE = re.compile(
+    r"^\s*(?:סעיף|פתרון\s+סעיף)\s+([א-תa-zA-Z])\s*[:.)-]?\s*(.*)$",
+    re.UNICODE,
+)
+
 _Q_RE = re.compile(
     r"^\s*(?:#{1,6}\s*)?(?:Question|Q|שאלה|תרגיל)\s*([0-9]{1,2})(?:\s*[\).:\-–]\s*([A-Za-zא-ת]))?.*$",
     re.IGNORECASE | re.UNICODE,
@@ -238,19 +252,45 @@ _PART_RE = re.compile(
 
 def _normalize_ocr_lines_for_student_parser(text: str) -> str:
     """
-    Convert OCR text/MMD into the markers already supported by:
+    Convert Mathpix text/MMD into markers supported by:
     grader.file_handling.student_tex.parse_student_tex_answers
 
-    Important parser markers:
+    Parser-safe output:
       \\subsection*{Question 1}
       \\textbf{(א)}
-      \\textbf{(a)}
+      \\textbf{(ב)}
+
+    Also removes Mathpix Markdown image links, because:
+      ![](https://...)
+    is not valid LaTeX.
     """
-    lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    raw_text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    raw_text = _MD_IMAGE_RE.sub("", raw_text)
+
+    lines = raw_text.split("\n")
 
     out: list[str] = []
     seen_q: set[int] = set()
     detected_any_question = False
+
+    def add_question(qnum: int) -> None:
+        nonlocal detected_any_question
+        if qnum < 1 or qnum > 99:
+            return
+        if qnum not in seen_q:
+            out.append("")
+            out.append(rf"\subsection*{{Question {qnum}}}")
+            seen_q.add(qnum)
+            detected_any_question = True
+
+    def add_part(part: str, rest: str = "") -> None:
+        part = (part or "").strip()
+        rest = (rest or "").strip()
+        if not part:
+            return
+        out.append(rf"\textbf{{({part})}}")
+        if rest:
+            out.append(rest)
 
     for raw in lines:
         line = raw.strip()
@@ -259,39 +299,73 @@ def _normalize_ocr_lines_for_student_parser(text: str) -> str:
             out.append("")
             continue
 
+        # Remove leftover markdown image syntax if it was part of a longer line.
+        line = _MD_IMAGE_RE.sub("", line).strip()
+        if not line:
+            continue
+
+        # Convert Mathpix headings such as:
+        #   \section*{1 ...}
+        #   \section*{Question 2}
+        heading_match = _LATEX_HEADING_RE.match(line)
+        if heading_match:
+            heading_text = heading_match.group(1).strip()
+
+            q_match = _Q_RE.match(heading_text)
+            if q_match:
+                qnum = int(q_match.group(1))
+                add_question(qnum)
+                if q_match.group(2):
+                    add_part(q_match.group(2))
+                continue
+
+            leading_num = _LEADING_NUMBER_IN_HEADING_RE.match(heading_text)
+            if leading_num:
+                qnum = int(leading_num.group(1))
+                add_question(qnum)
+                continue
+
+            # Keep non-question headings as normal text, not LaTeX section commands.
+            out.append(rf"\textbf{{{heading_text}}}")
+            continue
+
+        # Explicit question labels:
+        #   Question 1
+        #   Q1
+        #   שאלה 1
+        #   תרגיל 1
         q_match = _Q_RE.match(line)
         if q_match:
             qnum = int(q_match.group(1))
-            part = q_match.group(2)
-
-            if qnum not in seen_q:
-                out.append("")
-                out.append(rf"\subsection*{{Question {qnum}}}")
-                seen_q.add(qnum)
-                detected_any_question = True
-
-            if part:
-                out.append(rf"\textbf{{({part})}}")
+            add_question(qnum)
+            if q_match.group(2):
+                add_part(q_match.group(2))
             continue
 
+        # Bare numbered line:
+        #   1.
+        #   2:
         q_line_match = _Q_LINE_RE.match(line)
         if q_line_match:
             qnum = int(q_line_match.group(1))
+            add_question(qnum)
+            continue
 
-            if 1 <= qnum <= 99 and qnum not in seen_q:
-                out.append("")
-                out.append(rf"\subsection*{{Question {qnum}}}")
-                seen_q.add(qnum)
-                detected_any_question = True
-                continue
+        # Hebrew part label:
+        #   סעיף א
+        #   פתרון סעיף ב
+        heb_part_match = _HEBREW_PART_WORD_RE.match(line)
+        if heb_part_match:
+            add_part(heb_part_match.group(1), heb_part_match.group(2))
+            continue
 
+        # Part label:
+        #   א)
+        #   ב.
+        #   a)
         part_match = _PART_RE.match(line)
         if part_match:
-            part = part_match.group(1)
-            rest = part_match.group(2).strip()
-            out.append(rf"\textbf{{({part})}}")
-            if rest:
-                out.append(rest)
+            add_part(part_match.group(1), part_match.group(2))
             continue
 
         out.append(line)
