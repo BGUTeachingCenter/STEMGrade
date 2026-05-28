@@ -9,8 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from routes.auth import router as auth_router
 from routes.error_handlers import register_error_handlers
 from routes.health import router as health_router
-from routes.web_pages import router as web_router
-from routes.grading import router as grading_router
+from routes.template_pages import router as web_router
+from routes.grading_routes import router as grading_router
 from routes.solution_bank_routes import router as bank_router
 from routes.progress import router as progress_router
 from routes.stats import router as stats_router

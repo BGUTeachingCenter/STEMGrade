@@ -1,4 +1,4 @@
-# routes/grading.py
+# routes/grading_routes.py
 from __future__ import annotations
 
 import json
@@ -16,7 +16,8 @@ from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
 from routes.progress import done, fail, init_job, push
-from routes.student_log import log_student_submission
+from routes.student_log_routes import log_student_submission
+from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
 from core.debug import write_debug_log
 from core.security import require_session
@@ -366,16 +367,22 @@ async def _grade_tex_flow(
             gemini_tokens = 0
 
         try:
-            if student_code:
+            session_role = session.get("role") if session else None
+
+            # Only real student submissions are logged.
+            # Teacher test-mode submissions are graded, but skipped here.
+            if session_role == "student" and student_code:
                 ua = request.headers.get("user-agent", "") if request else ""
                 ip = request.client.host if (request and request.client) else ""
+
                 log_student_submission(
                     code=student_code,
                     exam_id=str(exam_id),
-                    provider=normalized_provider,
-                    gemini_tokens=gemini_tokens,
+                    provider=provider,
                     ip=ip,
                     user_agent=ua,
+                    gemini_tokens=gemini_tokens,
+                    session_role=session_role,
                 )
         except Exception:
             pass

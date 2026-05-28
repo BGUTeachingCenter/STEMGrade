@@ -1,4 +1,4 @@
-# routes/student_log.py
+# routes/student_log_routes.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -21,11 +21,22 @@ def log_student_submission(
     ip: str,
     user_agent: str,
     gemini_tokens: int = 0,
+    session_role: str | None = None,
 ) -> None:
     """
-    Log ONLY student submissions. Admin codes are omitted by design.
+    Log ONLY real student submissions.
+
+    Teacher test mode should not be written to student_submissions.xlsx.
+    This protects both cases:
+    - code is the teacher/admin code
+    - the active session role is teacher
     """
     code = (code or "").strip()
+    role = (session_role or "").strip().lower()
+
+    if role == "teacher":
+        return
+
     if not code or is_teacher_code(code):
         return
 
@@ -34,7 +45,7 @@ def log_student_submission(
     if SUBMISSIONS_XLSX.exists():
         wb = load_workbook(SUBMISSIONS_XLSX)
         ws = wb[SUBMISSIONS_SHEET] if SUBMISSIONS_SHEET in wb.sheetnames else wb.create_sheet(SUBMISSIONS_SHEET)
-        # If old file exists without the new column, we still append safely.
+
         if ws.max_row == 0:
             ws.append(["timestamp", "code", "exam_id", "provider", "gemini_tokens", "ip", "user_agent"])
     else:
@@ -52,4 +63,5 @@ def log_student_submission(
         ip,
         user_agent,
     ])
+
     wb.save(SUBMISSIONS_XLSX)

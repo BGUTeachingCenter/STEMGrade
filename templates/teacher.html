@@ -3,7 +3,11 @@
 {% block header_title %}Teacher Solution Bank{% endblock %}
 {% block header_subtitle %}Browse exams, upload references, and review student usage statistics{% endblock %}
 {% block header_actions %}
-  <a class="secondary-btn small" href="/">Back to grader</a>
+  <a class="primary-btn small mg-teacher-feedback-btn" href="/feedback">
+      <span class="mg-teacher-feedback-icon">🧪</span>
+      <span>Test feedback as teacher</span>
+    </a>
+  <a class="secondary-btn small" href="/">Back to Home</a>
   <button id="logoutBtnTop" class="secondary-btn small" type="button">Logout</button>
 {% endblock %}
 {% block content %}

@@ -12,7 +12,10 @@
     <section class="hero-card mg-feedback-card">
       <div class="section-heading">
         <div>
-          <div class="badge">Student feedback</div>
+          <div class="mg-feedback-heading-row">
+              <div class="badge">Student feedback</div>
+              <div class="mg-login-indicator" id="loginIndicator">Checking login…</div>
+            </div>
           <h1>Upload your work</h1>
           <p class="lead mg-compact-lead">
             Upload a LaTeX answer file for grading, or upload a handwritten page for OCR review.
@@ -114,6 +117,7 @@
     const logoutBtnTop = document.getElementById("logoutBtnTop");
 
     let currentRole = null;
+    let currentUserCode = null;
 
     function nowTag() {
       const d = new Date();
@@ -146,9 +150,24 @@
       try {
         const r = await authedFetch(ENDPOINT_ME, { cache: "no-store" });
         const j = await r.json();
+
         currentRole = (j && j.ok) ? (j.role || null) : null;
+        currentUserCode = (j && j.ok) ? (j.sub || j.code || j.student_code || "") : "";
+
+        const loginIndicator = document.getElementById("loginIndicator");
+
+        if (loginIndicator && currentRole) {
+          const label = currentRole === "teacher"
+            ? "Logged in as TEACHER"
+            : `Logged in as ${currentUserCode || "student"}`;
+
+          loginIndicator.textContent = label;
+          loginIndicator.classList.toggle("teacher", currentRole === "teacher");
+          loginIndicator.classList.toggle("student", currentRole === "student");
+        }
       } catch (_) {
         currentRole = null;
+        currentUserCode = null;
       }
 
       if (!currentRole) {

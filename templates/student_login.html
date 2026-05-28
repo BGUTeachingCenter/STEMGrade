@@ -108,7 +108,7 @@
       try {
         const res = await fetch("/routes/me", { credentials: "same-origin", cache: "no-store" });
         const data = await res.json();
-        if (data && data.ok && data.role === "student") {
+        if (data && data.ok && (data.role === "student" || data.role === "teacher")) {
           window.location.replace("/feedback");
         }
       } catch (_) {}
@@ -152,7 +152,7 @@
         }
 
         if (data.role === "teacher") {
-          window.location.href = "/teacher";
+          window.location.href = "/feedback";
           return;
         }
 

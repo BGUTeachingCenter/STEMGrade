@@ -1,4 +1,4 @@
-# routes/web_pages.py
+# routes/template_pages.py
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
@@ -34,13 +34,20 @@ def serve_feedback(request: Request):
     s = get_session(request)
     if not s:
         return RedirectResponse(url="/student-login", status_code=303)
-    if s.get("role") == "teacher":
-        return RedirectResponse(url="/teacher", status_code=303)
 
+    # Students and teachers may both use the feedback machine.
+    # Teacher usage is test mode and should not be counted as student submissions.
     p = PROJECT_ROOT / "templates" / "feedback.html"
     if not p.exists():
         raise HTTPException(status_code=404, detail="templates/feedback.html not found")
-    return _render(request, "feedback.html")
+    return _render(
+        request,
+        "feedback.html",
+        context={
+            "session_role": s.get("role"),
+            "is_teacher_test": s.get("role") == "teacher",
+        },
+    )
 
 
 @router.get("/teacher")
@@ -65,10 +72,9 @@ def teacher_login(request: Request):
 @router.get("/student-login")
 def student_login(request: Request):
     s = get_session(request)
-    if s and s.get("role") == "student":
+
+    if s and s.get("role") in {"student", "teacher"}:
         return RedirectResponse(url="/feedback", status_code=303)
-    if s and s.get("role") == "teacher":
-        return RedirectResponse(url="/teacher", status_code=303)
 
     p = PROJECT_ROOT / "templates" / "student_login.html"
     if not p.exists():
