@@ -11,18 +11,18 @@ from grader.file_handling.part_normalize import normalize_part
 REFERENCE_BUNDLE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["exam_title", "questions", "warnings"],
+    "required": ["exam_id", "exam_title", "questions", "warnings", "structure_corrections"],
     "properties": {
+        "exam_id": {"type": "string"},
         "exam_title": {"type": "string"},
         "questions": {
             "type": "array",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["question_id", "stem", "parts"],
+                "required": ["question_id", "parts"],
                 "properties": {
                     "question_id": {"type": "integer"},
-                    "stem": {"type": "string"},
                     "parts": {
                         "type": "array",
                         "items": {
@@ -33,6 +33,7 @@ REFERENCE_BUNDLE_SCHEMA: dict[str, Any] = {
                                 "part_key",
                                 "question_text",
                                 "required_action",
+                                "official_solution",
                                 "expected_answer",
                                 "grading_instructions",
                             ],
@@ -41,6 +42,7 @@ REFERENCE_BUNDLE_SCHEMA: dict[str, Any] = {
                                 "part_key": {"type": "string"},
                                 "question_text": {"type": "string"},
                                 "required_action": {"type": "string"},
+                                "official_solution": {"type": "string"},
                                 "expected_answer": {"type": "string"},
                                 "grading_instructions": {"type": "string"},
                             },
@@ -53,36 +55,109 @@ REFERENCE_BUNDLE_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string"},
         },
+        "structure_corrections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["type", "description", "confidence"],
+                "properties": {
+                    "type": {"type": "string"},
+                    "description": {"type": "string"},
+                    "confidence": {"type": "string"},
+                },
+            },
+        },
     },
 }
 
 
-SYSTEM_PROMPT = """
-You are MathGrade Reference Builder.
+QUESTIONS_SYSTEM_PROMPT = """
+You are MathGrade Exam Builder.
 
 Your job is to convert noisy Mathpix OCR / Mathpix Markdown from a Hebrew mathematics exam
 into a clean structured JSON bundle for automated grading.
 
-Rules:
-- Return JSON only.
-- Extract only questions that are intended for submission.
-- Ignore page headers, university headers, dates, page numbers, and repeated titles.
-- Stop before sections like "שאלות שאינן להגשה" or optional starred questions not for submission.
+Return strict JSON only.
+
+General rules:
+- Extract only questions intended for submission.
+- Ignore page headers, university names, dates, page numbers, repeated titles, and administrative text.
+- Stop before sections like "שאלות שאינן להגשה" or optional/starred questions not for submission.
 - Preserve Hebrew question text.
 - Preserve mathematics as LaTeX where possible.
 - Detect Hebrew part labels: א, ב, ג, ד, ה, ו, ז, ח, ט, י.
-- For each part, include the shared question stem if needed for understanding.
-- Do not invent a question or part that is not supported by the source.
-- If OCR is ambiguous, keep the best reconstruction and add a warning.
-- The part_key must be latin normalized: א=a, ב=b, ג=c, ד=d, ה=e, ו=f.
-- expected_answer and grading_instructions may be empty for questions-only uploads, but if the expected answer is obvious from the prompt, you may include a short note.
+- Correct obvious Mathpix OCR mistakes in part labels only when context is clear.
+- Do not overfit to one exam. Exams can have different numbering, wording, and part structures.
+- Preserve visible question numbering. Do not merge a numbered question into the previous question.
+- If a question has no explicit parts, represent it as one part: part="א", part_key="a".
+- For each part, include the complete question text needed for grading.
+- If a shared stem applies to several parts, repeat that stem inside each part's question_text.
+- Do not invent questions or parts not supported by the source.
+- required_action should describe what the student is expected to do.
+- For questions-only uploads, leave official_solution, expected_answer, and grading_instructions empty unless extremely obvious.
+- part_key must be normalized Latin: א=a, ב=b, ג=c, ד=d, ה=e, ו=f, ז=g, ח=h, ט=i, י=j.
+- If uncertain, keep the best conservative reconstruction and add a warning.
+- structure_corrections should be empty for the initial questions-only build unless you corrected an obvious OCR structural mistake.
 """
 
 
-def _normalize_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
-    """
-    Defensive cleanup after model output.
-    """
+REFERENCE_SYSTEM_PROMPT = """
+You are MathGrade Solution Aligner.
+
+Your job is to align noisy Mathpix OCR / Mathpix Markdown from an official solution file
+to an existing clean question bundle.
+
+Return strict JSON only.
+
+Rules:
+- Use the existing question bundle as the primary structure.
+- Keep question_id, part, part_key, question_text, and required_action from the existing bundle unless the official solution clearly proves a structure error.
+- Fill official_solution, expected_answer, and grading_instructions for each part.
+- Use the official solution source as evidence. Do not invent a solution if it is not present.
+- If a solution is missing or unclear, leave official_solution empty and add a warning.
+- expected_answer should be concise: final result, theorem, proof target, interval, counterexample, etc.
+- grading_instructions should help the grading AI grade student work fairly.
+- Accept mathematically equivalent methods; do not require the exact official wording.
+- Preserve mathematics as LaTeX.
+- Preserve Hebrew where appropriate.
+- You may correct question boundaries and part labels only when the official solution clearly supports the correction.
+- Record every structural correction in structure_corrections.
+- If you correct structure, output the corrected full bundle.
+- Do not add optional/not-for-submission questions unless the existing bundle already contains them.
+"""
+
+
+def _empty_part() -> dict[str, str]:
+    return {
+        "part": "",
+        "part_key": "",
+        "question_text": "",
+        "required_action": "",
+        "official_solution": "",
+        "expected_answer": "",
+        "grading_instructions": "",
+    }
+
+
+def _normalize_part_item(p: dict[str, Any]) -> dict[str, str]:
+    item = _empty_part()
+
+    item["part"] = str(p.get("part") or "").strip()
+    item["part_key"] = str(p.get("part_key") or "").strip() or normalize_part(item["part"])
+    item["question_text"] = str(p.get("question_text") or "").strip()
+    item["required_action"] = str(p.get("required_action") or "").strip()
+    item["official_solution"] = str(p.get("official_solution") or "").strip()
+    item["expected_answer"] = str(p.get("expected_answer") or "").strip()
+    item["grading_instructions"] = str(p.get("grading_instructions") or "").strip()
+
+    if not item["part"] and item["part_key"]:
+        item["part"] = item["part_key"]
+
+    return item
+
+
+def normalize_reference_bundle(bundle: dict[str, Any], *, exam_id: str = "") -> dict[str, Any]:
     questions = bundle.get("questions") or []
     clean_questions: list[dict[str, Any]] = []
 
@@ -92,48 +167,48 @@ def _normalize_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             continue
 
-        stem = str(q.get("stem") or "").strip()
-        parts = q.get("parts") or []
-
-        clean_parts: list[dict[str, Any]] = []
+        clean_parts: list[dict[str, str]] = []
         seen_keys: set[str] = set()
 
-        for p in parts:
-            part = str(p.get("part") or "").strip()
-            part_key = str(p.get("part_key") or "").strip() or normalize_part(part)
-
-            if not part_key:
+        for p in q.get("parts") or []:
+            if not isinstance(p, dict):
                 continue
 
-            if part_key in seen_keys:
-                continue
-            seen_keys.add(part_key)
+            item = _normalize_part_item(p)
+            key = item["part_key"]
 
-            clean_parts.append(
-                {
-                    "part": part,
-                    "part_key": part_key,
-                    "question_text": str(p.get("question_text") or "").strip(),
-                    "required_action": str(p.get("required_action") or "").strip(),
-                    "expected_answer": str(p.get("expected_answer") or "").strip(),
-                    "grading_instructions": str(p.get("grading_instructions") or "").strip(),
-                }
-            )
+            if not key or key in seen_keys:
+                continue
+
+            seen_keys.add(key)
+            clean_parts.append(item)
 
         clean_questions.append(
             {
                 "question_id": qid,
-                "stem": stem,
                 "parts": clean_parts,
             }
         )
 
     clean_questions.sort(key=lambda x: int(x["question_id"]))
 
+    corrections = []
+    for c in bundle.get("structure_corrections") or []:
+        if isinstance(c, dict):
+            corrections.append(
+                {
+                    "type": str(c.get("type") or "").strip(),
+                    "description": str(c.get("description") or "").strip(),
+                    "confidence": str(c.get("confidence") or "").strip(),
+                }
+            )
+
     return {
+        "exam_id": str(bundle.get("exam_id") or exam_id or "").strip(),
         "exam_title": str(bundle.get("exam_title") or "").strip(),
         "questions": clean_questions,
         "warnings": [str(x) for x in (bundle.get("warnings") or [])],
+        "structure_corrections": corrections,
     }
 
 
@@ -156,18 +231,55 @@ Mathpix OCR / MMD source:
 """
 
     result = client.chat_json(
-        system=SYSTEM_PROMPT,
+        system=QUESTIONS_SYSTEM_PROMPT,
+        user=user_prompt,
+        schema=REFERENCE_BUNDLE_SCHEMA,
+        schema_name="mathgrade_questions_bundle",
+        strict=True,
+        timeout_s=240,
+    )
+
+    return normalize_reference_bundle(result, exam_id=exam_id)
+
+
+def build_reference_bundle_from_mathpix(
+    *,
+    questions_bundle: dict[str, Any],
+    solution_mathpix_text: str,
+    source_name: str,
+    exam_id: str,
+    client: GptClient | None = None,
+) -> dict[str, Any]:
+    client = client or GptClient()
+
+    normalized_questions = normalize_reference_bundle(questions_bundle, exam_id=exam_id)
+
+    user_prompt = f"""
+exam_id: {exam_id}
+source_name: {source_name}
+
+Existing clean question bundle:
+-------------------------------
+{json.dumps(normalized_questions, ensure_ascii=False, indent=2)}
+
+Official solution Mathpix OCR / MMD source:
+------------------------------------------
+{solution_mathpix_text}
+"""
+
+    result = client.chat_json(
+        system=REFERENCE_SYSTEM_PROMPT,
         user=user_prompt,
         schema=REFERENCE_BUNDLE_SCHEMA,
         schema_name="mathgrade_reference_bundle",
         strict=True,
-        timeout_s=180,
+        timeout_s=240,
     )
 
-    return _normalize_bundle(result)
+    return normalize_reference_bundle(result, exam_id=exam_id)
 
 
-def write_questions_bundle_json(bundle: dict[str, Any], out_path: Path) -> None:
+def write_reference_bundle_json(bundle: dict[str, Any], out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(bundle, ensure_ascii=False, indent=2),
@@ -175,15 +287,43 @@ def write_questions_bundle_json(bundle: dict[str, Any], out_path: Path) -> None:
     )
 
 
+def write_questions_bundle_json(bundle: dict[str, Any], out_path: Path) -> None:
+    write_reference_bundle_json(bundle, out_path)
+
+
+def bundle_to_exam_structure(bundle: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_reference_bundle(bundle)
+
+    questions = []
+    for q in normalized.get("questions") or []:
+        questions.append(
+            {
+                "question_id": str(q["question_id"]),
+                "parts": [
+                    p["part"]
+                    for p in q.get("parts") or []
+                    if p.get("part")
+                ],
+            }
+        )
+
+    return {
+        "questions": questions,
+        "question_count": len(questions),
+        "part_count": sum(len(q.get("parts") or []) for q in questions),
+    }
+
+
 def questions_bundle_to_tex(bundle: dict[str, Any]) -> str:
     """
     Convert validated JSON bundle into canonical TeX that parse_reference_tex() can read.
 
-    Important:
     parse_reference_tex expects:
       \\section*{Question N}
       \\subsection*{(א)}
     """
+    normalized = normalize_reference_bundle(bundle)
+
     lines: list[str] = [
         r"\documentclass[12pt]{article}",
         r"\usepackage[a4paper,margin=1in]{geometry}",
@@ -197,48 +337,31 @@ def questions_bundle_to_tex(bundle: dict[str, Any]) -> str:
         r"\setlength{\parskip}{0.6em}",
         "",
         r"\begin{document}",
-        r"% Canonical MathGrade questions-only file generated by AI Reference Builder.",
+        r"% Canonical MathGrade file generated from structured JSON.",
         "",
     ]
 
-    title = str(bundle.get("exam_title") or "").strip()
+    title = str(normalized.get("exam_title") or "").strip()
     if title:
         lines.append(rf"\textbf{{{title}}}")
         lines.append("")
 
-    for q in bundle.get("questions") or []:
+    for q in normalized.get("questions") or []:
         qid = q.get("question_id")
-        stem = str(q.get("stem") or "").strip()
-
         lines.append("")
         lines.append(rf"\section*{{Question {qid}}}")
 
-        parts = q.get("parts") or []
-        if not parts:
-            lines.append("")
-            lines.append(r"\subsection*{(a)}")
-            if stem:
-                lines.append(stem)
-                lines.append("")
-            lines.append("% No parts detected.")
-            continue
+        for p in q.get("parts") or []:
+            display_part = p.get("part") or p.get("part_key") or "a"
 
-        for p in parts:
-            part = str(p.get("part") or "").strip()
-            part_key = str(p.get("part_key") or "").strip()
-            question_text = str(p.get("question_text") or "").strip()
-            required_action = str(p.get("required_action") or "").strip()
-            expected_answer = str(p.get("expected_answer") or "").strip()
-            grading_instructions = str(p.get("grading_instructions") or "").strip()
-
-            display_part = part or part_key or "a"
+            question_text = p.get("question_text", "").strip()
+            required_action = p.get("required_action", "").strip()
+            official_solution = p.get("official_solution", "").strip()
+            expected_answer = p.get("expected_answer", "").strip()
+            grading_instructions = p.get("grading_instructions", "").strip()
 
             lines.append("")
             lines.append(rf"\subsection*{{({display_part})}}")
-
-            if stem:
-                lines.append(stem)
-                lines.append("")
 
             if question_text:
                 lines.append(question_text)
@@ -247,6 +370,11 @@ def questions_bundle_to_tex(bundle: dict[str, Any]) -> str:
             if required_action:
                 lines.append(r"\paragraph{Required action}")
                 lines.append(required_action)
+                lines.append("")
+
+            if official_solution:
+                lines.append(r"\paragraph{Official solution}")
+                lines.append(official_solution)
                 lines.append("")
 
             if expected_answer:

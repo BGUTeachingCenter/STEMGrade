@@ -19,7 +19,14 @@ from grader.file_handling.reference_tex import parse_reference_tex
 
 from core.config import MATHPIX_APP_ID, MATHPIX_APP_KEY
 from grader.ocr.mathpix_client import MathpixError, process_image_or_pdf
-from grader.ocr.exam_structure import extract_exam_structure, structure_to_reference_tex_template
+from grader.ai_grading.reference_builder import (
+    build_questions_bundle_from_mathpix,
+    build_reference_bundle_from_mathpix,
+    bundle_to_exam_structure,
+    questions_bundle_to_tex,
+    write_reference_bundle_json,
+    write_questions_bundle_json,
+)
 
 
 router = APIRouter(prefix="/routes/bank", tags=["bank"])
@@ -27,69 +34,6 @@ router = APIRouter(prefix="/routes/bank", tags=["bank"])
 #-----------
 # Helpers
 #-----------
-
-
-def _plain_text_to_bank_tex(*, text: str, source_name: str) -> str:
-    """
-    Store extracted typed-PDF text inside a TeX document.
-
-    This is mainly for solution-bank preview/structure extraction.
-    It avoids Mathpix mojibake for PDFs that already contain selectable text.
-    """
-    return "\n".join(
-        [
-            r"\documentclass[12pt]{article}",
-            r"\usepackage[a4paper,margin=1in]{geometry}",
-            r"\usepackage{amsmath,amssymb,mathtools}",
-            r"\usepackage{fontspec}",
-            r"\usepackage{polyglossia}",
-            r"\setmainlanguage{hebrew}",
-            r"\setotherlanguage{english}",
-            r"\newfontfamily\hebrewfont{Arial}",
-            r"\setlength{\parindent}{0pt}",
-            r"\setlength{\parskip}{0.6em}",
-            "",
-            r"\begin{document}",
-            rf"% Text extracted from typed PDF. Source: {source_name}",
-            r"% This file was not sent to Mathpix because the PDF had an embedded text layer.",
-            "",
-            text.strip(),
-            "",
-            r"\end{document}",
-            "",
-        ]
-    )
-
-
-def _canonical_bank_tex_document(
-    *,
-    body: str,
-    source_name: str,
-    note: str,
-) -> str:
-    return "\n".join(
-        [
-            r"\documentclass[12pt]{article}",
-            r"\usepackage[a4paper,margin=1in]{geometry}",
-            r"\usepackage{amsmath,amssymb,mathtools}",
-            r"\usepackage{fontspec}",
-            r"\usepackage{polyglossia}",
-            r"\setmainlanguage{hebrew}",
-            r"\setotherlanguage{english}",
-            r"\newfontfamily\hebrewfont{Arial}",
-            r"\setlength{\parindent}{0pt}",
-            r"\setlength{\parskip}{0.6em}",
-            "",
-            r"\begin{document}",
-            rf"% {note}",
-            rf"% Source: {source_name}",
-            "",
-            body.strip(),
-            "",
-            r"\end{document}",
-            "",
-        ]
-    )
 
 
 def _cleanup_empty_exam_folder(exam_id: str) -> None:
@@ -277,6 +221,7 @@ async def _bank_upload_to_tex(
         "ocr_used": True,
         "ocr_raw_path": str(ocr_raw_path),
         "mathpix_text_path": str(mathpix_text_path),
+        "mathpix_text": ocr_text,
         "mathpix_mode": result.get("_mathpix_mode"),
         "pdf_id": result.get("pdf_id"),
         "downloaded_ext": result.get("downloaded_ext"),
@@ -393,28 +338,104 @@ async def upload_to_bank(
 
     if content_type == "questions_only":
         try:
-            structure = extract_exam_structure(tex_text_for_structure)
+            mathpix_text = extra_meta.get("mathpix_text") or tex_text_for_structure
+
+            questions_bundle = build_questions_bundle_from_mathpix(
+                mathpix_text=mathpix_text,
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                exam_id=exam_id,
+            )
+
+            bundle_path = uploads / "questions_only_bundle.json"
+            write_questions_bundle_json(questions_bundle, bundle_path)
+
+            structure = bundle_to_exam_structure(questions_bundle)
             structure_path = uploads / "exam_structure.json"
             structure_path.write_text(
                 json.dumps(structure, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
 
-            canonical_body = structure_to_reference_tex_template(
-                structure,
-                placeholder="% Empty question form. Official solution can be added later.",
-            )
+            raw = questions_bundle_to_tex(questions_bundle).encode("utf-8")
 
-            if canonical_body.strip():
-                raw = _canonical_bank_tex_document(
-                    body=canonical_body,
-                    source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
-                    note="Canonical MathGrade questions-only structure generated from upload.",
-                ).encode("utf-8")
-
-        except Exception:
+        except Exception as e:
             structure = None
             structure_path = None
+
+            fail_path = uploads / "questions_only_ai_builder_error.txt"
+            fail_path.write_text(str(e), encoding="utf-8")
+
+
+    elif content_type == "reference":
+
+        questions_bundle_path = uploads / "questions_only_bundle.json"
+
+        if not questions_bundle_path.exists():
+            raise HTTPException(
+
+                status_code=400,
+
+                detail=(
+
+                    "Upload the exam/questions-only file first. "
+
+                    "reference upload requires questions_only_bundle.json."
+
+                ),
+
+            )
+
+        try:
+
+            questions_bundle = json.loads(
+
+                questions_bundle_path.read_text(encoding="utf-8")
+
+            )
+
+            solution_mathpix_text = extra_meta.get("mathpix_text") or tex_text_for_structure
+
+            reference_bundle = build_reference_bundle_from_mathpix(
+
+                questions_bundle=questions_bundle,
+
+                solution_mathpix_text=solution_mathpix_text,
+
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+
+                exam_id=exam_id,
+
+            )
+
+            reference_bundle_path = uploads / "reference_bundle.json"
+
+            write_reference_bundle_json(reference_bundle, reference_bundle_path)
+
+            corrections = reference_bundle.get("structure_corrections") or []
+            high_conf_corrections = [
+                c for c in corrections
+                if str(c.get("confidence", "")).lower() in {"high", "גבוה", "strong"}
+            ]
+
+            if high_conf_corrections:
+                corrected_questions_path = uploads / "questions_only_bundle_corrected_by_reference.json"
+                write_questions_bundle_json(reference_bundle, corrected_questions_path)
+
+                corrected_structure = bundle_to_exam_structure(reference_bundle)
+                corrected_structure_path = uploads / "exam_structure_corrected_by_reference.json"
+                corrected_structure_path.write_text(
+                    json.dumps(corrected_structure, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+            raw = questions_bundle_to_tex(reference_bundle).encode("utf-8")
+
+
+        except Exception as e:
+
+            fail_path = uploads / "reference_ai_builder_error.txt"
+
+            fail_path.write_text(str(e), encoding="utf-8")
 
     tex_path.write_bytes(raw)
     tex_text_for_structure = raw.decode("utf-8", errors="replace")
@@ -442,7 +463,8 @@ async def upload_to_bank(
             preview_lines.append("Canonical questions-only structure:")
             preview_lines.append("")
             for rp in list(parts.values())[:30]:
-                preview_lines.append(f"Q{rp.qnum}{rp.part}")
+                clean_body = re.sub(r"\s+", " ", (rp.latex_body or "").strip())
+                preview_lines.append(f"Q{rp.qnum}{rp.part}: {clean_body[:220]}")
             preview_text = "\n".join(preview_lines)
         except Exception:
             keys, preview_text = _preview_from_exam_structure(structure, tex_text_for_structure)
@@ -457,12 +479,28 @@ async def upload_to_bank(
             q_count = len(qnums)
             preview_lines = []
             for rp in list(parts.values())[:12]:
-                title = re.sub(r"\s+", " ", (rp.title or "").strip())
-                preview_lines.append(f"Q{rp.qnum}{rp.part}: {title[:120]}")
+                clean_body = re.sub(r"\s+", " ", (rp.latex_body or "").strip())
+                preview_lines.append(f"Q{rp.qnum}{rp.part}: {clean_body[:220]}")
             preview_text = "\n".join(preview_lines)
         except Exception as e:
             keys, q_count, part_count = [], None, None
             preview_text = f"Parse error: {e}"
+    bundle_warnings = []
+    bundle_structure_corrections = []
+
+    try:
+        bundle_path_for_meta = (
+            uploads / "questions_only_bundle.json"
+            if content_type == "questions_only"
+            else uploads / "reference_bundle.json"
+        )
+        if bundle_path_for_meta.exists():
+            bundle_meta = json.loads(bundle_path_for_meta.read_text(encoding="utf-8"))
+            bundle_warnings = bundle_meta.get("warnings") or []
+            bundle_structure_corrections = bundle_meta.get("structure_corrections") or []
+    except Exception:
+        bundle_warnings = []
+        bundle_structure_corrections = []
 
     meta = {
         "exam_id": exam_id,
@@ -483,6 +521,15 @@ async def upload_to_bank(
         "exam_structure_question_count": structure.get("question_count") if structure else None,
         "exam_structure_part_count": structure.get("part_count") if structure else None,
         "mathpix_text_path": extra_meta.get("mathpix_text_path"),
+        "bundle_json_path": (
+            str(uploads / "questions_only_bundle.json")
+            if content_type == "questions_only"
+            else str(uploads / "reference_bundle.json")
+            if content_type == "reference"
+            else None
+        ),
+        "bundle_warnings": bundle_warnings,
+        "bundle_structure_corrections": bundle_structure_corrections,
     }
 
     meta_path = uploads / (filename + ".meta.json")
