@@ -283,7 +283,7 @@
     }
   }
   getHealth();
-  setInterval(getHealth, 5000);
+
 
   function setExamStatus(msg){ $("examStatus").textContent = msg; }
   function examId(){ return ($("examId").value || "").trim(); }
@@ -419,7 +419,6 @@
 
   // load once and refresh every 30s
   loadStatsAndRender();
-  setInterval(loadStatsAndRender, 30000);
 
   // --------- Drop zone ----------
   const dropTex = $("dropTex");
@@ -705,11 +704,22 @@ function renderSolutionList(items) {
     };
 
     div.querySelector('[data-action="delete"]').onclick = async () => {
-      if (!confirm(`Delete ${it.filename} from ${it.exam_id}?`)) return;
+      if (!confirm(
+        `Delete the entire solution-bank folder for "${it.exam_id}"?\n\n` +
+        `This will remove all files for this exam, including questions, reference solutions, OCR files, and generated JSON bundles.`
+      )) return;
 
       const r3 = await authedFetch(
-        API_BASE + `/routes/bank/delete?exam_id=${encodeURIComponent(it.exam_id)}&filename=${encodeURIComponent(it.filename)}`,
-        { method: "DELETE" }
+        API_BASE + "/routes/bank/exam/delete",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            exam_id: it.exam_id,
+          }),
+        }
       );
 
       if (!r3.ok) {

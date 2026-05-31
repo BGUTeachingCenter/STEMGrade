@@ -53,38 +53,30 @@ def _progress(job_id: str | None, msg: str) -> None:
 
 def _cleanup_empty_exam_folder(exam_id: str) -> None:
     """
-    Remove empty solution-bank folders after the last reference file is deleted.
+    Remove the whole exam folder after the last TeX file is deleted.
 
-    Expected structure:
-      BANK_ROOT / exam_id / uploads / reference_current.tex
+    The upload folder can still contain generated files such as:
+      - reference_bundle.json
+      - questions_only_bundle.json
+      - Mathpix raw/text files
+      - originals/
+      - reference_summary.json
+
+    If there are no .tex files left, the exam is no longer usable in the
+    solution bank, so remove the whole exam folder.
     """
     d = exam_dir(exam_id)
-    uploads = uploads_dir(exam_id)
 
-    # If there are still TeX files anywhere under this exam, keep the folder.
-    if d.exists() and any(d.rglob("*.tex")):
+    if not d.exists():
         return
 
-    # Remove empty uploads folder first.
-    try:
-        if uploads.exists() and not any(uploads.iterdir()):
-            uploads.rmdir()
-    except Exception:
-        pass
+    # If any TeX file still exists, keep the exam folder.
+    if any(d.rglob("*.tex")):
+        return
 
-    # Remove known generated summary if it is now orphaned.
-    for orphan_name in ("reference_summary.json",):
-        orphan = d / orphan_name
-        try:
-            if orphan.exists():
-                orphan.unlink()
-        except Exception:
-            pass
-
-    # Remove exam folder only if it is empty.
+    # No usable reference/questions files remain, so remove the whole folder.
     try:
-        if d.exists() and not any(d.iterdir()):
-            d.rmdir()
+        shutil.rmtree(d)
     except Exception:
         pass
 
