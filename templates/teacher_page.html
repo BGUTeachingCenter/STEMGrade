@@ -158,6 +158,58 @@
   const API_BASE = "";
   const $ = (id)=>document.getElementById(id);
 
+  const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
+
+  function nowTag() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  function mkJobId() {
+    return "job_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+  }
+
+  function setUploadStatus(lines, kind) {
+    const el = $("uploadStatus");
+    if (!el) return;
+    el.textContent = Array.isArray(lines) ? lines.join("\n") : lines;
+    el.classList.remove("ok", "err", "work");
+    if (kind === "ok") el.classList.add("ok");
+    if (kind === "err") el.classList.add("err");
+    if (kind === "work") el.classList.add("work");
+  }
+
+  async function pollProgress(jobId, lines, stopSignal) {
+    let lastSeq = 0;
+    while (!stopSignal.stopped) {
+      try {
+        const r = await authedFetch(ENDPOINT_PROGRESS(jobId), { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          const steps = Array.isArray(j.steps) ? j.steps : [];
+          for (const s of steps) {
+            const seq = Number(s.seq || 0);
+            if (seq > lastSeq) {
+              lastSeq = seq;
+              lines.push(`[${s.ts || nowTag()}] ${s.msg || ""}`);
+            }
+          }
+          if (j.error) {
+            lines.push(`[${nowTag()}] FAILED: ${j.error}`);
+            setUploadStatus(lines, "err");
+            break;
+          }
+          setUploadStatus(lines, "work");
+          if (j.done) break;
+        }
+      } catch (e) {
+        lines.push(`[${nowTag()}] ERROR: ${e?.message || String(e)}`);
+        setUploadStatus(lines, "err");
+      }
+      await new Promise(res => setTimeout(res, 500));
+    }
+  }
+
   // Auth comes from the httpOnly session cookie — no password in the URL,
   // no header, no localStorage.
   async function authedFetch(url, options = {}){
@@ -190,7 +242,6 @@
   setInterval(getHealth, 5000);
 
   function setExamStatus(msg){ $("examStatus").textContent = msg; }
-  function setUploadStatus(msg){ $("uploadStatus").textContent = msg; }
   function examId(){ return ($("examId").value || "").trim(); }
 
   function escapeHtml(s){
@@ -637,27 +688,56 @@ async function refreshFiles() {
     const f = texFile.files[0];
     const type = $("contentType").value;
 
-    if(!id){ setUploadStatus("Please select or type an exam_id."); return; }
-    if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file."); return; }
+    if(!id){ setUploadStatus("Please select or type an exam_id.", "err"); return; }
+    if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
 
-    const fd = new FormData();
-    fd.append("exam_id", id);
-    fd.append("content_type", type);
-    fd.append("tex_file", f);
-
-    setUploadStatus(
+    const jobId = mkJobId();
+    const lines = [
+      `[${nowTag()}] Started upload: ${f.name}`,
       f.name.toLowerCase().endsWith(".pdf")
-        ? "Uploading and OCR-processing PDF… this may take a few minutes."
-        : "Uploading…"
-    );
-    const r = await authedFetch(API_BASE + "/routes/bank/upload", { method:"POST", body: fd });
-    if(!r.ok){ setUploadStatus(`Upload failed:\n${await r.text()}`); return; }
+        ? `[${nowTag()}] PDF detected — OCR via Mathpix may take a few minutes…`
+        : `[${nowTag()}] Uploading…`,
+    ];
+    setUploadStatus(lines, "work");
 
-    setUploadStatus("Upload OK ✅");
-    texFile.value = ""; updateFileChip();
+    if ($("uploadBtn")) $("uploadBtn").disabled = true;
 
-    setActiveExam(id);
-    await loadExams();
+    const stopSignal = { stopped: false };
+    const pollPromise = pollProgress(jobId, lines, stopSignal);
+
+    try {
+      const fd = new FormData();
+      fd.append("exam_id", id);
+      fd.append("content_type", type);
+      fd.append("tex_file", f);
+      fd.append("job_id", jobId);
+
+      const r = await authedFetch(API_BASE + "/routes/bank/upload", { method:"POST", body: fd });
+
+      stopSignal.stopped = true;
+      await pollPromise;
+
+      if (!r.ok) {
+        const text = await r.text();
+        lines.push(`[${nowTag()}] Upload failed: ${text}`);
+        setUploadStatus(lines, "err");
+        return;
+      }
+
+      lines.push(`[${nowTag()}] Upload complete ✅`);
+      setUploadStatus(lines, "ok");
+      texFile.value = ""; updateFileChip();
+
+      setActiveExam(id);
+      await loadExams();
+    } catch(e) {
+      stopSignal.stopped = true;
+      try { await pollPromise; } catch(_) {}
+      lines.push(`[${nowTag()}] ERROR: ${e?.message || e}`);
+      setUploadStatus(lines, "err");
+    } finally {
+      if ($("uploadBtn")) $("uploadBtn").disabled = false;
+    }
   }
 
   const uploadBtn = $("uploadBtn");
