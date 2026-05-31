@@ -7,6 +7,9 @@ import re
 from datetime import datetime
 import shutil
 from pydantic import BaseModel
+from typing import Optional
+
+
 from core.storage import exam_dir  # add this import
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -28,12 +31,24 @@ from grader.ai_grading.reference_builder import (
     write_questions_bundle_json,
 )
 
+from routes.progress import init_job, push, done, fail
+
 
 router = APIRouter(prefix="/routes/bank", tags=["bank"])
 
 #-----------
 # Helpers
 #-----------
+
+
+def _progress(job_id: str | None, msg: str) -> None:
+    if not job_id:
+        return
+    try:
+        push(job_id, msg)
+    except Exception:
+        # progress should never break upload
+        pass
 
 
 def _cleanup_empty_exam_folder(exam_id: str) -> None:
@@ -308,6 +323,7 @@ async def upload_to_bank(
     exam_id: str = Form(...),
     content_type: str = Form(...),
     tex_file: UploadFile = File(...),
+    job_id: Optional[str] = Form(None),
     _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher TeX file into the solution bank.
@@ -320,10 +336,22 @@ async def upload_to_bank(
     if content_type not in {"reference", "questions_only"}:
         raise HTTPException(status_code=400, detail="content_type must be reference or questions_only")
 
+    if job_id:
+        init_job(job_id)
+
+    _progress(job_id, f"Starting upload for {content_type}: {tex_file.filename}")
+
+    _progress(job_id, "Extracting file with Mathpix if needed...")
+
     raw, extra_meta = await _bank_upload_to_tex(
         upload=tex_file,
         exam_id=exam_id,
         content_type=content_type,
+    )
+
+    _progress(
+        job_id,
+        f"Extraction complete. Source: {extra_meta.get('source_kind')}, mode: {extra_meta.get('mathpix_mode') or 'tex'}",
     )
 
     uploads = uploads_dir(exam_id)
@@ -340,6 +368,8 @@ async def upload_to_bank(
         try:
             mathpix_text = extra_meta.get("mathpix_text") or tex_text_for_structure
 
+            _progress(job_id, "AI is organizing the exam into question/part JSON...")
+
             questions_bundle = build_questions_bundle_from_mathpix(
                 mathpix_text=mathpix_text,
                 source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
@@ -348,6 +378,8 @@ async def upload_to_bank(
 
             bundle_path = uploads / "questions_only_bundle.json"
             write_questions_bundle_json(questions_bundle, bundle_path)
+
+            _progress(job_id, "Saved questions_only_bundle.json")
 
             structure = bundle_to_exam_structure(questions_bundle)
             structure_path = uploads / "exam_structure.json"
@@ -358,58 +390,59 @@ async def upload_to_bank(
 
             raw = questions_bundle_to_tex(questions_bundle).encode("utf-8")
 
+            _progress(job_id, "Generated canonical questions_only_current.tex")
+
         except Exception as e:
             structure = None
             structure_path = None
 
             fail_path = uploads / "questions_only_ai_builder_error.txt"
             fail_path.write_text(str(e), encoding="utf-8")
+            fail(job_id, f"Questions-only AI builder failed: {e}") if job_id else None
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"Questions-only AI builder failed. See {fail_path.name}.",
+            )
 
 
     elif content_type == "reference":
 
         questions_bundle_path = uploads / "questions_only_bundle.json"
 
+        _progress(job_id, "Preparing to align official solution to questions bundle...")
+
         if not questions_bundle_path.exists():
             raise HTTPException(
 
                 status_code=400,
-
                 detail=(
-
                     "Upload the exam/questions-only file first. "
-
                     "reference upload requires questions_only_bundle.json."
-
                 ),
-
             )
 
         try:
-
             questions_bundle = json.loads(
-
                 questions_bundle_path.read_text(encoding="utf-8")
-
             )
 
             solution_mathpix_text = extra_meta.get("mathpix_text") or tex_text_for_structure
 
+            _progress(job_id, "AI is aligning official solutions to the exam structure...")
+
             reference_bundle = build_reference_bundle_from_mathpix(
-
                 questions_bundle=questions_bundle,
-
                 solution_mathpix_text=solution_mathpix_text,
-
                 source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
-
                 exam_id=exam_id,
-
             )
 
             reference_bundle_path = uploads / "reference_bundle.json"
 
             write_reference_bundle_json(reference_bundle, reference_bundle_path)
+
+            _progress(job_id, "Saved reference_bundle.json")
 
             corrections = reference_bundle.get("structure_corrections") or []
             high_conf_corrections = [
@@ -428,14 +461,24 @@ async def upload_to_bank(
                     encoding="utf-8",
                 )
 
+                _progress(
+                    job_id,
+                    f"Saved corrected structure from reference upload ({len(high_conf_corrections)} high-confidence corrections).",
+                )
+
             raw = questions_bundle_to_tex(reference_bundle).encode("utf-8")
+
+            _progress(job_id, "Generated canonical reference_current.tex")
 
 
         except Exception as e:
-
             fail_path = uploads / "reference_ai_builder_error.txt"
-
             fail_path.write_text(str(e), encoding="utf-8")
+            fail(job_id, f"Reference AI builder failed: {e}") if job_id else None
+            raise HTTPException(
+                status_code=500,
+                detail=f"Reference AI builder failed. See {fail_path.name}.",
+            )
 
     tex_path.write_bytes(raw)
     tex_text_for_structure = raw.decode("utf-8", errors="replace")
@@ -534,6 +577,11 @@ async def upload_to_bank(
 
     meta_path = uploads / (filename + ".meta.json")
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    _progress(job_id, f"Saved metadata: {meta_path.name}")
+    _progress(job_id, f"Done. Parsed questions: {q_count}, parts: {part_count}")
+
+    if job_id:
+        done(job_id)
     return meta
 
 @router.get("/list")
