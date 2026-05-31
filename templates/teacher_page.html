@@ -110,6 +110,17 @@
 
   <div class="card mg-bank-big-card">
     <div class="cardInner">
+      <div class="mg-upload-busy-wrap">
+        <div id="uploadBusyOverlay" class="mg-busy-overlay" aria-hidden="true">
+          <div class="mg-busy-box">
+            <div class="mg-spinner"></div>
+            <div>
+              <div class="mg-busy-title" id="uploadBusyTitle">Uploading…</div>
+              <div class="mg-busy-text" id="uploadBusyText">Please wait while MathGrade processes your file.</div>
+            </div>
+          </div>
+        </div>
+
       <div class="mg-upload-reference-grid">
         <div>
           <label for="examId">Exam name / ID</label>
@@ -147,6 +158,7 @@
       </div>
 
       <div class="statusBox" id="uploadStatus">Choose an exam ID and upload a TeX file.</div>
+      </div><!-- end mg-upload-busy-wrap -->
     </div>
   </div>
 </section>
@@ -179,27 +191,59 @@
     if (kind === "work") el.classList.add("work");
   }
 
+  function showBusy(title, text) {
+    const overlay = $("uploadBusyOverlay");
+    if ($("uploadBusyTitle")) $("uploadBusyTitle").textContent = title || "Uploading…";
+    if ($("uploadBusyText")) $("uploadBusyText").textContent = text || "Please wait while MathGrade processes your file.";
+    if (overlay) { overlay.classList.add("show"); overlay.setAttribute("aria-hidden", "false"); }
+  }
+
+  function hideBusy() {
+    const overlay = $("uploadBusyOverlay");
+    if (overlay) { overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true"); }
+  }
+
+  function updateBusyText(text) {
+    if ($("uploadBusyText")) $("uploadBusyText").textContent = text || "";
+  }
+
   async function pollProgress(jobId, lines, stopSignal) {
     let lastSeq = 0;
+    let idleSecs = 0;
     while (!stopSignal.stopped) {
       try {
         const r = await authedFetch(ENDPOINT_PROGRESS(jobId), { cache: "no-store" });
         if (r.ok) {
           const j = await r.json();
           const steps = Array.isArray(j.steps) ? j.steps : [];
+          let gotNew = false;
           for (const s of steps) {
             const seq = Number(s.seq || 0);
             if (seq > lastSeq) {
               lastSeq = seq;
               lines.push(`[${s.ts || nowTag()}] ${s.msg || ""}`);
+              gotNew = true;
             }
+          }
+          if (gotNew) {
+            idleSecs = 0;
+            const lastMsg = lines[lines.length - 1] || "";
+            updateBusyText(lastMsg.replace(/^\[[^\]]+\]\s*/, ""));
+          } else {
+            idleSecs += 0.5;
           }
           if (j.error) {
             lines.push(`[${nowTag()}] FAILED: ${j.error}`);
             setUploadStatus(lines, "err");
             break;
           }
-          setUploadStatus(lines, "work");
+          // Show a live "still working" pulse when idle >3s so the user knows we're alive
+          const displayLines = [...lines];
+          if (!j.done && idleSecs >= 3) {
+            const elapsed = Math.round(idleSecs);
+            displayLines.push(`[${nowTag()}] ⏳ Still working… (${elapsed}s)`);
+          }
+          setUploadStatus(displayLines, "work");
           if (j.done) break;
         }
       } catch (e) {
@@ -692,13 +736,18 @@ async function refreshFiles() {
     if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
 
     const jobId = mkJobId();
+    const isPdf = f.name.toLowerCase().endsWith(".pdf");
     const lines = [
       `[${nowTag()}] Started upload: ${f.name}`,
-      f.name.toLowerCase().endsWith(".pdf")
+      isPdf
         ? `[${nowTag()}] PDF detected — OCR via Mathpix may take a few minutes…`
         : `[${nowTag()}] Uploading…`,
     ];
     setUploadStatus(lines, "work");
+    showBusy(
+      isPdf ? "Processing PDF…" : "Uploading…",
+      isPdf ? "OCR via Mathpix is running. This may take a few minutes." : `Uploading ${f.name}…`
+    );
 
     if ($("uploadBtn")) $("uploadBtn").disabled = true;
 
@@ -736,6 +785,7 @@ async function refreshFiles() {
       lines.push(`[${nowTag()}] ERROR: ${e?.message || e}`);
       setUploadStatus(lines, "err");
     } finally {
+      hideBusy();
       if ($("uploadBtn")) $("uploadBtn").disabled = false;
     }
   }
