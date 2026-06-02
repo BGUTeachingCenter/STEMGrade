@@ -1,0 +1,6 @@
+{% set icon = "🧭" %}
+{% set label = "Page not found" %}
+{% set title = "Not found" %}
+{% set message = detail if detail and status_code not in [404] else "The page you requested does not exist or was moved." %}
+{% set note = "Check the address, or return to the MathGrade homepage." %}
+{% include "errors/error_base.html" %}

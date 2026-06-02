@@ -2,10 +2,11 @@ starlette
 pydantic
 openpyxl
 python-dotenv
+pypdf
 # MathGrade dependencies
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9
 requests>=2.31
-PyMuPDF>=1.23
 reportlab>=4.0
+Jinja2>=3.1

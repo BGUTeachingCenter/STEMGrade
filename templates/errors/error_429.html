@@ -1,0 +1,6 @@
+{% set icon = "⏳" %}
+{% set label = "Too many attempts" %}
+{% set title = "Please slow down" %}
+{% set message = detail if detail and status_code not in [404] else "Too many attempts were made in a short time." %}
+{% set note = "Wait a moment, then try again." %}
+{% include "errors/error_base.html" %}

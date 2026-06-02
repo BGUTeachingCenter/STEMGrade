@@ -1,4 +1,4 @@
-# api/auth.py
+# routes/auth.py
 from __future__ import annotations
 
 import time
@@ -19,7 +19,7 @@ from core.security import (
 
 from openpyxl import Workbook, load_workbook
 
-router = APIRouter(prefix="/api", tags=["auth"])
+router = APIRouter(prefix="/routes", tags=["auth"])
 
 ALLOWLIST_XLSX = RUNS_ROOT / "student_codes_allowlist.xlsx"
 ALLOWLIST_SHEET = "allowlist"

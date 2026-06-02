@@ -1,0 +1,6 @@
+{% set icon = "⚙️" %}
+{% set label = "Server error" %}
+{% set title = "Something went wrong" %}
+{% set message = detail if detail and status_code not in [404] else "MathGrade hit an unexpected error." %}
+{% set note = "Check the terminal logs for the full traceback while developing." %}
+{% include "errors/error_base.html" %}

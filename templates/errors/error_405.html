@@ -1,0 +1,6 @@
+{% set icon = "🛡️" %}
+{% set label = "Wrong action" %}
+{% set title = "Method not allowed" %}
+{% set message = detail if detail and status_code not in [404] else "This page exists, but it does not accept this type of request." %}
+{% set note = "Use the buttons and forms in the app instead of opening form URLs directly." %}
+{% include "errors/error_base.html" %}

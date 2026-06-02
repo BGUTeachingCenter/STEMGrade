@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}{{ status_code }} · {{ title }}{% endblock %}
+{% block header_title %}MathGrade{% endblock %}
+{% block header_subtitle %}{{ subtitle|default("Something needs attention") }}{% endblock %}
+{% block header_actions %}
+  <a class="secondary-btn small" href="/">Home</a>
+  <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
+{% endblock %}
+
+{% block content %}
+  <main class="mg-error-shell">
+    <section class="mg-error-card">
+      <div class="mg-error-icon">{{ icon }}</div>
+      <div class="mg-error-code">{{ status_code }} · {{ label }}</div>
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+
+      <div class="mg-error-actions">
+        <a href="/" class="primary-btn">Back to homepage</a>
+        <button type="button" class="secondary-btn" onclick="history.back()">Go back</button>
+      </div>
+
+      {% if note %}
+        <div class="mg-error-note">{{ note }}</div>
+      {% endif %}
+    </section>
+  </main>
+{% endblock %}

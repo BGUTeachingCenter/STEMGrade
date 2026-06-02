@@ -17,7 +17,10 @@ class RefPart:
     latex_body: str
 
 
-_SECTION_RE = re.compile(r"\\section\*\{\s*Question\s+(\d+)\s*\}", re.IGNORECASE)
+_SECTION_RE = re.compile(
+    r"\\(?:section|subsection)\*\{\s*Question\s+(\d+)\s*\}",
+    re.IGNORECASE,
+)
 # Accepts: \subsection*{(a) ...} or \subsection*{(א) ...}  (with optional title)
 _SUBSECTION_RE = re.compile(r"\\subsection\*\{\s*\(([^)]{1,4})\)\s*([^}]*)\}", re.IGNORECASE)
 

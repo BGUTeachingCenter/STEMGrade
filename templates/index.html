@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}MathGrade{% endblock %}
+{% block header_title %}MathGrade{% endblock %}
+{% block header_subtitle %}AI-assisted math grading and feedback{% endblock %}
+{% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
+{% endblock %}
+
+{% block content %}
+  <main class="mg-public-shell">
+    <section class="mg-public-hero-card">
+      <div class="mg-public-copy">
+        <div class="badge">MathGrade</div>
+        <h1>Submit your math work and get feedback</h1>
+        <p class="lead">
+          Use your student code to open the submission page, upload your answers,
+          and receive feedback from the grading system.
+        </p>
+
+        <div class="mg-public-actions">
+          <a class="primary-btn mg-public-main-btn" href="/student-login">
+            <span>Continue as student</span>
+            <span class="mg-btn-arrow">→</span>
+          </a>
+          <a class="secondary-btn mg-public-teacher-btn" href="/teacher-login">
+            Teacher login
+          </a>
+        </div>
+      </div>
+
+      <div class="mg-public-visual" aria-hidden="true">
+        <div class="mg-orbit mg-orbit-one"></div>
+        <div class="mg-orbit mg-orbit-two"></div>
+
+        <div class="mg-chat-stack">
+          <div class="mg-chat-bubble mg-chat-bubble-bot">
+            <div class="mg-bubble-icon">ƒ</div>
+            <div>
+              <strong>Question detected</strong>
+              <span>Reading equations and answer steps…</span>
+            </div>
+          </div>
+
+          <div class="mg-chat-bubble mg-chat-bubble-user">
+            <div class="mg-bubble-icon">∑</div>
+            <div>
+              <strong>Student answer</strong>
+              <span>Upload LaTeX or handwritten work</span>
+            </div>
+          </div>
+
+          <div class="mg-chat-bubble mg-chat-bubble-feedback">
+            <div class="mg-bubble-icon">✓</div>
+
+            <div>
+              <strong>Feedback ready</strong>
+              <span>Comments, score, and PDF output</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+{% endblock %}
