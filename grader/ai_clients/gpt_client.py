@@ -7,7 +7,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import ssl
+
 import requests
+from requests.adapters import HTTPAdapter
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -51,6 +54,88 @@ def _extract_text_from_responses_api(resp_json: dict) -> str:
     return ""
 
 
+def _get_ca_bundle_path() -> str:
+    """
+    Central place for certificate bundle discovery.
+
+    For university / institutional proxies, set one of these env vars:
+      SSL_CERT_FILE=C:\\Users\\alinag\\certs\\combined-ca-bundle.pem
+      REQUESTS_CA_BUNDLE=C:\\Users\\alinag\\certs\\combined-ca-bundle.pem
+      CURL_CA_BUNDLE=C:\\Users\\alinag\\certs\\combined-ca-bundle.pem
+    """
+    return (
+        os.getenv("SSL_CERT_FILE")
+        or os.getenv("REQUESTS_CA_BUNDLE")
+        or os.getenv("CURL_CA_BUNDLE")
+        or ""
+    ).strip()
+
+
+class _RelaxedUniversitySSLAdapter(HTTPAdapter):
+    """
+    Requests adapter that keeps SSL verification ON, but relaxes Python/OpenSSL's
+    strict X.509 validation.
+
+    This is needed for some university proxy/root certificates that fail with:
+      certificate verify failed: Missing Authority Key Identifier
+
+    This is NOT the same as verify=False.
+    """
+
+    def __init__(self, ca_bundle: str, *args, **kwargs):
+        self.ca_bundle = ca_bundle
+        self.ssl_context = self._make_ssl_context(ca_bundle)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _make_ssl_context(ca_bundle: str) -> ssl.SSLContext:
+        ctx = ssl.create_default_context(cafile=ca_bundle)
+
+        # Keep certificate verification ON, but relax the extra strict
+        # certificate-format checks introduced/enforced by newer Python/OpenSSL.
+        if hasattr(ssl, "VERIFY_X509_STRICT"):
+            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+
+        return ctx
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        pool_kwargs["ssl_context"] = self.ssl_context
+        return super().init_poolmanager(
+            connections,
+            maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        proxy_kwargs["ssl_context"] = self.ssl_context
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
+
+
+def _make_requests_session() -> requests.Session:
+    """
+    Creates a requests session for OpenAI calls.
+
+    If a CA bundle env var exists, use it and relax only the strict X.509 check
+    that breaks with the university certificate. Otherwise, use normal requests.
+    """
+    session = requests.Session()
+
+    ca_bundle = _get_ca_bundle_path()
+    if ca_bundle:
+        if not os.path.exists(ca_bundle):
+            raise RuntimeError(
+                "Certificate bundle path was set but does not exist:\n"
+                f"{ca_bundle}\n\n"
+                "Check SSL_CERT_FILE / REQUESTS_CA_BUNDLE / CURL_CA_BUNDLE."
+            )
+
+        adapter = _RelaxedUniversitySSLAdapter(ca_bundle)
+        session.mount("https://", adapter)
+
+    return session
+
+
 @dataclass
 class GptClient:
     api_key: str
@@ -71,6 +156,7 @@ class GptClient:
         # Override via OPENAI_MODEL if you want
         self.model = (model or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip()
         self.base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com").rstrip("/")
+        self.session = _make_requests_session()
 
     def chat_json(
         self,
@@ -117,7 +203,7 @@ class GptClient:
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        r = requests.post(url, json=payload, headers=headers, timeout=timeout_s)
+        r = self.session.post(url, json=payload, headers=headers, timeout=timeout_s)
 
         if not r.ok:
             try:

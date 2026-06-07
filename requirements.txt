@@ -3,6 +3,7 @@ pydantic
 openpyxl
 python-dotenv
 pypdf
+openai
 # MathGrade dependencies
 fastapi>=0.110
 uvicorn[standard]>=0.27
