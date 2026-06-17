@@ -10,9 +10,10 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from core.config import RUNS_ROOT
+from core.security import require_session
 
 router = APIRouter(prefix="/routes", tags=["progress"])
 
@@ -132,7 +133,10 @@ def fail(job_id: str, error: str) -> None:
 
 
 @router.get("/progress/{job_id}")
-def get_progress(job_id: str):
+def get_progress(job_id: str, _session: dict = Depends(require_session)):
+    # Requires an authenticated session: progress messages can include
+    # filenames, exam IDs, and error text, so they must not be readable by
+    # anonymous callers polling arbitrary job IDs.
     # Reads are cheap; still use lock to avoid reading mid-write in the same process
     with _lock:
         return _read(job_id)
