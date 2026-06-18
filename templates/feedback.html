@@ -128,8 +128,16 @@
     const busyOverlay = document.getElementById("busyOverlay");
     const busyOverlayText = document.getElementById("busyOverlayText");
 
-    function authedFetch(url, options = {}) {
-      return fetch(url, { credentials: "same-origin", ...options });
+    let _redirectingToLogin = false;
+    async function authedFetch(url, options = {}) {
+      const res = await fetch(url, { credentials: "same-origin", ...options });
+      // Session expired (TTL) or missing: send the user back to the correct
+      // login page instead of surfacing a raw "Not authenticated" error.
+      if (res.status === 401 && !_redirectingToLogin) {
+        _redirectingToLogin = true;
+        window.location.href = currentRole === "teacher" ? "/teacher-login" : "/student-login";
+      }
+      return res;
     }
 
     const statusEl = document.getElementById("status");

@@ -256,8 +256,16 @@
 
   // Auth comes from the httpOnly session cookie — no password in the URL,
   // no header, no localStorage.
+  let _redirectingToLogin = false;
   async function authedFetch(url, options = {}){
-    return fetch(url, { credentials: "same-origin", ...options });
+    const res = await fetch(url, { credentials: "same-origin", ...options });
+    // Session expired (TTL) or missing: send the teacher back to log in
+    // instead of surfacing a raw "Not authenticated" error.
+    if (res.status === 401 && !_redirectingToLogin) {
+      _redirectingToLogin = true;
+      window.location.href = "/teacher-login";
+    }
+    return res;
   }
 
   // --- LOGOUT ---
