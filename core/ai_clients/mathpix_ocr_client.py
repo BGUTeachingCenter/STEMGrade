@@ -9,7 +9,7 @@ from typing import Any
 
 import requests
 
-from grader.ocr.exam_structure import structure_to_student_tex_template
+from grader.file_handling.exam_structure import structure_to_student_tex_template
 
 MATHPIX_TEXT_URL = "https://api.mathpix.com/v3/text"
 MATHPIX_PDF_URL = "https://api.mathpix.com/v3/pdf"

@@ -17,9 +17,9 @@ from typing import List, Protocol, Any, Dict
 
 from .grader import BundleGrades, QuestionGrade, infer_max_points
 
-from grader.ai_clients.ollama_client import OllamaClient
-from grader.ai_clients.google_client import GoogleClient
-from grader.ai_clients.gpt_client import GptClient
+from core.ai_clients.ollama_client import OllamaClient
+from core.ai_clients.google_client import GoogleClient
+from core.ai_clients.gpt_client import GptClient
 
 from .prompting import load_grading_prompt
 from .schema import grading_response_schema

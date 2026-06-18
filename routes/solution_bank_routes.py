@@ -13,7 +13,7 @@ from typing import Optional
 from core.storage import exam_dir  # add this import
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse
 
 from core.security import require_teacher
 from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary
@@ -26,8 +26,8 @@ from core.config import (
     OPENAI_API_KEY,
     OPENAI_OCR_MODEL,
 )
-from grader.ocr.mathpix_client import MathpixError, process_image_or_pdf
-from grader.ocr.openai_ocr_client import OpenAIOcrError, process_image_or_pdf_with_openai
+from core.ai_clients.mathpix_ocr_client import MathpixError, process_image_or_pdf
+from core.ai_clients.openai_ocr_client import OpenAIOcrError, process_image_or_pdf_with_openai
 from grader.ai_grading.reference_builder import (
     build_questions_bundle_from_mathpix,
     build_reference_bundle_from_mathpix,

@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from grader.ai_clients.gpt_client import _make_requests_session
+from core.ai_clients.gpt_client import _make_requests_session
 
 
 OPENAI_RESPONSES_URL_PATH = "/v1/responses"

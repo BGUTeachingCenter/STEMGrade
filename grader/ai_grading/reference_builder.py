@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from grader.ai_clients.gpt_client import GptClient
+from core.ai_clients.gpt_client import GptClient
 from grader.file_handling.part_normalize import normalize_part
 
 

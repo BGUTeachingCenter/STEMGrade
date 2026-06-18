@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from core.config import RUNS_ROOT, MATHPIX_APP_ID, MATHPIX_APP_KEY
 from core.security import require_session
-from grader.ocr.mathpix_client import MathpixError, mathpix_text_to_student_tex, process_image_or_pdf
+from core.ai_clients.mathpix_ocr_client import MathpixError, mathpix_text_to_student_tex, process_image_or_pdf
 
 router = APIRouter(prefix="/routes", tags=["ocr"])
 

@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 
 from core.storage import list_exam_summaries
 from grader.file_handling.student_tex import parse_student_tex_answers
-from grader.ai_clients.ollama_client import OllamaClient
+from core.ai_clients.ollama_client import OllamaClient
 
 
 @dataclass(frozen=True)
