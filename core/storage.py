@@ -12,14 +12,20 @@ from fastapi import HTTPException
 from .config import BANK_ROOT
 from grader.file_handling.reference_tex import parse_reference_tex
 
-_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,80}$")
+# exam_id becomes a folder name on disk. Allow letters, numbers, spaces,
+# underscore and hyphen; it must start with a letter or number (no leading
+# space) and must not contain path separators or ".." (no path traversal).
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\- ]{0,80}$")
 
 
 def require_safe_exam_id(exam_id: str) -> str:
     """Validate bank exam_id to avoid path traversal and weird names."""
     exam_id = (exam_id or "").strip()
     if not _SAFE_NAME_RE.match(exam_id):
-        raise HTTPException(status_code=400, detail="Invalid exam_id. Use letters/numbers/_/- only.")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid exam_id. Use letters, numbers, spaces, _ or - only.",
+        )
     return exam_id
 
 
