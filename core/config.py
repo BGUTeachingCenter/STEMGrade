@@ -50,7 +50,11 @@ ARIAL_FONT_PATH = Path(r"C:\Windows\Fonts\arial.ttf")
 
 
 OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5").strip()
+
+# Dedicated model for OCR experiments.
+# You can change this without affecting grading / reference-building prompts.
+OPENAI_OCR_MODEL = os.getenv("OPENAI_OCR_MODEL", OPENAI_MODEL or "gpt-5.4-mini").strip()
 
 MATHPIX_APP_ID = (os.getenv("MATHPIX_APP_ID") or "").strip()
 MATHPIX_APP_KEY = (os.getenv("MATHPIX_APP_KEY") or "").strip()

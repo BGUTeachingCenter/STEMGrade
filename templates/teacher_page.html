@@ -140,6 +140,17 @@
             Choose “reference” when the file includes the correct solution.
           </div>
         </div>
+
+        <div>
+          <label for="ocrProvider">OCR engine</label>
+          <select id="ocrProvider">
+            <option value="mathpix">Mathpix OCR</option>
+            <option value="openai">OpenAI OCR</option>
+          </select>
+          <div class="small mg-field-help">
+            Used only for PDF/image uploads. TeX/TXT uploads skip OCR.
+          </div>
+        </div>
       </div>
 
       <div class="drop mg-upload-reference-drop" id="dropTex">
@@ -156,9 +167,11 @@
       <div class="mg-upload-reference-actions">
         <button id="uploadBtn" type="button">Upload to Solution Bank</button>
       </div>
-
-      <div class="statusBox" id="uploadStatus">Choose an exam ID and upload a TeX file.</div>
       </div><!-- end mg-upload-busy-wrap -->
+
+      <div class="statusBox mg-upload-status-visible" id="uploadStatus">
+        Choose an exam ID and upload a TeX file.
+      </div>
     </div>
   </div>
 </section>
@@ -617,7 +630,9 @@ function renderSolutionList(items) {
 
     const tags = [
       it.content_type ? `<span class="tag">${escapeHtml(readableContentType(it.content_type))}</span>` : "",
-      it.ocr_used ? `<span class="tag">OCR: ${escapeHtml(it.mathpix_mode || "yes")}</span>` : "",
+      it.ocr_used ? `<span class="tag">OCR: ${escapeHtml(it.ocr_provider || it.source_kind || "yes")}</span>` : "",
+      it.openai_model ? `<span class="tag">OpenAI: ${escapeHtml(it.openai_model)}</span>` : "",
+      it.mathpix_mode ? `<span class="tag">Mathpix: ${escapeHtml(it.mathpix_mode)}</span>` : "",
       it.pdf_text_layer_used ? `<span class="tag">PDF text layer</span>` : "",
       (it.exam_structure_question_count != null) ? `<span class="tag">Structure Q: ${it.exam_structure_question_count}</span>` : "",
       (it.exam_structure_part_count != null) ? `<span class="tag">Structure parts: ${it.exam_structure_part_count}</span>` : "",
@@ -749,22 +764,26 @@ async function refreshFiles() {
     const id = examId();
     const f = texFile.files[0];
     const type = $("contentType").value;
+    const ocrProvider = $("ocrProvider") ? $("ocrProvider").value : "mathpix";
+    const ocrLabel = ocrProvider === "openai" ? "OpenAI" : "Mathpix";
 
     if(!id){ setUploadStatus("Please select or type an exam_id.", "err"); return; }
     if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
 
     const jobId = mkJobId();
     const isPdf = f.name.toLowerCase().endsWith(".pdf");
+    const isOcrFile = /\.(pdf|png|jpg|jpeg|webp)$/i.test(f.name);
+
     const lines = [
       `[${nowTag()}] Started upload: ${f.name}`,
-      isPdf
-        ? `[${nowTag()}] PDF detected — OCR via Mathpix may take a few minutes…`
-        : `[${nowTag()}] Uploading…`,
+      isOcrFile
+        ? `[${nowTag()}] OCR file detected — OCR via ${ocrLabel} may take a few minutes…`
+        : `[${nowTag()}] TeX/TXT upload detected — OCR will be skipped.`,
     ];
     setUploadStatus(lines, "work");
     showBusy(
-      isPdf ? "Processing PDF…" : "Uploading…",
-      isPdf ? "OCR via Mathpix is running. This may take a few minutes." : `Uploading ${f.name}…`
+      isOcrFile ? "Processing OCR…" : "Uploading…",
+      isOcrFile ? `OCR via ${ocrLabel} is running. This may take a few minutes.` : `Uploading ${f.name}…`
     );
 
     if ($("uploadBtn")) $("uploadBtn").disabled = true;
@@ -778,6 +797,7 @@ async function refreshFiles() {
       fd.append("content_type", type);
       fd.append("tex_file", f);
       fd.append("job_id", jobId);
+      fd.append("ocr_provider", ocrProvider);
 
       const r = await authedFetch(API_BASE + "/routes/bank/upload", { method:"POST", body: fd });
 

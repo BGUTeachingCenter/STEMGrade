@@ -20,8 +20,14 @@ from core.storage import require_safe_exam_id, require_safe_filename, uploads_di
 from core.config import BANK_ROOT
 from grader.file_handling.reference_tex import parse_reference_tex
 
-from core.config import MATHPIX_APP_ID, MATHPIX_APP_KEY
+from core.config import (
+    MATHPIX_APP_ID,
+    MATHPIX_APP_KEY,
+    OPENAI_API_KEY,
+    OPENAI_OCR_MODEL,
+)
 from grader.ocr.mathpix_client import MathpixError, process_image_or_pdf
+from grader.ocr.openai_ocr_client import OpenAIOcrError, process_image_or_pdf_with_openai
 from grader.ai_grading.reference_builder import (
     build_questions_bundle_from_mathpix,
     build_reference_bundle_from_mathpix,
@@ -94,6 +100,8 @@ TEX_SUFFIXES = {".tex", ".txt"}
 OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 ALL_BANK_UPLOAD_SUFFIXES = TEX_SUFFIXES | OCR_SUFFIXES
 
+OCR_PROVIDERS = {"mathpix", "openai"}
+
 
 def _safe_bank_upload_filename(name: str) -> str:
     """
@@ -125,6 +133,7 @@ async def _bank_upload_to_tex(
     upload: UploadFile,
     exam_id: str,
     content_type: str,
+    ocr_provider: str = "mathpix",
 ) -> tuple[bytes, dict]:
     """
     Convert either a TeX upload or an OCR-able upload into TeX bytes.
@@ -156,14 +165,13 @@ async def _bank_upload_to_tex(
 
     uploads = uploads_dir(exam_id)
 
-    # PDFs intentionally go through Mathpix.
-    # Do not use embedded PDF text-layer extraction here because it destroys
-    # Hebrew spacing and math structure in many exams.
+    uploads = uploads_dir(exam_id)
 
-    if not MATHPIX_APP_ID or not MATHPIX_APP_KEY:
+    ocr_provider = (ocr_provider or "mathpix").strip().lower()
+    if ocr_provider not in OCR_PROVIDERS:
         raise HTTPException(
             status_code=400,
-            detail="Missing MATHPIX_APP_ID / MATHPIX_APP_KEY in environment.",
+            detail=f"Unsupported OCR provider: {ocr_provider}. Use mathpix or openai.",
         )
 
     originals_dir = uploads / "originals"
@@ -172,30 +180,83 @@ async def _bank_upload_to_tex(
     original_path = originals_dir / safe_original_name
     original_path.write_bytes(raw)
 
-    try:
-        result = process_image_or_pdf(
-            file_path=original_path,
-            app_id=MATHPIX_APP_ID,
-            app_key=MATHPIX_APP_KEY,
-            include_line_data=True,
+    if ocr_provider == "mathpix":
+        # PDFs/images intentionally go through OCR.
+        # Do not use embedded PDF text-layer extraction here because it destroys
+        # Hebrew spacing and math structure in many exams.
+        if not MATHPIX_APP_ID or not MATHPIX_APP_KEY:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing MATHPIX_APP_ID / MATHPIX_APP_KEY in environment.",
+            )
+
+        try:
+            result = process_image_or_pdf(
+                file_path=original_path,
+                app_id=MATHPIX_APP_ID,
+                app_key=MATHPIX_APP_KEY,
+                include_line_data=True,
+            )
+        except MathpixError as e:
+            raise HTTPException(status_code=502, detail=f"Mathpix OCR failed: {e}") from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
+
+        ocr_raw_path = uploads / f"{content_type}_mathpix_raw.json"
+        ocr_raw_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
-    except MathpixError as e:
-        raise HTTPException(status_code=502, detail=f"Mathpix OCR failed: {e}") from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
 
-    ocr_raw_path = uploads / f"{content_type}_mathpix_raw.json"
-    ocr_raw_path.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+        ocr_text = result.get("text", "") or ""
 
-    ocr_text = result.get("text", "") or ""
+        ocr_text_path = uploads / f"{content_type}_mathpix_text.{result.get('downloaded_ext') or 'txt'}"
+        ocr_text_path.write_text(ocr_text, encoding="utf-8")
 
-    mathpix_text_path = uploads / f"{content_type}_mathpix_text.{result.get('downloaded_ext') or 'txt'}"
-    mathpix_text_path.write_text(ocr_text, encoding="utf-8")
+        source_kind = "mathpix"
+        mathpix_mode = result.get("_mathpix_mode")
+        pdf_id = result.get("pdf_id")
+        downloaded_ext = result.get("downloaded_ext")
+        openai_model = None
+        openai_response_id = None
 
-    # Remove Mathpix markdown image links. They are useful for debugging,
+    else:
+        if not OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing OPENAI_API_KEY in environment.",
+            )
+
+        try:
+            result = process_image_or_pdf_with_openai(
+                file_path=original_path,
+                api_key=OPENAI_API_KEY,
+                model=OPENAI_OCR_MODEL,
+            )
+        except OpenAIOcrError as e:
+            raise HTTPException(status_code=502, detail=f"OpenAI OCR failed: {e}") from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"OpenAI OCR failed: {e}") from e
+
+        ocr_raw_path = uploads / f"{content_type}_openai_raw.json"
+        ocr_raw_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        ocr_text = result.get("text", "") or ""
+
+        ocr_text_path = uploads / f"{content_type}_openai_text.txt"
+        ocr_text_path.write_text(ocr_text, encoding="utf-8")
+
+        source_kind = "openai"
+        mathpix_mode = None
+        pdf_id = None
+        downloaded_ext = "txt"
+        openai_model = result.get("model")
+        openai_response_id = result.get("response_id")
+
+    # Remove markdown image links. They are useful for debugging,
     # but not valid inside the temporary TeX.
     ocr_text_for_tex = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", ocr_text)
 
@@ -213,7 +274,7 @@ async def _bank_upload_to_tex(
             r"\setlength{\parskip}{0.6em}",
             "",
             r"\begin{document}",
-            rf"% OCR generated for solution bank. Source: {safe_original_name}",
+            rf"% OCR generated for solution bank via {ocr_provider}. Source: {safe_original_name}",
             "",
             ocr_text_for_tex.strip(),
             "",
@@ -223,15 +284,27 @@ async def _bank_upload_to_tex(
     )
 
     return tex.encode("utf-8"), {
-        "source_kind": "mathpix",
+        "source_kind": source_kind,
         "original_filename": safe_original_name,
         "ocr_used": True,
+        "ocr_provider": ocr_provider,
         "ocr_raw_path": str(ocr_raw_path),
-        "mathpix_text_path": str(mathpix_text_path),
+        "ocr_text_path": str(ocr_text_path),
+        "ocr_text": ocr_text,
+
+        # Compatibility with existing builder code that still uses "mathpix_text".
         "mathpix_text": ocr_text,
-        "mathpix_mode": result.get("_mathpix_mode"),
-        "pdf_id": result.get("pdf_id"),
-        "downloaded_ext": result.get("downloaded_ext"),
+
+        # Mathpix-specific metadata.
+        "mathpix_text_path": str(ocr_text_path) if ocr_provider == "mathpix" else None,
+        "mathpix_mode": mathpix_mode,
+        "pdf_id": pdf_id,
+        "downloaded_ext": downloaded_ext,
+
+        # OpenAI-specific metadata.
+        "openai_text_path": str(ocr_text_path) if ocr_provider == "openai" else None,
+        "openai_model": openai_model,
+        "openai_response_id": openai_response_id,
     }
 
 
@@ -316,6 +389,7 @@ async def upload_to_bank(
     content_type: str = Form(...),
     tex_file: UploadFile = File(...),
     job_id: Optional[str] = Form(None),
+    ocr_provider: str = Form("mathpix"),
     _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher TeX file into the solution bank.
@@ -333,17 +407,29 @@ async def upload_to_bank(
 
     _progress(job_id, f"Starting upload for {content_type}: {tex_file.filename}")
 
-    _progress(job_id, "Extracting file with Mathpix if needed...")
+    ocr_provider = (ocr_provider or "mathpix").strip().lower()
+    if ocr_provider not in OCR_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail="ocr_provider must be mathpix or openai",
+        )
+
+    _progress(job_id, f"Extracting file with {ocr_provider} if OCR is needed...")
 
     raw, extra_meta = await _bank_upload_to_tex(
         upload=tex_file,
         exam_id=exam_id,
         content_type=content_type,
+        ocr_provider=ocr_provider,
     )
 
     _progress(
         job_id,
-        f"Extraction complete. Source: {extra_meta.get('source_kind')}, mode: {extra_meta.get('mathpix_mode') or 'tex'}",
+                (
+            f"Extraction complete. Source: {extra_meta.get('source_kind')}, "
+            f"provider: {extra_meta.get('ocr_provider') or 'none'}, "
+            f"mode: {extra_meta.get('mathpix_mode') or extra_meta.get('openai_model') or 'tex'}"
+        ),
     )
 
     uploads = uploads_dir(exam_id)
@@ -358,7 +444,7 @@ async def upload_to_bank(
 
     if content_type == "questions_only":
         try:
-            mathpix_text = extra_meta.get("mathpix_text") or tex_text_for_structure
+            mathpix_text = extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure
 
             _progress(job_id, "AI is organizing the exam into question/part JSON...")
 
@@ -419,7 +505,7 @@ async def upload_to_bank(
                 questions_bundle_path.read_text(encoding="utf-8")
             )
 
-            solution_mathpix_text = extra_meta.get("mathpix_text") or tex_text_for_structure
+            solution_mathpix_text = extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure
 
             _progress(job_id, "AI is aligning official solutions to the exam structure...")
 
@@ -549,9 +635,13 @@ async def upload_to_bank(
         "preview_text": preview_text[:4000],
         "source_kind": extra_meta.get("source_kind"),
         "ocr_used": extra_meta.get("ocr_used", False),
+        "ocr_provider": extra_meta.get("ocr_provider"),
+        "ocr_text_path": extra_meta.get("ocr_text_path"),
         "mathpix_mode": extra_meta.get("mathpix_mode"),
         "pdf_id": extra_meta.get("pdf_id"),
         "downloaded_ext": extra_meta.get("downloaded_ext"),
+        "openai_model": extra_meta.get("openai_model"),
+        "openai_response_id": extra_meta.get("openai_response_id"),
         "exam_structure_path": str(structure_path) if structure_path else None,
         "exam_structure_question_count": structure.get("question_count") if structure else None,
         "exam_structure_part_count": structure.get("part_count") if structure else None,
@@ -602,7 +692,9 @@ def list_exam_files(
             "part_count": meta.get("part_count"),
             "source_kind": meta.get("source_kind"),
             "ocr_used": meta.get("ocr_used", False),
+            "ocr_provider": meta.get("ocr_provider"),
             "mathpix_mode": meta.get("mathpix_mode"),
+            "openai_model": meta.get("openai_model"),
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
             "exam_structure_part_count": meta.get("exam_structure_part_count"),
         })
@@ -627,6 +719,9 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "filename": filename,
             "content_type": meta.get("content_type"),
             "source_kind": meta.get("source_kind"),
+            "ocr_provider": meta.get("ocr_provider"),
+            "mathpix_mode": meta.get("mathpix_mode"),
+            "openai_model": meta.get("openai_model"),
             "keys": meta.get("keys_preview", []),
             "preview_text": meta.get("preview_text", ""),
             "q_count": meta.get("q_count"),
