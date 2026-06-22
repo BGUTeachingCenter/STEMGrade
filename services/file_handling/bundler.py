@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from grader.ai_grading.payloads import build_payloads
-from grader.file_handling.answer_render import compile_student_answer_pdfs
-from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
-from grader.file_handling.part_normalize import normalize_part
-from grader.file_handling.pdf_cleanse import CleanseReport, cleanse_test_pdf
-from grader.file_handling.reference_ranges import Key, find_reference_ranges
-from grader.file_handling.student_tex import parse_student_tex_answers
+from services.ai_grading.payloads import build_payloads
+from services.file_handling.answer_render import compile_student_answer_pdfs
+from services.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
+from services.file_handling.part_normalize import normalize_part
+from services.file_handling.pdf_cleanse import CleanseReport, cleanse_test_pdf
+from services.file_handling.reference_ranges import Key, find_reference_ranges
+from services.file_handling.student_tex import parse_student_tex_answers
 
 
 @dataclass(frozen=True)

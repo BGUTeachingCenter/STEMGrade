@@ -18,24 +18,15 @@ from fastapi.responses import PlainTextResponse
 from core.security import require_teacher
 from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary
 from core.config import BANK_ROOT
-from grader.file_handling.reference_tex import parse_reference_tex
+from services.file_handling.reference_tex import parse_reference_tex
 
-from core.config import (
-    MATHPIX_APP_ID,
-    MATHPIX_APP_KEY,
-    OPENAI_API_KEY,
-    OPENAI_OCR_MODEL,
-)
-from core.ai_clients.mathpix_ocr_client import MathpixError, process_image_or_pdf
-from core.ai_clients.openai_ocr_client import OpenAIOcrError, process_image_or_pdf_with_openai
-from grader.ai_grading.reference_builder import (
-    build_questions_bundle_from_mathpix,
-    build_reference_bundle_from_mathpix,
-    bundle_to_exam_structure,
-    questions_bundle_to_tex,
-    write_reference_bundle_json,
-    write_questions_bundle_json,
-)
+from starlette.concurrency import run_in_threadpool
+
+from core.ai_clients.ocr_client import OcrClientError, run_ocr
+from schemas.ocr_response import OcrOptions, OcrResponse
+from schemas.reference_bundle import ReferenceBundle
+from services.ocr_services.questions_ocr import build_questions_ocr_result
+from services.ocr_services.reference_solution_ocr import build_reference_solution_ocr_result
 
 from routes.progress import init_job, push, done, fail
 
@@ -100,7 +91,7 @@ TEX_SUFFIXES = {".tex", ".txt"}
 OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 ALL_BANK_UPLOAD_SUFFIXES = TEX_SUFFIXES | OCR_SUFFIXES
 
-OCR_PROVIDERS = {"mathpix", "openai"}
+OCR_PROVIDERS = {"mathpix", "openai", "gpt", "chatgpt", "google", "gemini", "ai_studio", "aistudio"}
 
 
 def _safe_bank_upload_filename(name: str) -> str:
@@ -134,12 +125,15 @@ async def _bank_upload_to_tex(
     exam_id: str,
     content_type: str,
     ocr_provider: str = "mathpix",
+    ocr_model: str = "",
 ) -> tuple[bytes, dict]:
     """
-    Convert either a TeX upload or an OCR-able upload into TeX bytes.
+    Convert either a TeX upload or an OCR-able upload into temporary TeX bytes.
 
-    Returns:
-      (tex_bytes, extra_meta)
+    Important:
+      - This function does universal extraction only.
+      - It does NOT decide whether the file is questions/reference/student work.
+      - Task-specific interpretation happens later via services/ocr_services.
     """
     original_name = upload.filename or "upload.bin"
     safe_original_name = _safe_bank_upload_filename(original_name)
@@ -155,23 +149,57 @@ async def _bank_upload_to_tex(
             detail="Unsupported file type. Upload .tex, .txt, .pdf, .png, .jpg, .jpeg, or .webp.",
         )
 
+    uploads = uploads_dir(exam_id)
+
+    # ------------------------------------------------------------
+    # Case 1: Teacher uploaded TeX/text directly.
+    # Treat it as a provider-neutral OCR response with provider="tex".
+    # ------------------------------------------------------------
     if suffix in TEX_SUFFIXES:
+        text = raw.decode("utf-8", errors="replace")
+
+        ocr_response = OcrResponse(
+            provider="tex",
+            model=None,
+            input_kind="tex" if suffix == ".tex" else "text",
+            source_filename=safe_original_name,
+            source_path="",
+            text=text,
+            pages=[],
+            usage=None,  # allowed only if your schema has Optional; otherwise remove this line
+        )
+
         return raw, {
             "source_kind": "tex",
             "original_filename": safe_original_name,
             "ocr_used": False,
             "pdf_text_layer_used": False,
+            "ocr_provider": "tex",
+            "ocr_model": None,
+            "ocr_response": ocr_response,
+            "ocr_response_path": None,
+            "ocr_raw_path": None,
+            "ocr_text_path": None,
+            "ocr_text": text,
+            "mathpix_text": text,
+            "mathpix_text_path": None,
+            "mathpix_mode": None,
+            "pdf_id": None,
+            "downloaded_ext": None,
+            "openai_text_path": None,
+            "openai_model": None,
+            "openai_response_id": None,
         }
 
-    uploads = uploads_dir(exam_id)
-
-    uploads = uploads_dir(exam_id)
-
+    # ------------------------------------------------------------
+    # Case 2: PDF/image upload.
+    # Use universal OCR client.
+    # ------------------------------------------------------------
     ocr_provider = (ocr_provider or "mathpix").strip().lower()
     if ocr_provider not in OCR_PROVIDERS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported OCR provider: {ocr_provider}. Use mathpix or openai.",
+            detail=f"Unsupported OCR provider: {ocr_provider}.",
         )
 
     originals_dir = uploads / "originals"
@@ -180,84 +208,43 @@ async def _bank_upload_to_tex(
     original_path = originals_dir / safe_original_name
     original_path.write_bytes(raw)
 
-    if ocr_provider == "mathpix":
-        # PDFs/images intentionally go through OCR.
-        # Do not use embedded PDF text-layer extraction here because it destroys
-        # Hebrew spacing and math structure in many exams.
-        if not MATHPIX_APP_ID or not MATHPIX_APP_KEY:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing MATHPIX_APP_ID / MATHPIX_APP_KEY in environment.",
-            )
-
-        try:
-            result = process_image_or_pdf(
-                file_path=original_path,
-                app_id=MATHPIX_APP_ID,
-                app_key=MATHPIX_APP_KEY,
+    try:
+        ocr_response = await run_in_threadpool(
+            run_ocr,
+            file_path=original_path,
+            provider=ocr_provider,
+            model=ocr_model or None,
+            options=OcrOptions(
+                temperature=0.0,
+                max_output_tokens=12000,
+                timeout_s=300,
+                language_hint="hebrew",
+                preserve_math=True,
+                preserve_layout=True,
                 include_line_data=True,
-            )
-        except MathpixError as e:
-            raise HTTPException(status_code=502, detail=f"Mathpix OCR failed: {e}") from e
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
-
-        ocr_raw_path = uploads / f"{content_type}_mathpix_raw.json"
-        ocr_raw_path.write_text(
-            json.dumps(result, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+            ),
         )
+    except OcrClientError as e:
+        raise HTTPException(status_code=502, detail=f"OCR failed: {e}") from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
 
-        ocr_text = result.get("text", "") or ""
+    ocr_text = ocr_response.primary_text()
 
-        ocr_text_path = uploads / f"{content_type}_mathpix_text.{result.get('downloaded_ext') or 'txt'}"
-        ocr_text_path.write_text(ocr_text, encoding="utf-8")
+    provider = str(ocr_response.provider or ocr_provider)
+    provider_label = provider.replace("/", "_")
 
-        source_kind = "mathpix"
-        mathpix_mode = result.get("_mathpix_mode")
-        pdf_id = result.get("pdf_id")
-        downloaded_ext = result.get("downloaded_ext")
-        openai_model = None
-        openai_response_id = None
+    ocr_response_path = uploads / f"{content_type}_{provider_label}_ocr_response.json"
+    ocr_response_path.write_text(
+        json.dumps(ocr_response.model_dump(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
-    else:
-        if not OPENAI_API_KEY:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing OPENAI_API_KEY in environment.",
-            )
-
-        try:
-            result = process_image_or_pdf_with_openai(
-                file_path=original_path,
-                api_key=OPENAI_API_KEY,
-                model=OPENAI_OCR_MODEL,
-            )
-        except OpenAIOcrError as e:
-            raise HTTPException(status_code=502, detail=f"OpenAI OCR failed: {e}") from e
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"OpenAI OCR failed: {e}") from e
-
-        ocr_raw_path = uploads / f"{content_type}_openai_raw.json"
-        ocr_raw_path.write_text(
-            json.dumps(result, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        ocr_text = result.get("text", "") or ""
-
-        ocr_text_path = uploads / f"{content_type}_openai_text.txt"
-        ocr_text_path.write_text(ocr_text, encoding="utf-8")
-
-        source_kind = "openai"
-        mathpix_mode = None
-        pdf_id = None
-        downloaded_ext = "txt"
-        openai_model = result.get("model")
-        openai_response_id = result.get("response_id")
+    ocr_text_path = uploads / f"{content_type}_{provider_label}_text.txt"
+    ocr_text_path.write_text(ocr_text, encoding="utf-8")
 
     # Remove markdown image links. They are useful for debugging,
-    # but not valid inside the temporary TeX.
+    # but not valid inside temporary TeX.
     ocr_text_for_tex = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", ocr_text)
 
     tex = "\n".join(
@@ -274,7 +261,7 @@ async def _bank_upload_to_tex(
             r"\setlength{\parskip}{0.6em}",
             "",
             r"\begin{document}",
-            rf"% OCR generated for solution bank via {ocr_provider}. Source: {safe_original_name}",
+            rf"% OCR generated for solution bank via {provider}. Source: {safe_original_name}",
             "",
             ocr_text_for_tex.strip(),
             "",
@@ -284,27 +271,29 @@ async def _bank_upload_to_tex(
     )
 
     return tex.encode("utf-8"), {
-        "source_kind": source_kind,
+        "source_kind": provider,
         "original_filename": safe_original_name,
         "ocr_used": True,
-        "ocr_provider": ocr_provider,
-        "ocr_raw_path": str(ocr_raw_path),
+        "ocr_provider": provider,
+        "ocr_model": ocr_response.model,
+        "ocr_response": ocr_response,
+        "ocr_response_path": str(ocr_response_path),
+        "ocr_raw_path": str(ocr_response_path),
         "ocr_text_path": str(ocr_text_path),
         "ocr_text": ocr_text,
 
-        # Compatibility with existing builder code that still uses "mathpix_text".
+        # Compatibility with old builder naming.
         "mathpix_text": ocr_text,
 
-        # Mathpix-specific metadata.
-        "mathpix_text_path": str(ocr_text_path) if ocr_provider == "mathpix" else None,
-        "mathpix_mode": mathpix_mode,
-        "pdf_id": pdf_id,
-        "downloaded_ext": downloaded_ext,
+        # Compatibility / UI fields.
+        "mathpix_text_path": str(ocr_text_path) if provider == "mathpix" else None,
+        "mathpix_mode": ocr_response.provider_mode if provider == "mathpix" else None,
+        "pdf_id": ocr_response.provider_document_id if provider == "mathpix" else None,
+        "downloaded_ext": (ocr_response.raw or {}).get("downloaded_ext") or "txt",
 
-        # OpenAI-specific metadata.
-        "openai_text_path": str(ocr_text_path) if ocr_provider == "openai" else None,
-        "openai_model": openai_model,
-        "openai_response_id": openai_response_id,
+        "openai_text_path": str(ocr_text_path) if provider == "openai" else None,
+        "openai_model": ocr_response.model if provider == "openai" else None,
+        "openai_response_id": ocr_response.response_id if provider == "openai" else None,
     }
 
 
@@ -390,6 +379,7 @@ async def upload_to_bank(
     tex_file: UploadFile = File(...),
     job_id: Optional[str] = Form(None),
     ocr_provider: str = Form("mathpix"),
+    ocr_model: str = Form(""),
     _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher TeX file into the solution bank.
@@ -421,14 +411,16 @@ async def upload_to_bank(
         exam_id=exam_id,
         content_type=content_type,
         ocr_provider=ocr_provider,
+        ocr_model=ocr_model,
     )
 
     _progress(
         job_id,
-                (
+        (
             f"Extraction complete. Source: {extra_meta.get('source_kind')}, "
             f"provider: {extra_meta.get('ocr_provider') or 'none'}, "
-            f"mode: {extra_meta.get('mathpix_mode') or extra_meta.get('openai_model') or 'tex'}"
+            f"model: {extra_meta.get('ocr_model') or extra_meta.get('openai_model') or 'tex'}, "
+            f"mode: {extra_meta.get('mathpix_mode') or 'standard'}"
         ),
     )
 
@@ -444,29 +436,42 @@ async def upload_to_bank(
 
     if content_type == "questions_only":
         try:
-            mathpix_text = extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure
+            ocr_response = extra_meta.get("ocr_response")
+            if not isinstance(ocr_response, OcrResponse):
+                ocr_response = OcrResponse(
+                    provider="unknown",
+                    input_kind="unknown",
+                    source_filename=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                    text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
+                )
 
             _progress(job_id, "AI is organizing the exam into question/part JSON...")
 
-            questions_bundle = build_questions_bundle_from_mathpix(
-                mathpix_text=mathpix_text,
-                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+            questions_result = build_questions_ocr_result(
+                ocr=ocr_response,
                 exam_id=exam_id,
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                out_dir=None,
             )
 
+            questions_bundle = questions_result.questions_bundle.model_dump()
+
             bundle_path = uploads / "questions_only_bundle.json"
-            write_questions_bundle_json(questions_bundle, bundle_path)
+            bundle_path.write_text(
+                json.dumps(questions_bundle, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
             _progress(job_id, "Saved questions_only_bundle.json")
 
-            structure = bundle_to_exam_structure(questions_bundle)
+            structure = questions_result.exam_structure
             structure_path = uploads / "exam_structure.json"
             structure_path.write_text(
                 json.dumps(structure, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
 
-            raw = questions_bundle_to_tex(questions_bundle).encode("utf-8")
+            raw = questions_result.canonical_tex.encode("utf-8")
 
             _progress(job_id, "Generated canonical questions_only_current.tex")
 
@@ -501,38 +506,67 @@ async def upload_to_bank(
             )
 
         try:
-            questions_bundle = json.loads(
+            questions_bundle_dict = json.loads(
                 questions_bundle_path.read_text(encoding="utf-8")
             )
 
-            solution_mathpix_text = extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure
+            questions_bundle = ReferenceBundle.model_validate(questions_bundle_dict)
+
+            ocr_response = extra_meta.get("ocr_response")
+            if not isinstance(ocr_response, OcrResponse):
+                ocr_response = OcrResponse(
+                    provider="unknown",
+                    input_kind="unknown",
+                    source_filename=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                    text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
+                )
 
             _progress(job_id, "AI is aligning official solutions to the exam structure...")
 
-            reference_bundle = build_reference_bundle_from_mathpix(
+            reference_result = build_reference_solution_ocr_result(
+                ocr=ocr_response,
                 questions_bundle=questions_bundle,
-                solution_mathpix_text=solution_mathpix_text,
-                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
                 exam_id=exam_id,
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                out_dir=None,
             )
 
-            reference_bundle_path = uploads / "reference_bundle.json"
+            reference_bundle = reference_result.reference_bundle.model_dump()
 
-            write_reference_bundle_json(reference_bundle, reference_bundle_path)
+            reference_bundle_path = uploads / "reference_bundle.json"
+            reference_bundle_path.write_text(
+                json.dumps(reference_bundle, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
             _progress(job_id, "Saved reference_bundle.json")
 
-            corrections = reference_bundle.get("structure_corrections") or []
-            high_conf_corrections = [
-                c for c in corrections
-                if str(c.get("confidence", "")).lower() in {"high", "גבוה", "strong"}
-            ]
-
-            if high_conf_corrections:
+            if reference_result.high_confidence_corrections_count:
                 corrected_questions_path = uploads / "questions_only_bundle_corrected_by_reference.json"
-                write_questions_bundle_json(reference_bundle, corrected_questions_path)
+                corrected_questions_path.write_text(
+                    json.dumps(reference_bundle, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
 
-                corrected_structure = bundle_to_exam_structure(reference_bundle)
+                corrected_structure = {
+                    "questions": [
+                        {
+                            "question_id": str(q.get("question_id", "")),
+                            "parts": [
+                                p.get("part", "")
+                                for p in (q.get("parts") or [])
+                                if p.get("part")
+                            ],
+                        }
+                        for q in reference_bundle.get("questions", [])
+                    ]
+                }
+                corrected_structure["question_count"] = len(corrected_structure["questions"])
+                corrected_structure["part_count"] = sum(
+                    len(q.get("parts") or [])
+                    for q in corrected_structure["questions"]
+                )
+
                 corrected_structure_path = uploads / "exam_structure_corrected_by_reference.json"
                 corrected_structure_path.write_text(
                     json.dumps(corrected_structure, ensure_ascii=False, indent=2),
@@ -541,10 +575,13 @@ async def upload_to_bank(
 
                 _progress(
                     job_id,
-                    f"Saved corrected structure from reference upload ({len(high_conf_corrections)} high-confidence corrections).",
+                    (
+                        "Saved corrected structure from reference upload "
+                        f"({reference_result.high_confidence_corrections_count} high-confidence corrections)."
+                    ),
                 )
 
-            raw = questions_bundle_to_tex(reference_bundle).encode("utf-8")
+            raw = reference_result.canonical_tex.encode("utf-8")
 
             _progress(job_id, "Generated canonical reference_current.tex")
 
@@ -636,7 +673,12 @@ async def upload_to_bank(
         "source_kind": extra_meta.get("source_kind"),
         "ocr_used": extra_meta.get("ocr_used", False),
         "ocr_provider": extra_meta.get("ocr_provider"),
+        "ocr_model": extra_meta.get("ocr_model"),
+        "ocr_response_path": extra_meta.get("ocr_response_path"),
         "ocr_text_path": extra_meta.get("ocr_text_path"),
+        "ocr_raw_path": extra_meta.get("ocr_raw_path"),
+
+        # Legacy/UI compatibility fields
         "mathpix_mode": extra_meta.get("mathpix_mode"),
         "pdf_id": extra_meta.get("pdf_id"),
         "downloaded_ext": extra_meta.get("downloaded_ext"),
@@ -693,6 +735,7 @@ def list_exam_files(
             "source_kind": meta.get("source_kind"),
             "ocr_used": meta.get("ocr_used", False),
             "ocr_provider": meta.get("ocr_provider"),
+            "ocr_model": meta.get("ocr_model"),
             "mathpix_mode": meta.get("mathpix_mode"),
             "openai_model": meta.get("openai_model"),
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
@@ -720,6 +763,8 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "content_type": meta.get("content_type"),
             "source_kind": meta.get("source_kind"),
             "ocr_provider": meta.get("ocr_provider"),
+            "ocr_model": meta.get("ocr_model"),
+            "ocr_response_path": meta.get("ocr_response_path"),
             "mathpix_mode": meta.get("mathpix_mode"),
             "openai_model": meta.get("openai_model"),
             "keys": meta.get("keys_preview", []),

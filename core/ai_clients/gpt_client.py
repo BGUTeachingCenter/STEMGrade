@@ -1,4 +1,4 @@
-# grader/ai_clients/gpt_client.py
+# services/ai_clients/gpt_client.py
 from __future__ import annotations
 
 import json
@@ -11,6 +11,11 @@ import ssl
 
 import requests
 from requests.adapters import HTTPAdapter
+import base64
+from pathlib import Path
+
+from core.ai_clients.ai_usage_logger import log_ai_usage
+from schemas.ocr_response import AiUsage, OcrOptions, OcrPage, OcrResponse, guess_input_kind
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -136,6 +141,69 @@ def _make_requests_session() -> requests.Session:
     return session
 
 
+def _guess_mime(path: Path) -> str:
+    suffix = path.suffix.lower()
+
+    if suffix == ".png":
+        return "image/png"
+
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+
+    if suffix == ".webp":
+        return "image/webp"
+
+    if suffix == ".pdf":
+        return "application/pdf"
+
+    return "application/octet-stream"
+
+
+def _file_to_data_url(path: Path) -> str:
+    raw = path.read_bytes()
+    b64 = base64.b64encode(raw).decode("ascii")
+    return f"data:{_guess_mime(path)};base64,{b64}"
+
+
+def _build_ocr_prompt(options: OcrOptions) -> str:
+    return f"""
+You are a neutral OCR engine for mathematics documents.
+
+Extract the visible text from the uploaded file.
+
+Requirements:
+- Preserve the original language. Language hint: {options.language_hint}.
+- Preserve Hebrew text when visible.
+- Preserve question numbers and part labels such as א, ב, ג, a, b, c.
+- Preserve mathematical notation using LaTeX where useful.
+- Preserve line breaks when they help structure.
+- Do not solve.
+- Do not correct mathematical mistakes.
+- Do not summarize.
+- Do not add explanations.
+- Return only the extracted OCR text.
+""".strip()
+
+
+def _extract_openai_usage(data: dict[str, Any]) -> AiUsage:
+    usage_raw = data.get("usage") or {}
+
+    input_tokens = int(usage_raw.get("input_tokens") or 0)
+    output_tokens = int(usage_raw.get("output_tokens") or 0)
+    total_tokens = int(usage_raw.get("total_tokens") or (input_tokens + output_tokens) or 0)
+
+    output_details = usage_raw.get("output_tokens_details") or {}
+    reasoning_tokens = int(output_details.get("reasoning_tokens") or 0)
+
+    return AiUsage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        reasoning_tokens=reasoning_tokens,
+        raw_usage=usage_raw,
+    )
+
+
 @dataclass
 class GptClient:
     api_key: str
@@ -157,6 +225,51 @@ class GptClient:
         self.model = (model or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip()
         self.base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com").rstrip("/")
         self.session = _make_requests_session()
+        self.total_tokens = 0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_reasoning_tokens = 0
+        self.last_usage: dict[str, Any] = {}
+
+
+    def _record_usage(
+        self,
+        *,
+        data: dict[str, Any],
+        task: str,
+        schema_name: str = "",
+        source_filename: str = "",
+        input_kind: str = "",
+        response_id: str = "",
+    ) -> AiUsage:
+        usage = _extract_openai_usage(data)
+
+        self.total_input_tokens += usage.input_tokens
+        self.total_output_tokens += usage.output_tokens
+        self.total_tokens += usage.total_tokens
+        self.total_reasoning_tokens += usage.reasoning_tokens
+
+        self.last_usage = usage.model_dump()
+
+        log_ai_usage(
+            {
+                "task": task,
+                "provider": "openai",
+                "model": self.model,
+                "schema_name": schema_name,
+                "source_filename": source_filename,
+                "input_kind": input_kind,
+                "response_id": response_id or data.get("id"),
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "reasoning_tokens": usage.reasoning_tokens,
+                "total_tokens": usage.total_tokens,
+                "raw_usage": usage.raw_usage,
+            }
+        )
+
+        return usage
+
 
     def chat_json(
         self,
@@ -215,6 +328,13 @@ class GptClient:
 
         data = r.json()
 
+        self._record_usage(
+            data=data,
+            task="chat_json",
+            schema_name=schema_name,
+            response_id=data.get("id") or "",
+        )
+
         text = _extract_text_from_responses_api(data)
         if not text:
             raise RuntimeError(
@@ -229,3 +349,133 @@ class GptClient:
                 "OpenAI returned non-JSON content. First 800 chars:\n"
                 + text[:800]
             ) from e
+
+
+    def ocr_document(
+        self,
+        *,
+        file_path: Path,
+        model: Optional[str] = None,
+        options: Optional[OcrOptions] = None,
+    ) -> OcrResponse:
+        """
+        OCR-like extraction using OpenAI vision/file input.
+
+        This belongs here, not in a separate ocr_openai_client.py, because it uses
+        the same OpenAI API, SSL/session setup, model config, and token logging.
+        """
+        options = options or OcrOptions()
+        model_to_use = (
+            model
+            or os.getenv("OPENAI_OCR_MODEL")
+            or self.model
+        ).strip()
+
+        if not file_path.exists():
+            raise RuntimeError(f"OCR input file does not exist: {file_path}")
+
+        suffix = file_path.suffix.lower()
+        if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
+            raise RuntimeError(f"Unsupported OpenAI OCR file type: {suffix}")
+
+        data_url = _file_to_data_url(file_path)
+
+        if suffix == ".pdf":
+            file_item: dict[str, Any] = {
+                "type": "input_file",
+                "filename": file_path.name,
+                "file_data": data_url,
+            }
+            mode = "pdf"
+        else:
+            file_item = {
+                "type": "input_image",
+                "image_url": data_url,
+            }
+            mode = "image"
+
+        payload: dict[str, Any] = {
+            "model": model_to_use,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": _build_ocr_prompt(options)},
+                        file_item,
+                    ],
+                }
+            ],
+            "max_output_tokens": int(options.max_output_tokens),
+        }
+
+        if options.temperature is not None and options.extra.get("send_temperature", True):
+            payload["temperature"] = float(options.temperature)
+
+        for k, v in (options.extra.get("openai_payload") or {}).items():
+            payload[k] = v
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        url = f"{self.base_url}/v1/responses"
+
+        r = self.session.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=options.timeout_s,
+        )
+
+        if not r.ok:
+            try:
+                err = r.json()
+                err_text = json.dumps(err, ensure_ascii=False, indent=2)
+            except Exception:
+                err_text = r.text[:2000]
+            raise RuntimeError(f"OpenAI OCR failed ({r.status_code}):\n{err_text}")
+
+        data = r.json()
+        text = _extract_text_from_responses_api(data)
+
+        if not text.strip():
+            raise RuntimeError(
+                "OpenAI OCR returned no text. Response preview:\n"
+                + json.dumps(data, ensure_ascii=False, indent=2)[:2000]
+            )
+
+        old_model = self.model
+        self.model = model_to_use
+        try:
+            usage = self._record_usage(
+                data=data,
+                task="ocr",
+                source_filename=file_path.name,
+                input_kind=guess_input_kind(file_path),
+                response_id=data.get("id") or "",
+            )
+        finally:
+            self.model = old_model
+
+        return OcrResponse(
+            provider="openai",
+            model=model_to_use,
+            input_kind=guess_input_kind(file_path),
+            source_filename=file_path.name,
+            source_path=str(file_path),
+            text=text,
+            pages=[
+                OcrPage(
+                    page_index=0,
+                    page_number=1,
+                    text=text,
+                )
+            ],
+            provider_mode=mode,
+            provider_document_id=data.get("id"),
+            provider_status=data.get("status"),
+            response_id=data.get("id"),
+            usage=usage,
+            raw=data,
+        )

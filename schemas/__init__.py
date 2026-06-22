@@ -1,0 +1,1 @@
+# Shared Pydantic schemas for MathGrade.

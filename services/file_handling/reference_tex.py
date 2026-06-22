@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple, Union
 
-from grader.file_handling.part_normalize import normalize_part
+from services.file_handling.part_normalize import normalize_part
 
 
 @dataclass(frozen=True)

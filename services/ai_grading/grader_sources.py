@@ -23,8 +23,8 @@ import os
 from pathlib import Path
 from typing import Dict, Tuple
 
-from grader.file_handling.reference_ranges import Key
-from grader.file_handling.student_tex import parse_student_tex_answers
+from services.file_handling.reference_ranges import Key
+from services.file_handling.student_tex import parse_student_tex_answers
 
 from .payloads import build_payloads
 from .grader_payloads import grade_payload_manifest

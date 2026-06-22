@@ -1,7 +1,7 @@
-# grader/qa_bundle.py
+# services/qa_bundle.py
 """Backward-compatible wrappers for bundle generation.
 
-Bundling logic lives in ONE module now: `grader.bundler`.
+Bundling logic lives in ONE module now: `services.bundler`.
 
 TeX-first refactor:
 - Default wrappers generate ONLY the TeX bundle (no XeLaTeX compile here).
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from grader.file_handling.bundler import QABundleOutputs, generate_bundle
+from services.file_handling.bundler import QABundleOutputs, generate_bundle
 
 # -------------------------------------------
 # TeX-first: used by the new grading pipeline

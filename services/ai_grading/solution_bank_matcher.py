@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.storage import list_exam_summaries
-from grader.file_handling.student_tex import parse_student_tex_answers
+from services.file_handling.student_tex import parse_student_tex_answers
 from core.ai_clients.ollama_client import OllamaClient
 
 

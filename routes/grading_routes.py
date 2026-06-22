@@ -21,14 +21,14 @@ from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
 from core.debug import write_debug_log
 from core.security import require_session
-from grader.ai_grading.grader_payloads import grade_payload_manifest
-from grader.ai_grading.payloads import PayloadItem, build_payloads
-from grader.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
-from grader.file_handling.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
-from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
-from grader.file_handling.feedback_tex import build_feedback_tex
-from grader.file_handling.student_tex import parse_student_tex_answers
-from grader.file_handling.unified_tex import build_unified_tex
+from services.ai_grading.grader_payloads import grade_payload_manifest
+from services.ai_grading.payloads import PayloadItem, build_payloads
+from services.ai_grading.solution_bank_matcher import pick_reference_with_exam_id
+from services.file_handling.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
+from services.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
+from services.file_handling.feedback_tex import build_feedback_tex
+from services.file_handling.student_tex import parse_student_tex_answers
+from services.file_handling.unified_tex import build_unified_tex
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 

@@ -1,4 +1,4 @@
-# grader/answer_render.py
+# services/answer_render.py
 """Render student answer snippets to standalone PDFs.
 
 Each extracted answer snippet is compiled into its own small PDF. Those PDFs are
@@ -15,8 +15,8 @@ from typing import Dict, Optional
 import traceback
 from datetime import datetime
 
-from grader.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
-from grader.file_handling.reference_ranges import Key
+from services.file_handling.compile_tex_to_pdf import compile_tex_to_pdf
+from services.file_handling.reference_ranges import Key
 
 
 def make_answer_tex(qnum: int, part: str, answer_latex: str, font_name: str) -> str:

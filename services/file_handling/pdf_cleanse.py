@@ -1,4 +1,4 @@
-# grader/pdf_cleanse.py
+# services/pdf_cleanse.py
 from __future__ import annotations
 
 """Clean a reference/test PDF before grading/bundling.

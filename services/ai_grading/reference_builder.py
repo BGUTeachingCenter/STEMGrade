@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.ai_clients.gpt_client import GptClient
-from grader.file_handling.part_normalize import normalize_part
+from services.file_handling.part_normalize import normalize_part
 
 
 REFERENCE_BUNDLE_SCHEMA: dict[str, Any] = {

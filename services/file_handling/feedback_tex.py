@@ -1,4 +1,4 @@
-# grader/ai_grading/feedback_tex.py
+# services/ai_grading/feedback_tex.py
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # If you have these already, keep them. Otherwise remove/replace accordingly.
-from grader.ai_grading.json_sanitizer import sanitize_grades_json  # optional but recommended
+from services.ai_grading.json_sanitizer import sanitize_grades_json  # optional but recommended
 
 FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
 

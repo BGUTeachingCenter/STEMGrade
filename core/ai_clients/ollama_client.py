@@ -1,4 +1,4 @@
-# grader/ai_grading/ollama_client.py
+# services/ai_grading/ollama_client.py
 from __future__ import annotations
 
 import json
@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
+
+from core.ai_clients.ai_usage_logger import log_ai_usage
 
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -59,6 +61,40 @@ class OllamaClient:
         r = requests.post(url, json=payload, timeout=timeout_s)
         r.raise_for_status()
         data = r.json()
+
+        prompt_eval_count = int(data.get("prompt_eval_count") or 0)
+        eval_count = int(data.get("eval_count") or 0)
+        total_tokens = prompt_eval_count + eval_count
+
+        self.total_prompt_tokens = int(getattr(self, "total_prompt_tokens", 0) or 0) + prompt_eval_count
+        self.total_candidate_tokens = int(getattr(self, "total_candidate_tokens", 0) or 0) + eval_count
+        self.total_tokens = int(getattr(self, "total_tokens", 0) or 0) + total_tokens
+        self.last_usage = {
+            "input_tokens": prompt_eval_count,
+            "output_tokens": eval_count,
+            "total_tokens": total_tokens,
+            "raw_usage": {
+                "prompt_eval_count": data.get("prompt_eval_count"),
+                "eval_count": data.get("eval_count"),
+                "total_duration": data.get("total_duration"),
+                "load_duration": data.get("load_duration"),
+                "prompt_eval_duration": data.get("prompt_eval_duration"),
+                "eval_duration": data.get("eval_duration"),
+            },
+        }
+
+        log_ai_usage(
+            {
+                "task": "chat_json",
+                "provider": "ollama",
+                "model": self.model,
+                "input_tokens": prompt_eval_count,
+                "output_tokens": eval_count,
+                "reasoning_tokens": 0,
+                "total_tokens": total_tokens,
+                "raw_usage": self.last_usage["raw_usage"],
+            }
+        )
 
         content = (data.get("message") or {}).get("content") or ""
         try:

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from .config import BANK_ROOT
-from grader.file_handling.reference_tex import parse_reference_tex
+from services.file_handling.reference_tex import parse_reference_tex
 
 # exam_id becomes a folder name on disk. Allow letters, numbers, spaces,
 # underscore and hyphen; it must start with a letter or number (no leading

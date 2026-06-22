@@ -1,8 +1,8 @@
-# grader/student_tex.py
+# services/student_tex.py
 """Parse student LaTeX submissions into per-question/per-part answer snippets.
 
 Key rule: part labels are always canonicalized to latin letters: "a", "b", ...
-(See `grader.part_normalize.normalize_part`.)
+(See `services.part_normalize.normalize_part`.)
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from grader.file_handling.reference_ranges import Key
-from grader.file_handling.part_normalize import normalize_part
+from services.file_handling.reference_ranges import Key
+from services.file_handling.part_normalize import normalize_part
 
 
 # Primary format: \subsection*{Question 1 ...} or \subsection*{שאלה 1 ...}

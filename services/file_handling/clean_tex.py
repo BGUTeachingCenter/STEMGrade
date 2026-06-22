@@ -10,7 +10,7 @@ import re
 import os
 from typing import Dict, List, Tuple
 
-from grader.file_handling.ai_proofreader import proofread_tex_with_ollama
+from services.file_handling.ai_proofreader import proofread_tex_with_ollama
 
 
 # ============================================================

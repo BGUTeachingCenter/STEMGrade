@@ -1,4 +1,4 @@
-# grader/reference_ranges.py
+# services/reference_ranges.py
 """Detect question/part page ranges inside a reference PDF.
 
 The reference PDF is assumed to contain the *questions + official solutions*.
