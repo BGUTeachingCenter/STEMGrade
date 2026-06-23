@@ -15,6 +15,7 @@ from services.solution_bank.reference_builder import (
     merge_questions_and_answers_to_full_solution,
     promote_questions_answers_to_full_solution,
 )
+from services.solution_bank.answer_fallback import fill_missing_answers_with_ai
 
 
 def full_solution_to_tex(bundle: dict[str, Any] | FullSolutionBundle) -> str:
@@ -145,6 +146,11 @@ def build_full_solution_from_questions_answers(
     exam_id: str = "",
     source_name: str = "",
     out_dir: Path | None = None,
+    enable_answer_fallback: bool = False,
+    answer_fallback_client: Any = None,
+    answer_fallback_provider: str = "",
+    answer_fallback_model: str = "",
+    answer_fallback_raw_text: str = "",
 ) -> FullSolutionBuildResult:
     """
     Input:
@@ -159,6 +165,18 @@ def build_full_solution_from_questions_answers(
     )
 
     full = FullSolutionBundle.model_validate(full_dict)
+
+    if enable_answer_fallback:
+        full = fill_missing_answers_with_ai(
+            full_solution_bundle=full,
+            exam_id=exam_id,
+            source_name=source_name,
+            client=answer_fallback_client,
+            provider_label=answer_fallback_provider,
+            model_label=answer_fallback_model,
+            raw_ocr_text=answer_fallback_raw_text,
+        )
+
     canonical_tex = full_solution_to_tex(full)
     structure = full_solution_to_exam_structure(full)
 
@@ -204,6 +222,11 @@ def build_full_solution_from_questions_and_answers(
     exam_id: str = "",
     source_name: str = "",
     out_dir: Path | None = None,
+    enable_answer_fallback: bool = False,
+    answer_fallback_client: Any = None,
+    answer_fallback_provider: str = "",
+    answer_fallback_model: str = "",
+    answer_fallback_raw_text: str = "",
 ) -> FullSolutionBuildResult:
     """
     Input:
@@ -219,6 +242,18 @@ def build_full_solution_from_questions_and_answers(
     )
 
     full = FullSolutionBundle.model_validate(full_dict)
+
+    if enable_answer_fallback:
+        full = fill_missing_answers_with_ai(
+            full_solution_bundle=full,
+            exam_id=exam_id,
+            source_name=source_name,
+            client=answer_fallback_client,
+            provider_label=answer_fallback_provider,
+            model_label=answer_fallback_model,
+            raw_ocr_text=answer_fallback_raw_text,
+        )
+
     canonical_tex = full_solution_to_tex(full)
     structure = full_solution_to_exam_structure(full)
 

@@ -187,16 +187,24 @@ class GoogleClient:
 
         return usage
 
-
     def chat_json(
-        self,
-        *,
-        system: str,
-        user: str,
-        schema: Dict[str, Any],
-        temperature: float = 0.15,
-        timeout_s: int = 120,
+            self,
+            *,
+            system: str,
+            user: str,
+            schema: Dict[str, Any],
+            temperature: float = 0.15,
+            timeout_s: int = 120,
+            schema_name: str = "result",
+            strict: bool = False,
     ) -> dict:
+        """
+        Return JSON from Gemini.
+
+        schema_name and strict are accepted for interface compatibility with
+        GptClient.chat_json(). Gemini does not use these exact OpenAI fields;
+        the schema is sent as responseSchema after Gemini-specific sanitizing.
+        """
         if not self.api_key:
             raise RuntimeError("Missing GOOGLE_API_KEY (or GEMINI_API_KEY) in environment.")
         if not self.model:

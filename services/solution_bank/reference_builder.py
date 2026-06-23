@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -335,6 +336,56 @@ _HEBREW_STOPWORDS = {
     "תשובתכם", "הטענה", "באמצעות", "דוגמה", "נגדית", "מתקיים", "מתקימת",
     "קבוצת", "המספרים", "המקיימים", "אי", "שוויון", "האי", "הפתרונות",
 }
+
+
+NON_SUBMISSION_MARKERS = [
+    "שאלות שאינן להגשה",
+    "שאלות שאינן להגשה:",
+    "שאלות רשות",
+    "שאלות בונוס",
+    "לא להגשה",
+    "אינו להגשה",
+    "אינה להגשה",
+    "אופציונלי",
+    "optional questions",
+    "optional exercises",
+    "not for submission",
+    "not to submit",
+]
+
+
+def trim_non_submission_sections(ocr_text: str) -> tuple[str, list[str]]:
+    """
+    Remove sections that are explicitly marked as not for submission.
+
+    This is intentionally generic:
+    - it does not depend on a specific exam
+    - it only cuts when a visible marker appears
+    - it returns warnings so the teacher can review what happened
+    """
+    text = str(ocr_text or "")
+    if not text.strip():
+        return text, []
+
+    lowered = text.lower()
+    best_idx: int | None = None
+    best_marker = ""
+
+    for marker in NON_SUBMISSION_MARKERS:
+        idx = lowered.find(marker.lower())
+        if idx >= 0 and (best_idx is None or idx < best_idx):
+            best_idx = idx
+            best_marker = marker
+
+    if best_idx is None:
+        return text, []
+
+    trimmed = text[:best_idx].rstrip()
+    warnings = [
+        f"Questions-only OCR text was trimmed before non-submission marker: {best_marker!r}.",
+        "Content after this marker was ignored for gradeable question extraction.",
+    ]
+    return trimmed, warnings
 
 
 def _norm_text_for_alignment(text: str) -> str:
@@ -763,14 +814,16 @@ def build_questions_only_bundle_from_ocr(
     """
     client = client or GptClient()
 
-    user_prompt = f"""
-exam_id: {exam_id}
-source_name: {source_name}
+    trimmed_ocr_text, trim_warnings = trim_non_submission_sections(ocr_text)
 
-OCR source:
------------
-{ocr_text}
-"""
+    user_prompt = f"""
+    exam_id: {exam_id}
+    source_name: {source_name}
+
+    OCR source:
+    -----------
+    {trimmed_ocr_text}
+    """
 
     result = client.chat_json(
         system=QUESTIONS_ONLY_SYSTEM_PROMPT,
@@ -781,7 +834,10 @@ OCR source:
         timeout_s=240,
     )
 
-    return _as_questions_only_bundle(result, exam_id=exam_id).model_dump()
+    bundle = _as_questions_only_bundle(result, exam_id=exam_id)
+    if trim_warnings:
+        bundle.warnings = list(dict.fromkeys([*(bundle.warnings or []), *trim_warnings]))
+    return bundle.model_dump()
 
 
 def build_answers_only_bundle_from_ocr(
@@ -790,6 +846,7 @@ def build_answers_only_bundle_from_ocr(
     source_name: str,
     exam_id: str,
     client: GptClient | None = None,
+    questions_bundle: dict[str, Any] | QuestionsOnlyBundle | None = None,
 ) -> dict[str, Any]:
     """
     Input:
@@ -800,14 +857,35 @@ def build_answers_only_bundle_from_ocr(
     """
     client = client or GptClient()
 
-    user_prompt = f"""
-exam_id: {exam_id}
-source_name: {source_name}
+    locked_questions_context = ""
+    if questions_bundle is not None:
+        qb = (
+            questions_bundle
+            if isinstance(questions_bundle, QuestionsOnlyBundle)
+            else QuestionsOnlyBundle.model_validate(questions_bundle)
+        )
+        locked_questions_context = f"""
+    Locked submitted-question structure:
+    -----------------------------------
+    {json.dumps(qb.model_dump(), ensure_ascii=False, indent=2)}
 
-OCR source:
------------
-{ocr_text}
-"""
+    Important:
+    - The locked question structure above is the only gradeable structure.
+    - Extract answer candidates only.
+    - Do not create new gradeable questions from the answer file.
+    - If a visible solution appears to belong to a question that is not in the locked structure, keep it as an uncertain answer candidate or leave it unmatched.
+    """
+
+    user_prompt = f"""
+    exam_id: {exam_id}
+    source_name: {source_name}
+
+    {locked_questions_context}
+
+    OCR source:
+    -----------
+    {ocr_text}
+    """
 
     result = client.chat_json(
         system=ANSWERS_ONLY_SYSTEM_PROMPT,
@@ -846,16 +924,98 @@ OCR source:
 {ocr_text}
 """
 
+    timeout_s = int(os.getenv("MATHGRADE_QA_BUILDER_TIMEOUT_S", "240"))
+
     result = client.chat_json(
         system=QUESTIONS_ANSWERS_SYSTEM_PROMPT,
         user=user_prompt,
         schema=questions_answers_bundle_schema(),
         schema_name="mathgrade_questions_answers_bundle",
         strict=False,
-        timeout_s=240,
+        timeout_s=timeout_s,
     )
 
     return _as_questions_answers_bundle(result, exam_id=exam_id).model_dump()
+
+
+def build_questions_answers_bundle_from_questions_only(
+    *,
+    questions_bundle: dict[str, Any] | QuestionsOnlyBundle,
+    exam_id: str = "",
+    source_name: str = "",
+    warning: str = "",
+) -> dict[str, Any]:
+    """
+    Convert a QuestionsOnlyBundle into a QuestionsAnswersBundle with empty answer fields.
+
+    Used as a recovery path for combined questions+answers uploads when the heavy
+    combined Q+A builder times out. The answer fallback can then generate draft
+    answers from the extracted question text.
+    """
+    qb = (
+        questions_bundle
+        if isinstance(questions_bundle, QuestionsOnlyBundle)
+        else QuestionsOnlyBundle.model_validate(questions_bundle)
+    )
+
+    questions: list[dict[str, Any]] = []
+
+    for q in qb.questions:
+        parts: list[dict[str, Any]] = []
+
+        for p in q.parts:
+            parts.append(
+                {
+                    "part": p.part or "",
+                    "part_key": p.part_key or _part_key(p.part or "", p.part_key or ""),
+                    "question_text": p.question_text or "",
+                    "required_action": p.required_action or "",
+                    "official_solution": "",
+                    "expected_answer": "",
+                    "grading_instructions": "",
+                    "max_points": p.max_points,
+                    "review_status": "missing",
+                    "confidence": p.confidence,
+                    "warnings": list(
+                        dict.fromkeys(
+                            [
+                                *(p.warnings or []),
+                                "Combined questions+answers builder failed, so this part was recovered from question text only.",
+                                "Answer fields require AI fallback or teacher review.",
+                            ]
+                        )
+                    ),
+                }
+            )
+
+        questions.append(
+            {
+                "question_id": int(q.question_id),
+                "parts": parts,
+            }
+        )
+
+    warnings = [
+        *(qb.warnings or []),
+        warning
+        or "Combined questions+answers builder failed. Recovered questions only and left answers for fallback generation.",
+    ]
+
+    return _as_questions_answers_bundle(
+        {
+            "schema_version": "questions_answers_bundle_v1",
+            "exam_id": exam_id or qb.exam_id,
+            "exam_title": qb.exam_title or "",
+            "questions": questions,
+            "warnings": [w for w in warnings if str(w).strip()],
+            "structure_corrections": [
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in (qb.structure_corrections or [])
+            ],
+            "source_names": list(dict.fromkeys([*(qb.source_names or []), source_name])),
+        },
+        exam_id=exam_id or qb.exam_id,
+    ).model_dump()
 
 
 def promote_questions_answers_to_full_solution(

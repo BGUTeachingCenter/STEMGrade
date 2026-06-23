@@ -16,6 +16,7 @@ def build_answers_ocr_result(
     source_name: str = "",
     out_dir: Path | None = None,
     client: Any = None,
+    questions_bundle: dict[str, Any] | None = None,
 ) -> AnswersOnlyOcrResult:
     """
     Input:
@@ -32,6 +33,7 @@ def build_answers_ocr_result(
         source_name=source_name,
         exam_id=exam_id,
         client=client,
+        questions_bundle=questions_bundle,
     )
 
     answers_bundle = AnswersOnlyBundle.model_validate(bundle_dict)
