@@ -42,7 +42,13 @@ class OcrOptions(BaseModel):
     This allows easy model/provider switching without changing route code.
     """
 
-    temperature: float = 0.0
+    # Sampling temperature.
+    #   None  -> never send a temperature (use the model's own default).
+    #   float -> the clients send it ONLY when the target model accepts a custom
+    #            temperature (see core.ai_clients.model_capabilities). gpt-5 /
+    #            o-series reject it, so it is omitted automatically.
+    # Force on/off per call with extra={"send_temperature": True/False}.
+    temperature: Optional[float] = 0.0
     max_output_tokens: int = 12000
     timeout_s: int = 300
 
