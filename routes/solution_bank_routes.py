@@ -1046,6 +1046,31 @@ async def upload_to_bank(
     except Exception:
         gradeable_status = "not_gradeable"
 
+    # Token usage to "decipher" this solution: OCR tokens (when an AI OCR
+    # provider was used) + the AI structuring/fallback tokens accumulated on
+    # the solution_ai_client across this whole upload. Mathpix and TeX uploads
+    # report 0 OCR tokens.
+    ocr_tokens = 0
+    try:
+        ocr_response_for_usage = extra_meta.get("ocr_response")
+        if isinstance(ocr_response_for_usage, OcrResponse):
+            ocr_tokens = int(ocr_response_for_usage.usage.total_tokens or 0)
+    except Exception:
+        ocr_tokens = 0
+
+    ai_tokens = 0
+    try:
+        ai_tokens = int(getattr(solution_ai_client, "total_tokens", 0) or 0)
+    except Exception:
+        ai_tokens = 0
+
+    total_tokens = ocr_tokens + ai_tokens
+
+    _progress(
+        job_id,
+        f"Token usage — OCR: {ocr_tokens}, AI structuring: {ai_tokens}, total: {total_tokens}",
+    )
+
     meta = {
         "exam_id": exam_id,
         "filename": filename,
@@ -1063,6 +1088,11 @@ async def upload_to_bank(
         "ocr_response_path": extra_meta.get("ocr_response_path"),
         "ocr_text_path": extra_meta.get("ocr_text_path"),
         "ocr_raw_path": extra_meta.get("ocr_raw_path"),
+
+        # Tokens used to decipher this solution (OCR + AI structuring).
+        "ocr_tokens": ocr_tokens,
+        "ai_tokens": ai_tokens,
+        "total_tokens": total_tokens,
 
         # Legacy/UI compatibility fields
         "mathpix_mode": extra_meta.get("mathpix_mode"),
@@ -1129,6 +1159,9 @@ def list_exam_files(
             "ocr_used": meta.get("ocr_used", False),
             "ocr_provider": meta.get("ocr_provider"),
             "ocr_model": meta.get("ocr_model"),
+            "ocr_tokens": meta.get("ocr_tokens"),
+            "ai_tokens": meta.get("ai_tokens"),
+            "total_tokens": meta.get("total_tokens"),
             "mathpix_mode": meta.get("mathpix_mode"),
             "openai_model": meta.get("openai_model"),
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
