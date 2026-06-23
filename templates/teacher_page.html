@@ -66,14 +66,6 @@
       </div>
     </div>
   </div>
-
-  <div class="card mg-token-solutions-card">
-    <div class="cardInner">
-      <div style="font-weight:900; margin-bottom:8px;">Token use per solution</div>
-      <div class="mg-token-solution-list" id="tokenSolutionList">Loading…</div>
-      <div class="small">Gemini tokens used by each student submission (newest first)</div>
-    </div>
-  </div>
       </section>
 
   <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
@@ -416,30 +408,6 @@
     drawBars(canvasId, labels, bins);
   }
 
-  function renderTokenSolutions(list){
-    const el = $("tokenSolutionList");
-    if (!el) return;
-
-    if (!list.length){
-      el.innerHTML = `<div class="small">No student submissions logged yet.</div>`;
-      return;
-    }
-
-    el.innerHTML = list.map(x => {
-      const ts = String(x.timestamp || "").replace("T", " ");
-      const meta = [x.exam_id, x.provider, ts].filter(Boolean).map(escapeHtml).join(" · ");
-      return `
-        <div class="mg-token-solution-row">
-          <div class="mg-token-solution-info">
-            <div class="mg-token-solution-code">${escapeHtml(x.code || "—")}</div>
-            <div class="mg-token-solution-meta">${meta || "—"}</div>
-          </div>
-          <div class="mg-token-solution-count">${Number(x.tokens || 0).toLocaleString()} <span>tok</span></div>
-        </div>
-      `;
-    }).join("");
-  }
-
   async function loadStatsAndRender(){
     try{
       const r = await authedFetch(API_BASE + "/routes/stats/teacher_dashboard");
@@ -448,7 +416,6 @@
         drawBars("chartPerDay", ["unauthorized"], [0]);
         drawBars("chartCodesExam", ["unauthorized"], [0]);
         drawBars("chartTokens", ["unauthorized"], [0]);
-        renderTokenSolutions([]);
         return;
       }
       const j = await r.json();
@@ -467,8 +434,6 @@
 
       const tokens = (j.gemini_tokens_per_code || []).map(x => Number(x.tokens || 0));
       drawHistogram("chartTokens", tokens, 8);
-
-      renderTokenSolutions(j.tokens_per_solution || []);
 
     }catch(e){
       console.log("Stats exception:", e);
@@ -554,6 +519,23 @@ function setActiveExam(id) {
   if ($("examId")) {
     $("examId").value = activeExamId;
   }
+}
+
+function formatTokenLine(item) {
+  // Tokens used to OCR + structure this uploaded solution. May be absent on
+  // older items uploaded before token logging existed.
+  if (!item || item.total_tokens == null) {
+    return `🔢 Tokens to decipher: <b>n/a</b>`;
+  }
+
+  const total = Number(item.total_tokens || 0);
+  const ocr = Number(item.ocr_tokens || 0);
+  const ai = Number(item.ai_tokens || 0);
+
+  return (
+    `🔢 Tokens to decipher: <b>${total.toLocaleString()}</b> ` +
+    `<span class="mg-token-breakdown">(OCR ${ocr.toLocaleString()} · AI ${ai.toLocaleString()})</span>`
+  );
 }
 
 function readableContentType(type) {
@@ -829,6 +811,9 @@ function renderSolutionList(items) {
           <div class="mg-solution-meta">
             Updated: ${escapeHtml(group.latestCreatedAt || primary.created_at || "unknown date")}
           </div>
+          <div class="mg-solution-tokens" data-role="active-tokens">
+            ${formatTokenLine(primary)}
+          </div>
           <div class="mg-solution-tags">${statusTags}</div>
           <div class="mg-solution-tabs">${roleTabs}</div>
         </div>
@@ -848,6 +833,7 @@ function renderSolutionList(items) {
 
     const previewEl = div.querySelector(".preview");
     const activeFileEl = div.querySelector('[data-role="active-file"]');
+    const activeTokensEl = div.querySelector('[data-role="active-tokens"]');
 
     function selectedItem() {
       return group.items[selectedIndex] || group.primaryItem || group.items[0];
@@ -858,6 +844,10 @@ function renderSolutionList(items) {
 
       if (activeFileEl) {
         activeFileEl.textContent = selected?.filename || "No file selected";
+      }
+
+      if (activeTokensEl) {
+        activeTokensEl.innerHTML = formatTokenLine(selected);
       }
 
       div.querySelectorAll(".mg-solution-tab").forEach(btn => {
