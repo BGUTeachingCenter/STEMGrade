@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import json
+
 from services.ai_grading.reference_builder import (
-    build_questions_bundle_from_mathpix,
-    bundle_to_exam_structure,
-    questions_bundle_to_tex,
-    write_questions_bundle_json,
+    build_questions_only_bundle_from_ocr,
 )
+from services.ocr_services.full_solution_service import full_solution_to_exam_structure
 from schemas.ocr_response import OcrResponse
-from schemas.ocr_tasks import QuestionsOcrResult
-from schemas.reference_bundle import ReferenceBundle
+from schemas.ocr_tasks import QuestionsOnlyOcrResult
+from schemas.reference_bundle import QuestionsOnlyBundle
 
 
 def build_questions_ocr_result(
@@ -21,37 +21,45 @@ def build_questions_ocr_result(
     source_name: str = "",
     out_dir: Path | None = None,
     client: Any = None,
-) -> QuestionsOcrResult:
+) -> QuestionsOnlyOcrResult:
     """
-    Task-specific processor for teacher exam/questions uploads.
-
     Input:
-      OcrResponse from any OCR provider.
+      OcrResponse from any OCR provider for a teacher questions-only upload.
 
     Output:
-      QuestionsOcrResult containing:
-        - questions_bundle
-        - canonical_tex
-        - exam_structure
-
-    The existing function name says "mathpix", but after this wrapper it should
-    be treated as "OCR text". We can rename it later.
+      QuestionsOnlyOcrResult containing:
+        - QuestionsOnlyBundle
+        - canonical questions-only TeX
+        - lightweight exam structure
     """
     raw_text = ocr.primary_text()
     source_name = source_name or ocr.source_filename
 
-    bundle_dict = build_questions_bundle_from_mathpix(
-        mathpix_text=raw_text,
+    bundle_dict = build_questions_only_bundle_from_ocr(
+        ocr_text=raw_text,
         source_name=source_name,
         exam_id=exam_id,
         client=client,
     )
 
-    questions_bundle = ReferenceBundle.model_validate(bundle_dict)
-    bundle_for_old_helpers = questions_bundle.model_dump()
+    questions_bundle = QuestionsOnlyBundle.model_validate(bundle_dict)
 
-    canonical_tex = questions_bundle_to_tex(bundle_for_old_helpers)
-    exam_structure = bundle_to_exam_structure(bundle_for_old_helpers)
+    # For questions-only preview, generate a minimal TeX with no solutions.
+    from services.ai_grading.reference_builder import questions_bundle_to_tex
+
+    canonical_tex = questions_bundle_to_tex(questions_bundle.model_dump())
+
+    structure = {
+        "questions": [
+            {
+                "question_id": str(q.question_id),
+                "parts": [p.part for p in q.parts if p.part],
+            }
+            for q in questions_bundle.questions
+        ]
+    }
+    structure["question_count"] = len(structure["questions"])
+    structure["part_count"] = sum(len(q.get("parts") or []) for q in structure["questions"])
 
     canonical_tex_path = ""
 
@@ -59,7 +67,10 @@ def build_questions_ocr_result(
         out_dir.mkdir(parents=True, exist_ok=True)
 
         bundle_path = out_dir / "questions_only_bundle.json"
-        write_questions_bundle_json(bundle_for_old_helpers, bundle_path)
+        bundle_path.write_text(
+            json.dumps(questions_bundle.model_dump(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
         tex_path = out_dir / "questions_only_current.tex"
         tex_path.write_text(canonical_tex, encoding="utf-8")
@@ -67,13 +78,13 @@ def build_questions_ocr_result(
 
         structure_path = out_dir / "exam_structure.json"
         structure_path.write_text(
-            __import__("json").dumps(exam_structure, ensure_ascii=False, indent=2),
+            json.dumps(structure, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
     warnings = list(questions_bundle.warnings or [])
 
-    return QuestionsOcrResult(
+    return QuestionsOnlyOcrResult(
         ok=True,
         exam_id=exam_id,
         source_name=source_name,
@@ -81,7 +92,7 @@ def build_questions_ocr_result(
         questions_bundle=questions_bundle,
         canonical_tex=canonical_tex,
         canonical_tex_path=canonical_tex_path,
-        exam_structure=exam_structure,
+        exam_structure=structure,
         warnings=warnings,
         needs_teacher_review=bool(warnings),
         ocr=ocr,

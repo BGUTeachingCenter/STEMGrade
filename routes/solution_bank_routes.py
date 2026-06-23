@@ -24,9 +24,18 @@ from starlette.concurrency import run_in_threadpool
 
 from core.ai_clients.ocr_client import OcrClientError, run_ocr
 from schemas.ocr_response import OcrOptions, OcrResponse
-from schemas.reference_bundle import ReferenceBundle
+from schemas.reference_bundle import (
+    AnswersOnlyBundle,
+    FullSolutionBundle,
+    QuestionsOnlyBundle,
+)
+from services.ocr_services.answers_ocr import build_answers_ocr_result
+from services.ocr_services.full_solution_service import (
+    build_full_solution_from_questions_and_answers,
+    full_solution_to_exam_structure,
+)
+from services.ocr_services.questions_answers_ocr import build_questions_answers_ocr_result
 from services.ocr_services.questions_ocr import build_questions_ocr_result
-from services.ocr_services.reference_solution_ocr import build_reference_solution_ocr_result
 
 from routes.progress import init_job, push, done, fail
 
@@ -94,6 +103,16 @@ ALL_BANK_UPLOAD_SUFFIXES = TEX_SUFFIXES | OCR_SUFFIXES
 OCR_PROVIDERS = {"mathpix", "openai", "gpt", "chatgpt", "google", "gemini", "ai_studio", "aistudio"}
 
 
+BANK_CONTENT_TYPES = {
+    "questions_only",
+    "answers_only",
+    "questions_answers",
+
+    # Backward-compatible aliases:
+    "reference",
+    "full_solution",
+}
+
 def _safe_bank_upload_filename(name: str) -> str:
     """
     Safe filename for teacher uploads into the solution bank.
@@ -117,6 +136,132 @@ def _safe_bank_upload_filename(name: str) -> str:
         )
 
     return safe
+
+
+def _canonical_content_type(content_type: str) -> str:
+    """
+    Normalize teacher/UI upload type names.
+
+    Supported teacher-facing modes:
+      - questions_only
+      - answers_only
+      - questions_answers
+
+    Backward compatibility:
+      - reference      -> answers_only
+      - full_solution  -> questions_answers
+    """
+    ct = (content_type or "").strip().lower()
+
+    aliases = {
+        "questions": "questions_only",
+        "question_only": "questions_only",
+        "exam": "questions_only",
+
+        "answers": "answers_only",
+        "answer_only": "answers_only",
+        "solutions_only": "answers_only",
+        "solution_only": "answers_only",
+        "reference": "answers_only",
+
+        "questions_and_answers": "questions_answers",
+        "question_answer": "questions_answers",
+        "qa": "questions_answers",
+        "full_solution": "questions_answers",
+    }
+
+    return aliases.get(ct, ct)
+
+
+def _bundle_path(uploads: Path, name: str) -> Path:
+    return uploads / name
+
+
+def _read_json_if_exists(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _count_full_solution(bundle: dict | FullSolutionBundle | None) -> tuple[int | None, int | None]:
+    if bundle is None:
+        return None, None
+
+    try:
+        full = bundle if isinstance(bundle, FullSolutionBundle) else FullSolutionBundle.model_validate(bundle)
+        q_count = len(full.questions)
+        part_count = sum(len(q.parts or []) for q in full.questions)
+        return q_count, part_count
+    except Exception:
+        return None, None
+
+
+def _build_and_save_full_solution_if_possible(
+    *,
+    uploads: Path,
+    exam_id: str,
+    source_name: str,
+    job_id: str | None = None,
+) -> tuple[dict | None, str, dict | None]:
+    """
+    Try to build final full solution from existing questions_only + answers_only.
+
+    Returns:
+      (full_solution_bundle_dict_or_none, canonical_tex, exam_structure_or_none)
+    """
+    questions_path = uploads / "questions_only_bundle.json"
+    answers_path = uploads / "answers_only_bundle.json"
+
+    questions_dict = _read_json_if_exists(questions_path)
+    answers_dict = _read_json_if_exists(answers_path)
+
+    if not questions_dict or not answers_dict:
+        return None, "", None
+
+    _progress(job_id, "Both questions and answers are available. Building full solution...")
+
+    full_result = build_full_solution_from_questions_and_answers(
+        questions_bundle=QuestionsOnlyBundle.model_validate(questions_dict),
+        answers_bundle=AnswersOnlyBundle.model_validate(answers_dict),
+        exam_id=exam_id,
+        source_name=source_name,
+        out_dir=None,
+    )
+
+    full_dict = full_result.full_solution_bundle.model_dump()
+    canonical_tex = full_result.canonical_tex
+    structure = full_solution_to_exam_structure(full_result.full_solution_bundle)
+
+    _write_json(uploads / "full_solution_bundle.json", full_dict)
+
+    # Compatibility: existing grading/reference code expects reference_bundle.json.
+    _write_json(uploads / "reference_bundle.json", full_dict)
+
+    structure_path = uploads / "exam_structure.json"
+    _write_json(structure_path, structure)
+
+    tex_path = uploads / "reference_current.tex"
+    tex_path.write_text(canonical_tex, encoding="utf-8")
+
+    try:
+        write_reference_summary(exam_id, tex_path=tex_path)
+    except Exception:
+        pass
+
+    _progress(job_id, "Generated full_solution_bundle.json and reference_current.tex")
+
+    return full_dict, canonical_tex, structure
 
 
 async def _bank_upload_to_tex(
@@ -166,7 +311,6 @@ async def _bank_upload_to_tex(
             source_path="",
             text=text,
             pages=[],
-            usage=None,  # allowed only if your schema has Optional; otherwise remove this line
         )
 
         return raw, {
@@ -382,15 +526,21 @@ async def upload_to_bank(
     ocr_model: str = Form(""),
     _session: dict = Depends(require_teacher),
 ):
-    """Upload a teacher TeX file into the solution bank.
+    """Upload a teacher file into the solution bank.
 
-    - content_type: "reference" or "questions_only"
-    - saves file as reference_current.tex / questions_only_current.tex
-    - writes a lightweight .meta.json for fast preview/list
+    content_type:
+      - questions_only
+      - answers_only
+      - questions_answers
     """
     exam_id = require_safe_exam_id(exam_id)
-    if content_type not in {"reference", "questions_only"}:
-        raise HTTPException(status_code=400, detail="content_type must be reference or questions_only")
+    content_type = _canonical_content_type(content_type)
+
+    if content_type not in {"questions_only", "answers_only", "questions_answers"}:
+        raise HTTPException(
+            status_code=400,
+            detail="content_type must be questions_only, answers_only, or questions_answers",
+        )
 
     if job_id:
         init_job(job_id)
@@ -426,13 +576,21 @@ async def upload_to_bank(
 
     uploads = uploads_dir(exam_id)
 
-    suffix = "reference" if content_type == "reference" else "questions_only"
-    filename = f"{suffix}_current.tex"
+    if content_type == "questions_only":
+        filename = "questions_only_current.tex"
+    elif content_type == "answers_only":
+        filename = "answers_only_current.tex"
+    else:
+        filename = "questions_answers_current.tex"
     tex_path = uploads / filename
     tex_text_for_structure = raw.decode("utf-8", errors="replace")
 
     structure = None
     structure_path = None
+
+    full_solution_bundle: dict | None = None
+    full_solution_structure: dict | None = None
+    final_reference_tex_generated = False
 
     if content_type == "questions_only":
         try:
@@ -445,7 +603,7 @@ async def upload_to_bank(
                     text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
                 )
 
-            _progress(job_id, "AI is organizing the exam into question/part JSON...")
+            _progress(job_id, "AI is organizing the exam into questions-only JSON...")
 
             questions_result = build_questions_ocr_result(
                 ocr=ocr_response,
@@ -457,23 +615,28 @@ async def upload_to_bank(
             questions_bundle = questions_result.questions_bundle.model_dump()
 
             bundle_path = uploads / "questions_only_bundle.json"
-            bundle_path.write_text(
-                json.dumps(questions_bundle, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            _write_json(bundle_path, questions_bundle)
 
             _progress(job_id, "Saved questions_only_bundle.json")
 
             structure = questions_result.exam_structure
             structure_path = uploads / "exam_structure.json"
-            structure_path.write_text(
-                json.dumps(structure, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            _write_json(structure_path, structure)
 
             raw = questions_result.canonical_tex.encode("utf-8")
 
             _progress(job_id, "Generated canonical questions_only_current.tex")
+
+            # If answers were uploaded earlier, now build the final solution.
+            full_solution_bundle, full_tex, full_solution_structure = _build_and_save_full_solution_if_possible(
+                uploads=uploads,
+                exam_id=exam_id,
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                job_id=job_id,
+            )
+
+            if full_solution_bundle and full_tex:
+                final_reference_tex_generated = True
 
         except Exception as e:
             structure = None
@@ -488,30 +651,8 @@ async def upload_to_bank(
                 detail=f"Questions-only AI builder failed. See {fail_path.name}.",
             )
 
-
-    elif content_type == "reference":
-
-        questions_bundle_path = uploads / "questions_only_bundle.json"
-
-        _progress(job_id, "Preparing to align official solution to questions bundle...")
-
-        if not questions_bundle_path.exists():
-            raise HTTPException(
-
-                status_code=400,
-                detail=(
-                    "Upload the exam/questions-only file first. "
-                    "reference upload requires questions_only_bundle.json."
-                ),
-            )
-
+    elif content_type == "answers_only":
         try:
-            questions_bundle_dict = json.loads(
-                questions_bundle_path.read_text(encoding="utf-8")
-            )
-
-            questions_bundle = ReferenceBundle.model_validate(questions_bundle_dict)
-
             ocr_response = extra_meta.get("ocr_response")
             if not isinstance(ocr_response, OcrResponse):
                 ocr_response = OcrResponse(
@@ -521,90 +662,120 @@ async def upload_to_bank(
                     text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
                 )
 
-            _progress(job_id, "AI is aligning official solutions to the exam structure...")
+            _progress(job_id, "AI is organizing the official answers into answers-only JSON...")
 
-            reference_result = build_reference_solution_ocr_result(
+            answers_result = build_answers_ocr_result(
                 ocr=ocr_response,
-                questions_bundle=questions_bundle,
                 exam_id=exam_id,
                 source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
                 out_dir=None,
             )
 
-            reference_bundle = reference_result.reference_bundle.model_dump()
+            answers_bundle = answers_result.answers_bundle.model_dump()
 
-            reference_bundle_path = uploads / "reference_bundle.json"
-            reference_bundle_path.write_text(
-                json.dumps(reference_bundle, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            answers_bundle_path = uploads / "answers_only_bundle.json"
+            _write_json(answers_bundle_path, answers_bundle)
+
+            _progress(job_id, "Saved answers_only_bundle.json")
+
+            # Save a light preview TeX for this upload itself.
+            raw = tex_text_for_structure.encode("utf-8")
+
+            full_solution_bundle, full_tex, full_solution_structure = _build_and_save_full_solution_if_possible(
+                uploads=uploads,
+                exam_id=exam_id,
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                job_id=job_id,
             )
 
-            _progress(job_id, "Saved reference_bundle.json")
-
-            if reference_result.high_confidence_corrections_count:
-                corrected_questions_path = uploads / "questions_only_bundle_corrected_by_reference.json"
-                corrected_questions_path.write_text(
-                    json.dumps(reference_bundle, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-
-                corrected_structure = {
-                    "questions": [
-                        {
-                            "question_id": str(q.get("question_id", "")),
-                            "parts": [
-                                p.get("part", "")
-                                for p in (q.get("parts") or [])
-                                if p.get("part")
-                            ],
-                        }
-                        for q in reference_bundle.get("questions", [])
-                    ]
-                }
-                corrected_structure["question_count"] = len(corrected_structure["questions"])
-                corrected_structure["part_count"] = sum(
-                    len(q.get("parts") or [])
-                    for q in corrected_structure["questions"]
-                )
-
-                corrected_structure_path = uploads / "exam_structure_corrected_by_reference.json"
-                corrected_structure_path.write_text(
-                    json.dumps(corrected_structure, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-
-                _progress(
-                    job_id,
-                    (
-                        "Saved corrected structure from reference upload "
-                        f"({reference_result.high_confidence_corrections_count} high-confidence corrections)."
-                    ),
-                )
-
-            raw = reference_result.canonical_tex.encode("utf-8")
-
-            _progress(job_id, "Generated canonical reference_current.tex")
-
+            if full_solution_bundle and full_tex:
+                final_reference_tex_generated = True
+                structure = full_solution_structure
+                structure_path = uploads / "exam_structure.json"
 
         except Exception as e:
-            fail_path = uploads / "reference_ai_builder_error.txt"
+            fail_path = uploads / "answers_only_ai_builder_error.txt"
             fail_path.write_text(str(e), encoding="utf-8")
-            fail(job_id, f"Reference AI builder failed: {e}") if job_id else None
+            fail(job_id, f"Answers-only AI builder failed: {e}") if job_id else None
+
             raise HTTPException(
                 status_code=500,
-                detail=f"Reference AI builder failed. See {fail_path.name}.",
+                detail=f"Answers-only AI builder failed. See {fail_path.name}.",
+            )
+
+    elif content_type == "questions_answers":
+        try:
+            ocr_response = extra_meta.get("ocr_response")
+            if not isinstance(ocr_response, OcrResponse):
+                ocr_response = OcrResponse(
+                    provider="unknown",
+                    input_kind="unknown",
+                    source_filename=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                    text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
+                )
+
+            _progress(job_id, "AI is organizing combined questions+answers into full solution JSON...")
+
+            qa_result = build_questions_answers_ocr_result(
+                ocr=ocr_response,
+                exam_id=exam_id,
+                source_name=extra_meta.get("original_filename") or tex_file.filename or "upload",
+                out_dir=None,
+            )
+
+            qa_bundle = qa_result.questions_answers_bundle.model_dump()
+            _write_json(uploads / "questions_answers_bundle.json", qa_bundle)
+
+            if not qa_result.full_solution_bundle:
+                raise RuntimeError("questions_answers upload did not produce a full_solution_bundle")
+
+            full_solution_bundle = qa_result.full_solution_bundle.model_dump()
+            _write_json(uploads / "full_solution_bundle.json", full_solution_bundle)
+
+            # Compatibility with existing grading/reference pipeline.
+            _write_json(uploads / "reference_bundle.json", full_solution_bundle)
+
+            structure = full_solution_to_exam_structure(qa_result.full_solution_bundle)
+            structure_path = uploads / "exam_structure.json"
+            _write_json(structure_path, structure)
+
+            raw = qa_result.canonical_tex.encode("utf-8")
+            final_reference_tex_generated = True
+
+            _progress(job_id, "Generated full_solution_bundle.json and canonical reference_current.tex")
+
+        except Exception as e:
+            fail_path = uploads / "questions_answers_ai_builder_error.txt"
+            fail_path.write_text(str(e), encoding="utf-8")
+            fail(job_id, f"Questions+answers AI builder failed: {e}") if job_id else None
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"Questions+answers AI builder failed. See {fail_path.name}.",
             )
 
     tex_path.write_bytes(raw)
     tex_text_for_structure = raw.decode("utf-8", errors="replace")
 
-    # create/update reference_summary.json for fast matching
-    if content_type == "reference":
+    # If this upload produced a final full solution, also write/refresh reference_current.tex.
+    if content_type == "questions_answers" and final_reference_tex_generated:
+        reference_tex_path = uploads / "reference_current.tex"
+        reference_tex_path.write_bytes(raw)
+        tex_path = reference_tex_path
+        filename = "reference_current.tex"
+        tex_text_for_structure = raw.decode("utf-8", errors="replace")
+
+    if content_type in {"questions_only", "answers_only"} and final_reference_tex_generated:
+        # The current upload file is still saved as questions_only_current.tex / answers_only_current.tex,
+        # but the gradeable reference file is reference_current.tex.
+        pass
+
+    # create/update reference_summary.json for fast matching once a full solution exists
+    reference_tex_path = uploads / "reference_current.tex"
+    if reference_tex_path.exists():
         try:
-            write_reference_summary(exam_id, tex_path=tex_path)
-        except Exception as e:
-            # don't fail upload; just record parse failure in meta preview_text
-            # (or log it)
+            write_reference_summary(exam_id, tex_path=reference_tex_path)
+        except Exception:
             pass
 
     # Parse for metadata
@@ -647,11 +818,17 @@ async def upload_to_bank(
     bundle_structure_corrections = []
 
     try:
-        bundle_path_for_meta = (
-            uploads / "questions_only_bundle.json"
-            if content_type == "questions_only"
-            else uploads / "reference_bundle.json"
-        )
+        if (uploads / "full_solution_bundle.json").exists():
+            bundle_path_for_meta = uploads / "full_solution_bundle.json"
+        elif content_type == "questions_only":
+            bundle_path_for_meta = uploads / "questions_only_bundle.json"
+        elif content_type == "answers_only":
+            bundle_path_for_meta = uploads / "answers_only_bundle.json"
+        elif content_type == "questions_answers":
+            bundle_path_for_meta = uploads / "questions_answers_bundle.json"
+        else:
+            bundle_path_for_meta = uploads / "reference_bundle.json"
+
         if bundle_path_for_meta.exists():
             bundle_meta = json.loads(bundle_path_for_meta.read_text(encoding="utf-8"))
             bundle_warnings = bundle_meta.get("warnings") or []
@@ -689,12 +866,18 @@ async def upload_to_bank(
         "exam_structure_part_count": structure.get("part_count") if structure else None,
         "mathpix_text_path": extra_meta.get("mathpix_text_path"),
         "bundle_json_path": (
-            str(uploads / "questions_only_bundle.json")
+            str(uploads / "full_solution_bundle.json")
+            if (uploads / "full_solution_bundle.json").exists()
+            else str(uploads / "questions_only_bundle.json")
             if content_type == "questions_only"
-            else str(uploads / "reference_bundle.json")
-            if content_type == "reference"
+            else str(uploads / "answers_only_bundle.json")
+            if content_type == "answers_only"
+            else str(uploads / "questions_answers_bundle.json")
+            if content_type == "questions_answers"
             else None
         ),
+        "full_solution_available": (uploads / "full_solution_bundle.json").exists(),
+        "reference_tex_available": (uploads / "reference_current.tex").exists(),
         "bundle_warnings": bundle_warnings,
         "bundle_structure_corrections": bundle_structure_corrections,
     }
@@ -740,6 +923,8 @@ def list_exam_files(
             "openai_model": meta.get("openai_model"),
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
             "exam_structure_part_count": meta.get("exam_structure_part_count"),
+            "full_solution_available": meta.get("full_solution_available"),
+            "reference_tex_available": meta.get("reference_tex_available"),
         })
 
     return {"exam_id": exam_id, "items": items}
@@ -774,6 +959,11 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
             "exam_structure_part_count": meta.get("exam_structure_part_count"),
             "ocr_used": meta.get("ocr_used", False),
+            "full_solution_available": meta.get("full_solution_available"),
+            "reference_tex_available": meta.get("reference_tex_available"),
+            "bundle_json_path": meta.get("bundle_json_path"),
+            "bundle_warnings": meta.get("bundle_warnings", []),
+            "bundle_structure_corrections": meta.get("bundle_structure_corrections", []),
         }
 
     tex_text = tex_path.read_text(encoding="utf-8", errors="replace")

@@ -2537,3 +2537,27 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   unicode-bidi: plaintext;
   text-align: right;
 }
+
+.mg-solution-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mg-solution-tab {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+}
+
+.mg-solution-tab.active {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #b45309;
+  font-weight: 900;
+}
+
+.mg-solution-group-row .mg-solution-file {
+  margin-top: 4px;
+}

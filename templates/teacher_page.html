@@ -29,7 +29,7 @@
     <nav class="mg-teacher-tabs" aria-label="Teacher portal sections">
       <a href="#teacherStats">Overview</a>
       <a href="#teacherBank">Solution Bank</a>
-      <a href="#uploadReference">Upload New Reference</a>
+      <a href="#uploadReference">Upload to Bank</a>
     </nav>
 
   <!-- STATS ROW -->
@@ -103,8 +103,8 @@
 <section class="mg-teacher-section mg-upload-reference-section" id="uploadReference">
   <div class="mg-teacher-section-head">
     <div>
-      <h2>Upload New Reference</h2>
-      <p>Add an exam form or official reference solution. You can upload TeX, PDF, or image files.</p>
+      <h2>Upload to Solution Bank</h2>
+        <p>Add questions, answers, or a combined questions+answers solution file. You can upload TeX, PDF, or image files.</p>
     </div>
   </div>
 
@@ -133,20 +133,22 @@
         <div>
           <label for="contentType">What are you uploading?</label>
           <select id="contentType">
-            <option value="reference">Reference solution: questions + official solutions</option>
-            <option value="questions_only">Exam form / questions only: used to label student OCR answers</option>
+            <option value="questions_answers">Questions + answers: complete solution file</option>
+            <option value="questions_only">Questions only: exam form without official answers</option>
+            <option value="answers_only">Answers only: official solutions without full questions</option>
           </select>
-          <div class="small mg-field-help">
-            Choose “reference” when the file includes the correct solution.
+          <div class="small mg-field-help" id="contentTypeHelp">
+            Best option when one file includes both the exam questions and the official solutions.
           </div>
         </div>
 
         <div>
           <label for="ocrProvider">OCR engine</label>
           <select id="ocrProvider">
-            <option value="mathpix">Mathpix OCR</option>
-            <option value="openai">OpenAI OCR</option>
-          </select>
+              <option value="mathpix">Mathpix OCR</option>
+              <option value="openai">OpenAI / GPT OCR</option>
+              <option value="google">Google / Gemini OCR</option>
+            </select>
           <div class="small mg-field-help">
             Used only for PDF/image uploads. TeX/TXT uploads skip OCR.
           </div>
@@ -154,7 +156,7 @@
       </div>
 
       <div class="drop mg-upload-reference-drop" id="dropTex">
-        <div class="labelBig">📄 Upload exam / reference file</div>
+        <div class="labelBig">📄 Upload questions / answers file</div>
         <div class="hint">
           Drag & drop a <b>.tex</b>, <b>.txt</b>, <b>.pdf</b>, <b>.png</b>, <b>.jpg</b>, <b>.jpeg</b>, or <b>.webp</b> file here, or click to choose.
         </div>
@@ -170,7 +172,7 @@
       </div><!-- end mg-upload-busy-wrap -->
 
       <div class="statusBox mg-upload-status-visible" id="uploadStatus">
-        Choose an exam ID and upload a TeX file.
+        Choose an exam ID, select the file type, and upload a TeX, PDF, or image file.
       </div>
     </div>
   </div>
@@ -453,6 +455,30 @@
     else { texChip.style.display="none"; texName.textContent=""; }
   }
 
+  function updateContentTypeHelp() {
+      const type = $("contentType") ? $("contentType").value : "";
+      const help = $("contentTypeHelp");
+      if (!help) return;
+
+      if (type === "questions_answers") {
+        help.textContent =
+          "Use this when one file contains both the exam questions and the official solutions. This creates a full solution immediately.";
+      } else if (type === "questions_only") {
+        help.textContent =
+          "Use this when the file contains only the exam form/questions. Upload answers later to create the full solution.";
+      } else if (type === "answers_only") {
+        help.textContent =
+          "Use this when the file contains only official answers/solutions. If questions already exist, MathGrade will generate the full solution.";
+      } else {
+        help.textContent = "";
+      }
+    }
+
+    if ($("contentType")) {
+      $("contentType").addEventListener("change", updateContentTypeHelp);
+      updateContentTypeHelp();
+    }
+
   function wireDropZone(zone, input, acceptCheck) {
     zone.addEventListener("click", () => input.click());
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
@@ -496,9 +522,111 @@ function setActiveExam(id) {
 }
 
 function readableContentType(type) {
-  if (type === "reference") return "Official reference solution";
+  if (type === "questions_answers") return "Questions + answers";
   if (type === "questions_only") return "Questions only";
+  if (type === "answers_only") return "Answers only";
+  if (type === "reference") return "Official reference solution";
+  if (type === "full_solution") return "Full solution";
   return "Saved TeX file";
+}
+
+function solutionFileRole(item) {
+  const filename = String(item?.filename || "");
+
+  if (filename === "reference_current.tex") return "full_solution";
+  if (filename === "questions_only_current.tex") return "questions_only";
+  if (filename === "answers_only_current.tex") return "answers_only";
+  if (filename === "questions_answers_current.tex") return "questions_answers";
+
+  if (item?.content_type === "questions_only") return "questions_only";
+  if (item?.content_type === "answers_only") return "answers_only";
+  if (item?.content_type === "questions_answers") return "questions_answers";
+  if (item?.content_type === "reference") return "full_solution";
+
+  return "other";
+}
+
+function readableSolutionRole(role) {
+  if (role === "full_solution") return "Full solution";
+  if (role === "questions_answers") return "Questions + answers";
+  if (role === "questions_only") return "Questions only";
+  if (role === "answers_only") return "Answers only";
+  return "Other file";
+}
+
+function rolePriority(role) {
+  if (role === "full_solution") return 1;
+  if (role === "questions_answers") return 2;
+  if (role === "questions_only") return 3;
+  if (role === "answers_only") return 4;
+  return 9;
+}
+
+function groupSolutionItemsByExam(items) {
+  const groups = new Map();
+
+  for (const item of items || []) {
+    const exam = item.exam_id || "unknown_exam";
+
+    if (!groups.has(exam)) {
+      groups.set(exam, {
+        exam_id: exam,
+        items: [],
+        byRole: {},
+        latestCreatedAt: "",
+        full_solution_available: false,
+        reference_tex_available: false,
+        q_count: null,
+        part_count: null,
+        exam_structure_question_count: null,
+        exam_structure_part_count: null,
+        ocr_providers: new Set(),
+      });
+    }
+
+    const group = groups.get(exam);
+    const role = solutionFileRole(item);
+
+    group.items.push({ ...item, role });
+
+    if (!group.byRole[role]) {
+      group.byRole[role] = [];
+    }
+    group.byRole[role].push({ ...item, role });
+
+    if (item.created_at && String(item.created_at) > String(group.latestCreatedAt || "")) {
+      group.latestCreatedAt = item.created_at;
+    }
+
+    group.full_solution_available = group.full_solution_available || !!item.full_solution_available || role === "full_solution";
+    group.reference_tex_available = group.reference_tex_available || !!item.reference_tex_available || item.filename === "reference_current.tex";
+
+    if (item.q_count != null) group.q_count = item.q_count;
+    if (item.part_count != null) group.part_count = item.part_count;
+    if (item.exam_structure_question_count != null) group.exam_structure_question_count = item.exam_structure_question_count;
+    if (item.exam_structure_part_count != null) group.exam_structure_part_count = item.exam_structure_part_count;
+
+    if (item.ocr_used && (item.ocr_provider || item.source_kind)) {
+      group.ocr_providers.add(item.ocr_provider || item.source_kind);
+    }
+  }
+
+  return Array.from(groups.values()).map(group => {
+    group.items.sort((a, b) => {
+      const p = rolePriority(solutionFileRole(a)) - rolePriority(solutionFileRole(b));
+      if (p !== 0) return p;
+      return String(a.filename || "").localeCompare(String(b.filename || ""));
+    });
+
+    group.primaryItem =
+      group.byRole.full_solution?.[0] ||
+      group.byRole.questions_answers?.[0] ||
+      group.byRole.questions_only?.[0] ||
+      group.byRole.answers_only?.[0] ||
+      group.items[0];
+
+    return group;
+  });
 }
 
 function startEditReference(item) {
@@ -513,7 +641,7 @@ function startEditReference(item) {
   setUploadStatus(
     `Editing / replacing: ${item.filename}\n` +
     `Exam: ${id}\n\n` +
-    `Choose an updated .tex file below and click “Upload to Solution Bank”.`
+    `Choose the correct upload type, select an updated file below, and click “Upload to Solution Bank”.`
   );
 
   document.getElementById("uploadReference")?.scrollIntoView({
@@ -567,7 +695,7 @@ async function loadExams() {
 
   if (!ids.length) {
     setExamStatus("No reference solutions yet.");
-    renderEmptySolutionBank("Use the upload card below to add your first official reference file.");
+    renderEmptySolutionBank("Use the upload card below to add questions, answers, or a complete solution file.");
     return;
   }
 
@@ -610,34 +738,47 @@ function renderSolutionList(items) {
     return;
   }
 
-  items.sort((a, b) => {
-    const examCompare = String(a.exam_id || "").localeCompare(String(b.exam_id || ""));
-    if (examCompare !== 0) return examCompare;
-    return String(a.filename || "").localeCompare(String(b.filename || ""));
+  const groups = groupSolutionItemsByExam(items);
+
+  groups.sort((a, b) => {
+    return String(a.exam_id || "").localeCompare(String(b.exam_id || ""));
   });
 
   if ($("solutionBankCount")) {
     $("solutionBankCount").textContent =
-      `${items.length} solution${items.length === 1 ? "" : "s"} across ` +
-      `${new Set(items.map(x => x.exam_id)).size} exam${new Set(items.map(x => x.exam_id)).size === 1 ? "" : "s"}`;
+      `${groups.length} exam${groups.length === 1 ? "" : "s"} · ` +
+      `${items.length} file${items.length === 1 ? "" : "s"}`;
   }
 
-  setExamStatus(`Showing ${items.length} saved solution file(s).`);
+  setExamStatus(`Showing ${groups.length} solution-bank exam item(s).`);
 
-  for (const it of items) {
+  for (const group of groups) {
+    const primary = group.primaryItem || {};
     const div = document.createElement("div");
-    div.className = "mg-solution-row";
+    div.className = "mg-solution-row mg-solution-group-row";
 
-    const tags = [
-      it.content_type ? `<span class="tag">${escapeHtml(readableContentType(it.content_type))}</span>` : "",
-      it.ocr_used ? `<span class="tag">OCR: ${escapeHtml(it.ocr_provider || it.source_kind || "yes")}</span>` : "",
-      it.openai_model ? `<span class="tag">OpenAI: ${escapeHtml(it.openai_model)}</span>` : "",
-      it.mathpix_mode ? `<span class="tag">Mathpix: ${escapeHtml(it.mathpix_mode)}</span>` : "",
-      it.pdf_text_layer_used ? `<span class="tag">PDF text layer</span>` : "",
-      (it.exam_structure_question_count != null) ? `<span class="tag">Structure Q: ${it.exam_structure_question_count}</span>` : "",
-      (it.exam_structure_part_count != null) ? `<span class="tag">Structure parts: ${it.exam_structure_part_count}</span>` : "",
-      (it.q_count != null) ? `<span class="tag">Parsed Q: ${it.q_count}</span>` : "",
-      (it.part_count != null) ? `<span class="tag">Parsed parts: ${it.part_count}</span>` : "",
+    const roleTabs = group.items.map((it, idx) => {
+      const role = solutionFileRole(it);
+      const active = idx === 0 ? " active" : "";
+      return `
+        <button
+          class="secondary mg-solution-tab${active}"
+          data-tab-index="${idx}"
+          type="button"
+        >
+          ${escapeHtml(readableSolutionRole(role))}
+        </button>
+      `;
+    }).join("");
+
+    const statusTags = [
+      group.full_solution_available ? `<span class="tag">Full solution ready</span>` : `<span class="tag">Waiting for full solution</span>`,
+      group.reference_tex_available ? `<span class="tag">Gradeable TeX ready</span>` : "",
+      group.ocr_providers.size ? `<span class="tag">OCR: ${escapeHtml(Array.from(group.ocr_providers).join(", "))}</span>` : "",
+      (group.exam_structure_question_count != null) ? `<span class="tag">Structure Q: ${group.exam_structure_question_count}</span>` : "",
+      (group.exam_structure_part_count != null) ? `<span class="tag">Structure parts: ${group.exam_structure_part_count}</span>` : "",
+      (group.q_count != null) ? `<span class="tag">Parsed Q: ${group.q_count}</span>` : "",
+      (group.part_count != null) ? `<span class="tag">Parsed parts: ${group.part_count}</span>` : "",
     ].join("");
 
     div.innerHTML = `
@@ -645,27 +786,67 @@ function renderSolutionList(items) {
         <div class="mg-solution-icon">Σ</div>
 
         <div class="mg-solution-info">
-          <div class="mg-solution-type">${escapeHtml(readableContentType(it.content_type))}</div>
-          <div class="mg-solution-title">${escapeHtml(it.exam_id)}</div>
-          <div class="mg-solution-file">${escapeHtml(it.filename)}</div>
-          <div class="mg-solution-meta">Uploaded: ${escapeHtml(it.created_at || "unknown date")}</div>
-          <div class="mg-solution-tags">${tags}</div>
+          <div class="mg-solution-type">Solution bank item</div>
+          <div class="mg-solution-title">${escapeHtml(group.exam_id)}</div>
+          <div class="mg-solution-file" data-role="active-file">
+            ${escapeHtml(primary.filename || "No file selected")}
+          </div>
+          <div class="mg-solution-meta">
+            Updated: ${escapeHtml(group.latestCreatedAt || primary.created_at || "unknown date")}
+          </div>
+          <div class="mg-solution-tags">${statusTags}</div>
+          <div class="mg-solution-tabs">${roleTabs}</div>
         </div>
       </div>
 
       <div class="mg-solution-actions">
-        <button class="secondary" data-action="preview" type="button">Preview</button>
-        <button class="secondary" data-action="download" type="button">Download</button>
-        <button class="secondary" data-action="edit" type="button">Edit / replace</button>
-        <button class="danger" data-action="delete" type="button">Delete</button>
+        <button class="secondary" data-action="preview" type="button">Preview selected</button>
+        <button class="secondary" data-action="download" type="button">Download selected</button>
+        <button class="secondary" data-action="edit" type="button">Edit / replace selected</button>
+        <button class="danger" data-action="delete" type="button">Delete exam</button>
       </div>
 
       <div class="preview mono mg-solution-preview"></div>
     `;
 
+    let selectedIndex = 0;
+
     const previewEl = div.querySelector(".preview");
+    const activeFileEl = div.querySelector('[data-role="active-file"]');
+
+    function selectedItem() {
+      return group.items[selectedIndex] || group.primaryItem || group.items[0];
+    }
+
+    function updateSelectedTab() {
+      const selected = selectedItem();
+
+      if (activeFileEl) {
+        activeFileEl.textContent = selected?.filename || "No file selected";
+      }
+
+      div.querySelectorAll(".mg-solution-tab").forEach(btn => {
+        const idx = Number(btn.getAttribute("data-tab-index") || 0);
+        btn.classList.toggle("active", idx === selectedIndex);
+      });
+
+      if (previewEl) {
+        previewEl.style.display = "none";
+        previewEl.textContent = "";
+      }
+    }
+
+    div.querySelectorAll(".mg-solution-tab").forEach(btn => {
+      btn.onclick = () => {
+        selectedIndex = Number(btn.getAttribute("data-tab-index") || 0);
+        updateSelectedTab();
+      };
+    });
 
     div.querySelector('[data-action="preview"]').onclick = async () => {
+      const it = selectedItem();
+      if (!it) return;
+
       if (previewEl.style.display === "block") {
         previewEl.style.display = "none";
         return;
@@ -675,7 +856,7 @@ function renderSolutionList(items) {
       previewEl.textContent = "Loading preview…";
 
       const r2 = await authedFetch(
-        API_BASE + `/routes/bank/preview?exam_id=${encodeURIComponent(it.exam_id)}&filename=${encodeURIComponent(it.filename)}`
+        API_BASE + `/routes/bank/preview?exam_id=${encodeURIComponent(group.exam_id)}&filename=${encodeURIComponent(it.filename)}`
       );
 
       if (!r2.ok) {
@@ -685,30 +866,38 @@ function renderSolutionList(items) {
 
       const j2 = await r2.json();
 
-      const keyLabel = j2.content_type === "questions_only"
-      ? "Detected structure"
-      : "Parsed keys";
+      const keyLabel =
+        j2.content_type === "questions_only" ? "Detected question structure" :
+        j2.content_type === "answers_only" ? "Detected answer structure" :
+        j2.content_type === "questions_answers" ? "Detected full solution structure" :
+        solutionFileRole(it) === "full_solution" ? "Gradeable full solution" :
+        "Parsed keys";
 
-    const sourceTags = [
-      j2.pdf_text_layer_used ? "PDF text layer" : "",
-      j2.ocr_used ? "OCR" : "",
-      j2.source_kind ? String(j2.source_kind) : "",
-    ].filter(Boolean).join(" · ");
+      const sourceTags = [
+        j2.pdf_text_layer_used ? "PDF text layer" : "",
+        j2.ocr_used ? "OCR" : "",
+        j2.source_kind ? String(j2.source_kind) : "",
+        j2.full_solution_available ? "Full solution ready" : "",
+        j2.reference_tex_available ? "Gradeable TeX ready" : "",
+      ].filter(Boolean).join(" · ");
 
-    previewEl.innerHTML =
-      `<div class="mg-preview-meta-row">` +
-        `<b>${escapeHtml(keyLabel)}:</b> ` +
-        `${escapeHtml((j2.keys || []).join(", ") || "No keys detected")}` +
-      `</div>` +
-      (sourceTags ? `<div class="mg-preview-source">${escapeHtml(sourceTags)}</div>` : "") +
-      `<div style="height:10px"></div>` +
-      `<div><b>Preview:</b></div>` +
-      `<pre class="mg-hebrew-preview-text">${escapeHtml(j2.preview_text || "")}</pre>`;
+      previewEl.innerHTML =
+        `<div class="mg-preview-meta-row">` +
+          `<b>${escapeHtml(keyLabel)}:</b> ` +
+          `${escapeHtml((j2.keys || []).join(", ") || "No keys detected")}` +
+        `</div>` +
+        (sourceTags ? `<div class="mg-preview-source">${escapeHtml(sourceTags)}</div>` : "") +
+        `<div style="height:10px"></div>` +
+        `<div><b>Preview:</b></div>` +
+        `<pre class="mg-hebrew-preview-text">${escapeHtml(j2.preview_text || "")}</pre>`;
     };
 
     div.querySelector('[data-action="download"]').onclick = async () => {
+      const it = selectedItem();
+      if (!it) return;
+
       const r2 = await authedFetch(
-        API_BASE + `/routes/bank/raw?exam_id=${encodeURIComponent(it.exam_id)}&filename=${encodeURIComponent(it.filename)}`
+        API_BASE + `/routes/bank/raw?exam_id=${encodeURIComponent(group.exam_id)}&filename=${encodeURIComponent(it.filename)}`
       );
 
       if (!r2.ok) {
@@ -717,19 +906,21 @@ function renderSolutionList(items) {
       }
 
       const text = await r2.text();
-        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
     };
 
     div.querySelector('[data-action="edit"]').onclick = () => {
+      const it = selectedItem();
+      if (!it) return;
       startEditReference(it);
     };
 
     div.querySelector('[data-action="delete"]').onclick = async () => {
       if (!confirm(
-        `Delete the entire solution-bank folder for "${it.exam_id}"?\n\n` +
-        `This will remove all files for this exam, including questions, reference solutions, OCR files, and generated JSON bundles.`
+        `Delete the entire solution-bank item for "${group.exam_id}"?\n\n` +
+        `This will remove all files for this exam, including questions, answers, generated full solution, OCR files, and JSON bundles.`
       )) return;
 
       const r3 = await authedFetch(
@@ -740,7 +931,7 @@ function renderSolutionList(items) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            exam_id: it.exam_id,
+            exam_id: group.exam_id,
           }),
         }
       );
@@ -753,6 +944,7 @@ function renderSolutionList(items) {
       await loadExams();
     };
 
+    updateSelectedTab();
     $("itemsList").appendChild(div);
   }
 }
@@ -765,7 +957,10 @@ async function refreshFiles() {
     const f = texFile.files[0];
     const type = $("contentType").value;
     const ocrProvider = $("ocrProvider") ? $("ocrProvider").value : "mathpix";
-    const ocrLabel = ocrProvider === "openai" ? "OpenAI" : "Mathpix";
+    const ocrLabel =
+      ocrProvider === "openai" ? "OpenAI / GPT" :
+      ocrProvider === "google" ? "Google / Gemini" :
+      "Mathpix";
 
     if(!id){ setUploadStatus("Please select or type an exam_id.", "err"); return; }
     if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
@@ -774,8 +969,11 @@ async function refreshFiles() {
     const isPdf = f.name.toLowerCase().endsWith(".pdf");
     const isOcrFile = /\.(pdf|png|jpg|jpeg|webp)$/i.test(f.name);
 
+    const readableType = readableContentType(type);
+
     const lines = [
       `[${nowTag()}] Started upload: ${f.name}`,
+      `[${nowTag()}] Upload type: ${readableType}`,
       isOcrFile
         ? `[${nowTag()}] OCR file detected — OCR via ${ocrLabel} may take a few minutes…`
         : `[${nowTag()}] TeX/TXT upload detected — OCR will be skipped.`,

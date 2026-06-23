@@ -222,7 +222,7 @@ class GptClient:
             raise RuntimeError("Missing OPENAI_API_KEY in environment (or pass api_key=...).")
 
         # Override via OPENAI_MODEL if you want
-        self.model = (model or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip()
+        self.model = (model or os.getenv("OPENAI_MODEL")).strip()
         self.base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com").rstrip("/")
         self.session = _make_requests_session()
         self.total_tokens = 0
