@@ -22,6 +22,7 @@ from common.tex.reference_tex import parse_reference_tex
 
 from starlette.concurrency import run_in_threadpool
 
+from core.ai_clients.ai_usage_logger import bind_usage_context, usage_log_dir
 from core.ai_clients.ocr_client import OcrClientError, run_ocr
 from core.ai_clients.gpt_client import GptClient
 from core.ai_clients.google_client import GoogleClient
@@ -648,6 +649,14 @@ async def upload_to_bank(
             detail="content_type must be questions_only, answers_only, or questions_answers",
         )
 
+    # Attribute every OCR/AI usage record produced during this upload to this
+    # exam + content_type, so data/ai_usage_logs can be aggregated per solution.
+    bind_usage_context(
+        exam_id=exam_id,
+        content_type=content_type,
+        bank_source=tex_file.filename,
+    )
+
     if job_id:
         init_job(job_id)
 
@@ -1046,10 +1055,11 @@ async def upload_to_bank(
     except Exception:
         gradeable_status = "not_gradeable"
 
-    # Token usage to "decipher" this solution: OCR tokens (when an AI OCR
-    # provider was used) + the AI structuring/fallback tokens accumulated on
-    # the solution_ai_client across this whole upload. Mathpix and TeX uploads
-    # report 0 OCR tokens.
+    # Live token feedback for this upload: OCR tokens (when an AI OCR provider
+    # was used) + the AI structuring/fallback tokens accumulated on the
+    # solution_ai_client. The authoritative per-call record is written to
+    # data/ai_usage_logs and aggregated per solution by /token_usage; this is
+    # only used for the progress message below.
     ocr_tokens = 0
     try:
         ocr_response_for_usage = extra_meta.get("ocr_response")
@@ -1088,11 +1098,6 @@ async def upload_to_bank(
         "ocr_response_path": extra_meta.get("ocr_response_path"),
         "ocr_text_path": extra_meta.get("ocr_text_path"),
         "ocr_raw_path": extra_meta.get("ocr_raw_path"),
-
-        # Tokens used to decipher this solution (OCR + AI structuring).
-        "ocr_tokens": ocr_tokens,
-        "ai_tokens": ai_tokens,
-        "total_tokens": total_tokens,
 
         # Legacy/UI compatibility fields
         "mathpix_mode": extra_meta.get("mathpix_mode"),
@@ -1159,9 +1164,6 @@ def list_exam_files(
             "ocr_used": meta.get("ocr_used", False),
             "ocr_provider": meta.get("ocr_provider"),
             "ocr_model": meta.get("ocr_model"),
-            "ocr_tokens": meta.get("ocr_tokens"),
-            "ai_tokens": meta.get("ai_tokens"),
-            "total_tokens": meta.get("total_tokens"),
             "mathpix_mode": meta.get("mathpix_mode"),
             "openai_model": meta.get("openai_model"),
             "exam_structure_question_count": meta.get("exam_structure_question_count"),
@@ -1172,6 +1174,83 @@ def list_exam_files(
         })
 
     return {"exam_id": exam_id, "items": items}
+
+@router.get("/token_usage")
+def bank_token_usage(_session: dict = Depends(require_teacher)):
+    """
+    Aggregate token usage per solution from data/ai_usage_logs/*.jsonl.
+
+    Each line is one OCR/AI call. Records produced during a solution-bank
+    upload carry exam_id + content_type (see bind_usage_context). Records
+    without an exam_id (e.g. student grading, or uploads logged before this
+    attribution existed) are ignored here.
+
+    Returns per-exam totals plus an OCR vs AI (structuring) split, and a
+    per-content_type breakdown for finer display.
+    """
+    log_dir = usage_log_dir()
+
+    by_exam: dict[str, dict] = {}
+
+    for log_path in sorted(log_dir.glob("ai_usage_*.jsonl")):
+        try:
+            lines = log_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+
+            exam_id = (rec.get("exam_id") or "").strip()
+            if not exam_id:
+                continue
+
+            try:
+                tok = int(rec.get("total_tokens") or 0)
+            except Exception:
+                tok = 0
+
+            task = str(rec.get("task") or "")
+            content_type = (rec.get("content_type") or "").strip() or "unknown"
+
+            entry = by_exam.setdefault(
+                exam_id,
+                {
+                    "exam_id": exam_id,
+                    "total_tokens": 0,
+                    "ocr_tokens": 0,
+                    "ai_tokens": 0,
+                    "calls": 0,
+                    "by_content_type": {},
+                },
+            )
+
+            entry["total_tokens"] += tok
+            entry["calls"] += 1
+            if task == "ocr":
+                entry["ocr_tokens"] += tok
+            else:
+                entry["ai_tokens"] += tok
+
+            ct = entry["by_content_type"].setdefault(
+                content_type,
+                {"total_tokens": 0, "ocr_tokens": 0, "ai_tokens": 0, "calls": 0},
+            )
+            ct["total_tokens"] += tok
+            ct["calls"] += 1
+            if task == "ocr":
+                ct["ocr_tokens"] += tok
+            else:
+                ct["ai_tokens"] += tok
+
+    return {"by_exam": by_exam}
 
 @router.get("/preview")
 def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
