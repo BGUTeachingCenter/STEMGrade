@@ -6,8 +6,8 @@ from typing import Any
 from schemas.ocr_response import OcrResponse
 from schemas.ocr_tasks import QuestionsAnswersOcrResult
 from schemas.reference_bundle import QuestionsAnswersBundle
-from flows.solution_bank.reference_builder import build_questions_answers_bundle_from_ocr
-from flows.solution_bank.full_solution_service import build_full_solution_from_questions_answers
+from services.solution_bank.reference_builder import build_questions_answers_bundle_from_ocr
+from services.solution_bank.full_solution_service import build_full_solution_from_questions_answers
 
 
 def build_questions_answers_ocr_result(

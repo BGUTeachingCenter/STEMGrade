@@ -160,7 +160,7 @@ Why JSON-first works better for handwriting:
 
 To change feedback style/tone/rules, edit:
 
-- `flows/student_grading/grading/grading_prompt_he_math.txt`
+- `services/student_grading/grading/grading_prompt_he_math.txt`
 
 This file is loaded at runtime from the same directory as the grading module (`prompting.py`), so you do not need to redeploy code to refine feedback instructions—only update the TXT.
 
@@ -168,8 +168,9 @@ This file is loaded at runtime from the same directory as the grading module (`p
 
 ## Project layout
 
-The code is organized **by user journey**, with cross-cutting code concentrated
-in `common/` and platform/web routers in `web/`.
+The code separates the **HTTP layer** (`routes/`) from the **service layer**
+(`services/`, organized by user journey), with cross-cutting helpers
+concentrated in `common/`.
 
 ```
 app.py                       # FastAPI entrypoint (uvicorn app:app); wires all routers
@@ -183,25 +184,25 @@ common/                      # Code shared across 2+ journeys
                              # student_tex, compile_tex_to_pdf, clean_tex,
                              # ai_proofreader, latex_render, math_normalize
   pdf/                       # pdf_cleanse
-flows/
+routes/                      # HTTP layer — all FastAPI routers
+  grading_routes.py          #   POST /routes/grade_tex_{ollama,google,chatgpt}
+  solution_bank_routes.py    #   /routes/bank/*
+  ocr_routes.py              #   POST /routes/ocr_handwritten
+  auth.py stats.py progress.py template_pages.py
+  health.py error_handlers.py student_log_routes.py
+services/                    # Service layer, by user journey
   student_grading/           # Journey 1: submit .tex -> bundle -> grade -> feedback PDF
-    routes.py                #   POST /routes/grade_tex_{ollama,google,chatgpt}
     bundler.py answer_render.py feedback_tex.py unified_tex.py
     grading/                 #   AI grading internals
       payloads.py grader_payloads.py grader.py grader_sources.py
       prompting.py grading_prompt_he_math.txt schema.py
       json_sanitizer.py solution_bank_matcher.py
   solution_bank/             # Journey 2: teacher uploads reference exam -> OCR -> bundles
-    routes.py                #   /routes/bank/*
     reference_builder.py
     answers_ocr.py questions_ocr.py questions_answers_ocr.py
     full_solution_service.py
   handwritten_ocr/           # Journey 3: student handwriting -> OCR -> student .tex template
-    routes.py                #   POST /routes/ocr_handwritten
     student_work_ocr.py
-web/                         # Cross-cutting platform routers
-  auth.py stats.py progress.py template_pages.py
-  health.py error_handlers.py student_log_routes.py
 templates/ static/           # HTML frontend + assets
 ```
 
@@ -215,7 +216,7 @@ and the AI grading.
 
 ```mermaid
 flowchart TD
-  A[flows/student_grading/routes.py<br/>POST /routes/grade_tex_*] --> B[grading/payloads.py<br/>build_payloads(reference_tex, student_tex)]
+  A[routes/grading_routes.py<br/>POST /routes/grade_tex_*] --> B[grading/payloads.py<br/>build_payloads(reference_tex, student_tex)]
   B --> B1[(manifest.json + payloads/*.json<br/>per-question reference + student.latex_raw)]
 
   %% Bundle TeX is built from the SAME payloads (no re-extraction)

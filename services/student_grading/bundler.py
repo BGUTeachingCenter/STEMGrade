@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from flows.student_grading.grading.payloads import build_payloads
-from flows.student_grading.answer_render import compile_student_answer_pdfs
+from services.student_grading.grading.payloads import build_payloads
+from services.student_grading.answer_render import compile_student_answer_pdfs
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from common.tex.part_normalize import normalize_part
 from common.pdf.pdf_cleanse import CleanseReport, cleanse_test_pdf

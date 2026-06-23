@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # If you have these already, keep them. Otherwise remove/replace accordingly.
-from flows.student_grading.grading.json_sanitizer import sanitize_grades_json  # optional but recommended
+from services.student_grading.grading.json_sanitizer import sanitize_grades_json  # optional but recommended
 
 FIXED_FONT = os.getenv("MATHGRADE_FONT", "Arial")
 

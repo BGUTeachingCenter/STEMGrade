@@ -9,7 +9,7 @@ from core.config import RUNS_ROOT
 from core.security import require_session
 from core.ai_clients.ocr_client import OcrClientError, run_ocr
 from schemas.ocr_response import OcrOptions
-from flows.handwritten_ocr.student_work_ocr import build_student_work_ocr_result
+from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_result
 
 router = APIRouter(prefix="/routes", tags=["ocr"])
 

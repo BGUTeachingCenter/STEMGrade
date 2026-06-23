@@ -15,20 +15,20 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from web.progress import done, fail, init_job, push
-from web.student_log_routes import log_student_submission
+from routes.progress import done, fail, init_job, push
+from routes.student_log_routes import log_student_submission
 from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
 from core.debug import write_debug_log
 from core.security import require_session
-from flows.student_grading.grading.grader_payloads import grade_payload_manifest
-from flows.student_grading.grading.payloads import PayloadItem, build_payloads
-from flows.student_grading.grading.solution_bank_matcher import pick_reference_with_exam_id
-from flows.student_grading.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
+from services.student_grading.grading.grader_payloads import grade_payload_manifest
+from services.student_grading.grading.payloads import PayloadItem, build_payloads
+from services.student_grading.grading.solution_bank_matcher import pick_reference_with_exam_id
+from services.student_grading.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
-from flows.student_grading.feedback_tex import build_feedback_tex
+from services.student_grading.feedback_tex import build_feedback_tex
 from common.tex.student_tex import parse_student_tex_answers
-from flows.student_grading.unified_tex import build_unified_tex
+from services.student_grading.unified_tex import build_unified_tex
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 

@@ -29,15 +29,15 @@ from schemas.reference_bundle import (
     FullSolutionBundle,
     QuestionsOnlyBundle,
 )
-from flows.solution_bank.answers_ocr import build_answers_ocr_result
-from flows.solution_bank.full_solution_service import (
+from services.solution_bank.answers_ocr import build_answers_ocr_result
+from services.solution_bank.full_solution_service import (
     build_full_solution_from_questions_and_answers,
     full_solution_to_exam_structure,
 )
-from flows.solution_bank.questions_answers_ocr import build_questions_answers_ocr_result
-from flows.solution_bank.questions_ocr import build_questions_ocr_result
+from services.solution_bank.questions_answers_ocr import build_questions_answers_ocr_result
+from services.solution_bank.questions_ocr import build_questions_ocr_result
 
-from web.progress import init_job, push, done, fail
+from routes.progress import init_job, push, done, fail
 
 
 router = APIRouter(prefix="/routes/bank", tags=["bank"])

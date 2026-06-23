@@ -5,10 +5,10 @@ from typing import Any
 
 import json
 
-from flows.solution_bank.reference_builder import (
+from services.solution_bank.reference_builder import (
     build_questions_only_bundle_from_ocr,
 )
-from flows.solution_bank.full_solution_service import full_solution_to_exam_structure
+from services.solution_bank.full_solution_service import full_solution_to_exam_structure
 from schemas.ocr_response import OcrResponse
 from schemas.ocr_tasks import QuestionsOnlyOcrResult
 from schemas.reference_bundle import QuestionsOnlyBundle
@@ -45,7 +45,7 @@ def build_questions_ocr_result(
     questions_bundle = QuestionsOnlyBundle.model_validate(bundle_dict)
 
     # For questions-only preview, generate a minimal TeX with no solutions.
-    from flows.solution_bank.reference_builder import questions_bundle_to_tex
+    from services.solution_bank.reference_builder import questions_bundle_to_tex
 
     canonical_tex = questions_bundle_to_tex(questions_bundle.model_dump())
 

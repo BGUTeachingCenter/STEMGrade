@@ -6,7 +6,7 @@ from typing import Any
 from schemas.ocr_response import OcrResponse
 from schemas.ocr_tasks import AnswersOnlyOcrResult
 from schemas.reference_bundle import AnswersOnlyBundle
-from flows.solution_bank.reference_builder import build_answers_only_bundle_from_ocr
+from services.solution_bank.reference_builder import build_answers_only_bundle_from_ocr
 
 
 def build_answers_ocr_result(

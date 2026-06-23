@@ -7,7 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from core.config import RUNS_ROOT
-from web.auth import is_teacher_code
+from routes.auth import is_teacher_code
 
 SUBMISSIONS_XLSX = RUNS_ROOT / "student_submissions.xlsx"
 SUBMISSIONS_SHEET = "submissions"

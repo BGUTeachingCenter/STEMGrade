@@ -11,7 +11,7 @@ from schemas.reference_bundle import (
     QuestionsAnswersBundle,
     QuestionsOnlyBundle,
 )
-from flows.solution_bank.reference_builder import (
+from services.solution_bank.reference_builder import (
     merge_questions_and_answers_to_full_solution,
     promote_questions_answers_to_full_solution,
 )
