@@ -15,9 +15,36 @@ import base64
 from pathlib import Path
 
 from core.ai_clients.ai_usage_logger import log_ai_usage
+from core.ai_clients.model_capabilities import resolve_temperature
 from schemas.ocr_response import AiUsage, OcrOptions, OcrPage, OcrResponse, guess_input_kind
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+# Sampling params we can safely drop and retry without if a model rejects them
+# (e.g. gpt-5 / o-series only allow the default temperature).
+_OPENAI_DROPPABLE_PARAMS = ("temperature", "top_p")
+
+
+def _unsupported_openai_param(err_json: dict) -> Optional[str]:
+    """
+    Return the name of a droppable parameter the API rejected, else None.
+
+    OpenAI reports this as {"error": {"param": "temperature", "code": ...}} and
+    also describes it in the message, so we check both.
+    """
+    err = (err_json or {}).get("error") or {}
+
+    param = err.get("param")
+    if isinstance(param, str) and param in _OPENAI_DROPPABLE_PARAMS:
+        return param
+
+    msg = err.get("message") or ""
+    if re.search(r"unsupported|not supported|only the default|does not support", msg, re.IGNORECASE):
+        for p in _OPENAI_DROPPABLE_PARAMS:
+            if p in msg:
+                return p
+
+    return None
 
 
 def _safe_json_loads(s: str) -> dict:
@@ -271,6 +298,49 @@ class GptClient:
         return usage
 
 
+    def _post_responses(
+        self,
+        payload: Dict[str, Any],
+        *,
+        timeout_s: int,
+        context: str,
+    ) -> dict[str, Any]:
+        """
+        POST to the Responses API, retrying without a sampling parameter if the
+        model rejects it. This makes the client robust across many models
+        without per-model configuration.
+        """
+        url = f"{self.base_url}/v1/responses"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        # At most one retry per droppable parameter.
+        for _ in range(len(_OPENAI_DROPPABLE_PARAMS) + 1):
+            r = self.session.post(url, headers=headers, json=payload, timeout=timeout_s)
+            if r.ok:
+                return r.json()
+
+            try:
+                err_json = r.json()
+            except Exception:
+                err_json = {}
+
+            bad = _unsupported_openai_param(err_json)
+            if bad and bad in payload:
+                payload.pop(bad, None)
+                continue
+
+            err_text = (
+                json.dumps(err_json, ensure_ascii=False, indent=2)
+                if err_json
+                else r.text[:2000]
+            )
+            raise RuntimeError(f"{context} failed ({r.status_code}). Error:\n{err_text}")
+
+        raise RuntimeError(f"{context} failed: model rejected all sampling parameters.")
+
     def chat_json(
         self,
         *,
@@ -292,8 +362,6 @@ class GptClient:
           We intentionally do NOT send temperature/top_p because some models reject them.
           For grading, deterministic behavior is preferred anyway.
         """
-        url = f"{self.base_url}/v1/responses"
-
         payload: Dict[str, Any] = {
             "model": self.model,
             "input": [
@@ -311,22 +379,7 @@ class GptClient:
             # You can optionally add: "store": False
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
-        r = self.session.post(url, json=payload, headers=headers, timeout=timeout_s)
-
-        if not r.ok:
-            try:
-                err = r.json()
-                err_text = json.dumps(err, ensure_ascii=False, indent=2)
-            except Exception:
-                err_text = r.text[:2000]
-            raise RuntimeError(f"OpenAI request failed ({r.status_code}). Error:\n{err_text}")
-
-        data = r.json()
+        data = self._post_responses(payload, timeout_s=timeout_s, context="OpenAI request")
 
         self._record_usage(
             data=data,
@@ -408,35 +461,15 @@ class GptClient:
             "max_output_tokens": int(options.max_output_tokens),
         }
 
-        if options.temperature is not None and options.extra.get("send_temperature", True):
-            payload["temperature"] = float(options.temperature)
+        # Only send a temperature when this model accepts a custom one.
+        temperature = resolve_temperature(provider="openai", model=model_to_use, options=options)
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         for k, v in (options.extra.get("openai_payload") or {}).items():
             payload[k] = v
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
-        url = f"{self.base_url}/v1/responses"
-
-        r = self.session.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=options.timeout_s,
-        )
-
-        if not r.ok:
-            try:
-                err = r.json()
-                err_text = json.dumps(err, ensure_ascii=False, indent=2)
-            except Exception:
-                err_text = r.text[:2000]
-            raise RuntimeError(f"OpenAI OCR failed ({r.status_code}):\n{err_text}")
-
-        data = r.json()
+        data = self._post_responses(payload, timeout_s=options.timeout_s, context="OpenAI OCR")
         text = _extract_text_from_responses_api(data)
 
         if not text.strip():

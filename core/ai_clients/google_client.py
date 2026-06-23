@@ -10,6 +10,7 @@ import base64
 from pathlib import Path
 
 from core.ai_clients.ai_usage_logger import log_ai_usage
+from core.ai_clients.model_capabilities import resolve_temperature
 from schemas.ocr_response import AiUsage, OcrOptions, OcrPage, OcrResponse, guess_input_kind
 
 import requests
@@ -290,6 +291,15 @@ class GoogleClient:
         url = f"{self.api_base}/{self.api_version}/models/{model_to_use}:generateContent"
         params = {"key": self.api_key}
 
+        generation_config: dict[str, Any] = {
+            "maxOutputTokens": int(options.max_output_tokens),
+        }
+
+        # Only send a temperature when this model accepts a custom one.
+        temperature = resolve_temperature(provider="google", model=model_to_use, options=options)
+        if temperature is not None:
+            generation_config["temperature"] = temperature
+
         payload: dict[str, Any] = {
             "contents": [
                 {
@@ -300,10 +310,7 @@ class GoogleClient:
                     ],
                 }
             ],
-            "generationConfig": {
-                "temperature": float(options.temperature),
-                "maxOutputTokens": int(options.max_output_tokens),
-            },
+            "generationConfig": generation_config,
         }
 
         # Escape hatch for OCR experiments.
