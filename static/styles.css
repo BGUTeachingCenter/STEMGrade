@@ -2250,6 +2250,63 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   grid-column: 1 / -1;
 }
 
+/* Token use per solution list (Overview) */
+.mg-token-solutions-card {
+  margin-top: 20px;
+}
+
+.mg-token-solution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 6px 0 10px;
+  padding-right: 4px;
+}
+
+.mg-token-solution-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.mg-token-solution-info {
+  min-width: 0;
+}
+
+.mg-token-solution-code {
+  font-weight: 900;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.mg-token-solution-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mg-token-solution-count {
+  flex: 0 0 auto;
+  font-weight: 900;
+  font-size: 15px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.mg-token-solution-count span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 @media (max-width: 1000px) {
   .mg-solution-row {
     grid-template-columns: 1fr;

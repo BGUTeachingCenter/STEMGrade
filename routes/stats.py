@@ -93,8 +93,31 @@ def teacher_dashboard(_session: dict = Depends(require_teacher)):
 
     gemini_tokens_per_code = [{"code": c, "tokens": int(tokens_by_code[c])} for c in sorted(tokens_by_code.keys())]
 
+    # 4) tokens per solution (one entry per student submission)
+    tokens_per_solution = []
+    for r in rows:
+        code = (r.get("code") or "").strip()
+        if not code:
+            continue
+        tok = r.get("gemini_tokens")
+        try:
+            tok_i = int(tok or 0)
+        except Exception:
+            tok_i = 0
+        tokens_per_solution.append({
+            "timestamp": str(r.get("timestamp") or ""),
+            "code": code,
+            "exam_id": (r.get("exam_id") or "").strip(),
+            "provider": (r.get("provider") or "").strip(),
+            "tokens": tok_i,
+        })
+
+    # newest submissions first
+    tokens_per_solution.sort(key=lambda x: x["timestamp"], reverse=True)
+
     return {
         "usage_per_day": usage_per_day,
         "codes_per_exam": codes_per_exam,
         "gemini_tokens_per_code": gemini_tokens_per_code,
+        "tokens_per_solution": tokens_per_solution,
     }
