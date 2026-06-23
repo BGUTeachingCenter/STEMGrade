@@ -66,6 +66,14 @@
       </div>
     </div>
   </div>
+
+  <div class="card mg-token-solutions-card">
+    <div class="cardInner">
+      <div style="font-weight:900; margin-bottom:8px;">Token use per solution</div>
+      <div class="mg-token-solution-list" id="tokenSolutionList">Loading…</div>
+      <div class="small">Gemini tokens used by each student submission (newest first)</div>
+    </div>
+  </div>
       </section>
 
   <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
@@ -408,6 +416,30 @@
     drawBars(canvasId, labels, bins);
   }
 
+  function renderTokenSolutions(list){
+    const el = $("tokenSolutionList");
+    if (!el) return;
+
+    if (!list.length){
+      el.innerHTML = `<div class="small">No student submissions logged yet.</div>`;
+      return;
+    }
+
+    el.innerHTML = list.map(x => {
+      const ts = String(x.timestamp || "").replace("T", " ");
+      const meta = [x.exam_id, x.provider, ts].filter(Boolean).map(escapeHtml).join(" · ");
+      return `
+        <div class="mg-token-solution-row">
+          <div class="mg-token-solution-info">
+            <div class="mg-token-solution-code">${escapeHtml(x.code || "—")}</div>
+            <div class="mg-token-solution-meta">${meta || "—"}</div>
+          </div>
+          <div class="mg-token-solution-count">${Number(x.tokens || 0).toLocaleString()} <span>tok</span></div>
+        </div>
+      `;
+    }).join("");
+  }
+
   async function loadStatsAndRender(){
     try{
       const r = await authedFetch(API_BASE + "/routes/stats/teacher_dashboard");
@@ -416,6 +448,7 @@
         drawBars("chartPerDay", ["unauthorized"], [0]);
         drawBars("chartCodesExam", ["unauthorized"], [0]);
         drawBars("chartTokens", ["unauthorized"], [0]);
+        renderTokenSolutions([]);
         return;
       }
       const j = await r.json();
@@ -434,6 +467,8 @@
 
       const tokens = (j.gemini_tokens_per_code || []).map(x => Number(x.tokens || 0));
       drawHistogram("chartTokens", tokens, 8);
+
+      renderTokenSolutions(j.tokens_per_solution || []);
 
     }catch(e){
       console.log("Stats exception:", e);
