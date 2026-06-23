@@ -160,64 +160,81 @@ Why JSON-first works better for handwriting:
 
 To change feedback style/tone/rules, edit:
 
-- `grading_prompt_he_math.txt`
+- `flows/student_grading/grading/grading_prompt_he_math.txt`
 
-This file is loaded at runtime from the same directory as the grading module, so you do not need to redeploy code to refine feedback instructions—only update the TXT.
+This file is loaded at runtime from the same directory as the grading module (`prompting.py`), so you do not need to redeploy code to refine feedback instructions—only update the TXT.
 
+---
+
+## Project layout
+
+The code is organized **by user journey**, with cross-cutting code concentrated
+in `common/` and platform/web routers in `web/`.
+
+```
+app.py                       # FastAPI entrypoint (uvicorn app:app); wires all routers
+core/                        # Shared infrastructure
+  config.py security.py storage.py debug.py
+  ai_clients/                # Ollama / Google / GPT / Mathpix OCR clients + usage logging
+schemas/                     # Shared Pydantic models (OCR + reference bundles)
+common/                      # Code shared across 2+ journeys
+  exam_structure.py
+  tex/                       # part_normalize, reference_ranges, reference_tex,
+                             # student_tex, compile_tex_to_pdf, clean_tex,
+                             # ai_proofreader, latex_render, math_normalize
+  pdf/                       # pdf_cleanse
+flows/
+  student_grading/           # Journey 1: submit .tex -> bundle -> grade -> feedback PDF
+    routes.py                #   POST /routes/grade_tex_{ollama,google,chatgpt}
+    bundler.py answer_render.py feedback_tex.py unified_tex.py
+    grading/                 #   AI grading internals
+      payloads.py grader_payloads.py grader.py grader_sources.py
+      prompting.py grading_prompt_he_math.txt schema.py
+      json_sanitizer.py solution_bank_matcher.py
+  solution_bank/             # Journey 2: teacher uploads reference exam -> OCR -> bundles
+    routes.py                #   /routes/bank/*
+    reference_builder.py
+    answers_ocr.py questions_ocr.py questions_answers_ocr.py
+    full_solution_service.py
+  handwritten_ocr/           # Journey 3: student handwriting -> OCR -> student .tex template
+    routes.py                #   POST /routes/ocr_handwritten
+    student_work_ocr.py
+web/                         # Cross-cutting platform routers
+  auth.py stats.py progress.py template_pages.py
+  health.py error_handlers.py student_log_routes.py
+templates/ static/           # HTML frontend + assets
+```
+
+---
+
+## Grading pipeline (LaTeX flow) — module map
+
+The current pipeline is **payload-first**: each question/part is extracted once
+into a JSON payload that is the single source of truth for both the bundle PDF
+and the AI grading.
+
+```mermaid
 flowchart TD
-  %% =========================
-  %% API ENTRY
-  %% =========================
-  A[server.py<br/>grade_bundle_from_reference_tex_api()] --> B[grader/qa_bundle.py<br/>generate_qa_bundle_from_reference_tex()]
-  B --> C[grader/bundler.py<br/>generate_bundle(reference=.tex, student_tex)]
+  A[flows/student_grading/routes.py<br/>POST /routes/grade_tex_*] --> B[grading/payloads.py<br/>build_payloads(reference_tex, student_tex)]
+  B --> B1[(manifest.json + payloads/*.json<br/>per-question reference + student.latex_raw)]
 
-  %% =========================
-  %% BUNDLE GENERATION (Reference TeX mode)
-  %% =========================
-  C --> D[grader/bundler.py<br/>_generate_from_reference_tex()]
+  %% Bundle TeX is built from the SAME payloads (no re-extraction)
+  B1 --> C[bundler.py<br/>_write_bundle_tex_inline_answers()]
+  C --> C1[(qa_bundle.tex)]
 
-  D --> E[grader/reference_tex.py<br/>parse_reference_tex(reference_tex)]
-  E --> E1[(reference_snippets: dict[(q,part)->latex])]
+  %% AI grading drives off the same manifest
+  B1 --> D[grading/grader_payloads.py<br/>grade_payload_manifest(manifest, model)]
+  D --> D1[grading/prompting.py<br/>load_grading_prompt()]
+  D --> D2[core/ai_clients<br/>Ollama / Google / GPT chat_json(schema)]
+  D --> D3[(grades.json)]
 
-  D --> F[grader/student_tex.py<br/>parse_student_tex_answers(student_tex)]
-  F --> F1[(student_answers: dict[(q,part)->latex])]
-
-  %% Student full PDF (optional but you do it)
-  D --> G[grader/compile_tex.py<br/>compile_tex_to_pdf(student_tex, clean=True)]
-  G --> G1[(student_clean_pdf)]
-
-  %% Per-answer PDFs (render each part)
-  D --> H[grader/answer_render.py<br/>compile_student_answer_pdfs(student_answers)]
-  H --> H1[answer_render.py<br/>make_answer_tex(part, answer_latex, font_name)]
-  H1 --> H2[grader/compile_tex.py<br/>compile_tex_to_pdf(answer_part.tex, clean=True)]
-  H2 --> H3[(student_answer_pdfs: dict[(q,part)->pdf])]
-
-  %% Bundle TeX that includes reference snippets + answer PDFs
-  D --> I[grader/bundler.py<br/>_write_bundle_tex(... reference_snippets, answer_pdfs ...)]
-  I --> I1[(bundle_tex)]
-
-  %% Bundle PDF (you currently call clean=False here)
-  I1 --> J[grader/compile_tex.py<br/>compile_tex_to_pdf(bundle_tex, clean=FALSE)]
-  J --> J1[(bundle_pdf)]
-
-  %% =========================
-  %% AI GRADING ON THE BUNDLE PDF
-  %% =========================
-  A --> K[grader/ai_grading/grader.py<br/>grade_bundle_pdf(bundle_pdf)]
-  K --> L[grader/pdf_extract.py<br/>split_bundle_pdf_into_questions(bundle_pdf)]
-  L --> L1[(per-question payloads)]
-  K --> M[grader/prompting.py<br/>load_grading_prompt()]
-  K --> N[grader/ollama_client.py<br/>OllamaClient.chat_json(...schema...)]
-  N --> O[(grades.json / BundleGrades)]
-
-  %% =========================
-  %% FEEDBACK PDF + FINAL MERGE
-  %% =========================
-  A --> P[grader/ai_grading/graded_pdf.py<br/>build_graded_pdf(grades, bundle_pdf)]
-  P --> Q[grader/ai_grading/feedback_latex.py<br/>render_feedback_tex(grades)]
-  Q --> R[grader/compile_tex.py<br/>compile_tex_to_pdf(feedback.tex, clean=True)]
-  R --> R1[(feedback_pdf)]
-
-  P --> S[graded_pdf.py<br/>merge_pdfs(feedback_pdf + bundle_pdf)]
-  S --> T[(final graded_test.pdf)]
+  %% Feedback TeX, then unify with the bundle, then compile
+  D3 --> E[feedback_tex.py<br/>build_feedback_tex(grades.json)]
+  E --> E1[(feedback.tex)]
+  C1 --> F[unified_tex.py<br/>build_unified_tex(qa_bundle.tex, feedback.tex)]
+  E1 --> F
+  F --> F1[(graded_provider.tex)]
+  F1 --> G[common/tex/compile_tex_to_pdf.py<br/>compile_tex_to_pdf(clean=True, XeLaTeX)]
+  G --> G1[(graded_provider.pdf — final output)]
+```
 
