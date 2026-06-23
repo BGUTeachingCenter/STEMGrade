@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -172,12 +173,18 @@ You are MathGrade Answers-Only Builder.
 Input:
 - OCR text from a teacher-uploaded official answers / solutions file.
 - The file may contain only answers, not the full question text.
+- The visible numbering in the answer file may be local numbering such as 1), 2), 3), and may NOT match the exam's global question_id.
 
 Output:
 - Return strict JSON matching the AnswersOnlyBundle schema.
-- The output should contain extracted official_solution, expected_answer, and grading_instructions.
-- Include question_id and part/part_key when visible or strongly inferable.
-- If the file contains short hints of the question text, place them in question_hint.
+- Extract answer candidates conservatively.
+- Include official_solution, expected_answer, grading_instructions.
+- Use question_hint to store any visible math expression or short text that identifies what this answer solves.
+
+Critical rule:
+- Do NOT force question_id or part_key unless the answer file explicitly shows a global question number and part label.
+- If the file only shows local numbering like 1), 2), 3), keep question_id null or uncertain rather than pretending it is Question 1, Question 2, Question 3.
+- Prefer preserving source order and question_hint over inventing structure.
 
 Rules:
 - Do not invent missing question text.
@@ -187,7 +194,9 @@ Rules:
 - grading_instructions should help the grading AI grade fairly.
 - Accept mathematically equivalent methods; do not require exact official wording.
 - Preserve Hebrew and LaTeX where appropriate.
-- part_key must be normalized Latin: א=a, ב=b, ג=c, ד=d, ה=e, ו=f, ז=g, ח=h, ט=i, י=j.
+- If a solution begins with a visible expression such as |x-2|<=5, place that expression in question_hint.
+- If a solution begins with a local number such as 1), 2), 3), mention it in warnings or question_hint, but do not treat it as global question_id unless the surrounding text clearly says it is a global question.
+- part_key must be normalized Latin only when a real part label is visible: א=a, ב=b, ג=c, ד=d, ה=e, ו=f, ז=g, ח=h, ט=i, י=j.
 """
 
 
@@ -309,6 +318,378 @@ def _as_full_solution_bundle(data: dict[str, Any], *, exam_id: str = "") -> Full
     if exam_id and not data.get("exam_id"):
         data["exam_id"] = exam_id
     return FullSolutionBundle.model_validate(data)
+
+
+# ---------------------------------------------------------------------
+# Answer-to-question alignment helpers
+# ---------------------------------------------------------------------
+# Why this exists:
+# Answers-only files often use local labels like "1)", "2)", "3)".
+# Those labels do not always mean Question 1, Question 2, Question 3.
+# So we must align by mathematical/content overlap, not only by qid+part_key.
+
+
+_HEBREW_STOPWORDS = {
+    "את", "של", "על", "עם", "כל", "לכל", "כי", "אם", "אז", "או", "וגם",
+    "הבא", "הבאה", "הוכיחו", "הוכח", "מצאו", "מצא", "סרטטו", "סרטט",
+    "תשובתכם", "הטענה", "באמצעות", "דוגמה", "נגדית", "מתקיים", "מתקימת",
+    "קבוצת", "המספרים", "המקיימים", "אי", "שוויון", "האי", "הפתרונות",
+}
+
+
+def _norm_text_for_alignment(text: str) -> str:
+    text = str(text or "")
+    text = text.replace("\\left", "").replace("\\right", "")
+    text = text.replace("≤", r"\le").replace("≥", r"\ge")
+    text = text.replace("−", "-").replace("–", "-").replace("—", "-")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip().lower()
+
+
+def _compact_math(text: str) -> str:
+    text = _norm_text_for_alignment(text)
+    text = re.sub(r"\\mathbb\{r\}", "r", text)
+    text = re.sub(r"\\mathbb\{n\}", "n", text)
+    text = re.sub(r"\\,", "", text)
+    text = re.sub(r"\s+", "", text)
+    return text
+
+
+def _tokens_for_alignment(text: str) -> set[str]:
+    text = _norm_text_for_alignment(text)
+
+    # Keep Hebrew, English letters, digits, and common math command words.
+    raw = re.findall(r"[א-תA-Za-z0-9_]+|\\[A-Za-z]+", text)
+    out: set[str] = set()
+
+    for tok in raw:
+        tok = tok.strip().lower()
+        if not tok or len(tok) <= 1:
+            continue
+        if tok in _HEBREW_STOPWORDS:
+            continue
+        out.add(tok)
+
+    return out
+
+
+def _latex_math_chunks(text: str) -> set[str]:
+    text = str(text or "")
+    chunks: set[str] = set()
+
+    # Inline/display math chunks.
+    patterns = [
+        r"\$([^$]+)\$",
+        r"\\\((.*?)\\\)",
+        r"\\\[(.*?)\\\]",
+    ]
+
+    for pat in patterns:
+        for m in re.finditer(pat, text, flags=re.DOTALL):
+            chunk = _compact_math(m.group(1))
+            if len(chunk) >= 3:
+                chunks.add(chunk)
+
+    # Also add common raw math-looking expressions even when not wrapped.
+    for m in re.finditer(r"\|[^|\n]{1,80}\|", text):
+        chunk = _compact_math(m.group(0))
+        if len(chunk) >= 3:
+            chunks.add(chunk)
+
+    for m in re.finditer(r"\\frac\{[^{}]+\}\{[^{}]+\}", text):
+        chunk = _compact_math(m.group(0))
+        if len(chunk) >= 3:
+            chunks.add(chunk)
+
+    return chunks
+
+
+def _canonical_abs_inner(expr: str) -> str:
+    """
+    Canonicalize simple absolute-value inners:
+      2-x and x-2 should be considered the same inside abs().
+      6-y and y-6 should also be considered the same.
+
+    This is intentionally conservative.
+    """
+    e = _compact_math(expr)
+    e = e.strip("|")
+
+    # Remove wrapping braces if present.
+    e = e.strip("{}")
+
+    # For simple a-b vs b-a, abs makes them equivalent.
+    m = re.fullmatch(r"([a-zA-Z0-9]+)-([a-zA-Z0-9]+)", e)
+    if m:
+        a, b = m.group(1), m.group(2)
+        return "-".join(sorted([a, b]))
+
+    m = re.fullmatch(r"([a-zA-Z0-9]+)\+([a-zA-Z0-9]+)", e)
+    if m:
+        a, b = m.group(1), m.group(2)
+        return "+".join(sorted([a, b]))
+
+    return e
+
+
+def _abs_inequality_signatures(text: str) -> set[tuple[str, str, str]]:
+    """
+    Extract signatures like:
+      |x-2| <= 5  => ("2-x", "<=", "5")
+      5 >= |2-x|  => ("2-x", "<=", "5")
+      1 < |y-6|   => ("6-y", ">", "1")
+
+    Output relation is always from abs-expression perspective.
+    """
+    s = _norm_text_for_alignment(text)
+    s = s.replace(r"\leq", r"\le").replace(r"\geq", r"\ge")
+
+    signatures: set[tuple[str, str, str]] = set()
+
+    rel_patterns = [
+        (r"\\le|<=", "<="),
+        (r"\\ge|>=", ">="),
+        (r"<", "<"),
+        (r">", ">"),
+    ]
+
+    rel_regex = r"(\\le|\\ge|<=|>=|<|>)"
+
+    def norm_rel(raw: str) -> str:
+        raw = raw.strip()
+        if raw in {r"\le", "<="}:
+            return "<="
+        if raw in {r"\ge", ">="}:
+            return ">="
+        return raw
+
+    def invert_rel(rel: str) -> str:
+        return {
+            "<": ">",
+            "<=": ">=",
+            ">": "<",
+            ">=": "<=",
+        }.get(rel, rel)
+
+    # |expr| < number
+    for m in re.finditer(r"\|([^|\n]+)\|\s*" + rel_regex + r"\s*([0-9]+(?:\.[0-9]+)?)", s):
+        inner = _canonical_abs_inner(m.group(1))
+        rel = norm_rel(m.group(2))
+        num = m.group(3)
+        signatures.add((inner, rel, num))
+
+    # number < |expr|
+    for m in re.finditer(r"([0-9]+(?:\.[0-9]+)?)\s*" + rel_regex + r"\s*\|([^|\n]+)\|", s):
+        num = m.group(1)
+        rel = invert_rel(norm_rel(m.group(2)))
+        inner = _canonical_abs_inner(m.group(3))
+        signatures.add((inner, rel, num))
+
+    return signatures
+
+
+def _answer_part_text(ap: Any) -> str:
+    return "\n".join(
+        [
+            str(getattr(ap, "question_hint", "") or ""),
+            str(getattr(ap, "official_solution", "") or ""),
+            str(getattr(ap, "expected_answer", "") or ""),
+            str(getattr(ap, "grading_instructions", "") or ""),
+        ]
+    ).strip()
+
+
+def _question_part_text(qp: Any) -> str:
+    return "\n".join(
+        [
+            str(getattr(qp, "question_text", "") or ""),
+            str(getattr(qp, "required_action", "") or ""),
+        ]
+    ).strip()
+
+
+def _topic_flags(text: str) -> set[str]:
+    t = _norm_text_for_alignment(text)
+    flags: set[str] = set()
+
+    if "|" in t or "ערך מוחלט" in t:
+        flags.add("absolute_value")
+    if "דוגמה נגדית" in t or "counterexample" in t or "אינו נכון" in t:
+        flags.add("counterexample")
+    if "אינדוקציה" in t or "induction" in t:
+        flags.add("induction")
+    if "בינום" in t or "newton" in t or "binom" in t:
+        flags.add("binomial")
+    if "ברנולי" in t or "bernoulli" in t:
+        flags.add("bernoulli")
+    if "שטח" in t or "כיתה" in t or "מלבנית" in t:
+        flags.add("area_error")
+    if "סכום" in t or r"\sum" in t:
+        flags.add("sum")
+    if "מכפלה" in t or r"\prod" in t:
+        flags.add("product")
+
+    return flags
+
+
+def _score_answer_alignment(
+    *,
+    question_id: int,
+    part_key: str,
+    question_part: Any,
+    answer_question_id: int | None,
+    answer_part: Any,
+) -> tuple[float, list[str]]:
+    """
+    Return:
+      (score 0..1, warnings)
+
+    Important:
+      A direct qid+part match is only a weak signal.
+      Strong match requires content/math overlap.
+    """
+    q_text = _question_part_text(question_part)
+    a_text = _answer_part_text(answer_part)
+
+    warnings: list[str] = []
+
+    if not a_text.strip():
+        return 0.0, ["Answer candidate has no official solution text."]
+
+    q_abs = _abs_inequality_signatures(q_text)
+    a_abs = _abs_inequality_signatures(a_text)
+
+    # Hard conflict: same absolute expression and threshold but opposite direction.
+    # Example:
+    #   Question: |6-y| < 1
+    #   Answer:   1 < |y-6|
+    for qi, qr, qn in q_abs:
+        for ai, ar, an in a_abs:
+            if qi == ai and qn == an and qr != ar:
+                return 0.05, [
+                    f"Rejected likely mismatch: same absolute expression {qi} and threshold {qn}, but inequality direction differs ({qr} vs {ar})."
+                ]
+
+    score = 0.0
+
+    # Weak structural signal.
+    if answer_question_id is not None and int(answer_question_id) == int(question_id):
+        score += 0.12
+
+    answer_pk = _part_key(
+        str(getattr(answer_part, "part", "") or ""),
+        str(getattr(answer_part, "part_key", "") or ""),
+    )
+    if answer_pk and answer_pk == part_key:
+        score += 0.08
+
+    # Strong math signature signal.
+    q_chunks = _latex_math_chunks(q_text)
+    a_chunks = _latex_math_chunks(a_text)
+
+    if q_chunks and a_chunks:
+        exact_overlap = q_chunks & a_chunks
+        if exact_overlap:
+            score += min(0.45, 0.18 * len(exact_overlap))
+
+    # Absolute inequality exact match is very strong.
+    if q_abs and a_abs:
+        exact_abs = q_abs & a_abs
+        if exact_abs:
+            score += 0.50
+
+        same_abs_expr = {
+            qi
+            for qi, _qr, _qn in q_abs
+        } & {
+            ai
+            for ai, _ar, _an in a_abs
+        }
+        if same_abs_expr:
+            score += 0.12
+
+    # General token overlap.
+    q_tokens = _tokens_for_alignment(q_text)
+    a_tokens = _tokens_for_alignment(a_text)
+    if q_tokens and a_tokens:
+        jaccard = len(q_tokens & a_tokens) / max(1, len(q_tokens | a_tokens))
+        score += min(0.25, jaccard * 0.75)
+
+    # Topic overlap.
+    q_topics = _topic_flags(q_text)
+    a_topics = _topic_flags(a_text)
+    if q_topics and a_topics:
+        topic_overlap = q_topics & a_topics
+        if topic_overlap:
+            score += min(0.18, 0.08 * len(topic_overlap))
+
+    # Suspicious variable mismatch in absolute-value exercises.
+    if "absolute_value" in q_topics and "absolute_value" in a_topics:
+        q_vars = {x for x in re.findall(r"[a-zA-Z]", _compact_math(q_text)) if x not in {"r", "n"}}
+        a_vars = {x for x in re.findall(r"[a-zA-Z]", _compact_math(a_text)) if x not in {"r", "n"}}
+        if q_vars and a_vars and not (q_vars & a_vars):
+            score -= 0.25
+            warnings.append(
+                f"Suspicious variable mismatch between question variables {sorted(q_vars)} and answer variables {sorted(a_vars)}."
+            )
+
+    score = max(0.0, min(1.0, score))
+    return score, warnings
+
+
+def _flatten_answer_parts(ab: AnswersOnlyBundle) -> list[dict[str, Any]]:
+    """
+    Flatten AnswersOnlyBundle into candidates, preserving source order.
+    """
+    candidates: list[dict[str, Any]] = []
+    order = 0
+
+    for aq in ab.questions:
+        qid = _normalize_question_id(aq.question_id)
+
+        for ap in aq.parts:
+            order += 1
+            candidates.append(
+                {
+                    "order": order,
+                    "question_id": qid,
+                    "part": ap,
+                    "used": False,
+                }
+            )
+
+    return candidates
+
+
+def _best_answer_candidate(
+    *,
+    question_id: int,
+    part_key: str,
+    question_part: Any,
+    candidates: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, float, list[str]]:
+    best: dict[str, Any] | None = None
+    best_score = 0.0
+    best_warnings: list[str] = []
+
+    for cand in candidates:
+        if cand.get("used"):
+            continue
+
+        score, warnings = _score_answer_alignment(
+            question_id=question_id,
+            part_key=part_key,
+            question_part=question_part,
+            answer_question_id=cand.get("question_id"),
+            answer_part=cand.get("part"),
+        )
+
+        if score > best_score:
+            best = cand
+            best_score = score
+            best_warnings = warnings
+
+    return best, best_score, best_warnings
 
 
 def normalize_reference_bundle(bundle: dict[str, Any], *, exam_id: str = "") -> dict[str, Any]:
@@ -559,10 +940,14 @@ def merge_questions_and_answers_to_full_solution(
     Output:
       FullSolutionBundle as dict.
 
-    Matching:
-      Primary key: question_id + part_key.
-      If an answer part is missing, the output part is marked missing.
-      If an answer exists without a matching question, a warning is added.
+    Matching strategy:
+      1. Flatten all answers into ordered candidates.
+      2. For every question part, score every unused answer candidate.
+      3. Attach only when the content match is strong enough.
+      4. Leave uncertain/weak matches missing rather than attaching wrong answers.
+
+    This is intentionally conservative:
+      wrong answer alignment is worse than a missing answer.
     """
     qb = (
         questions_bundle
@@ -575,56 +960,77 @@ def merge_questions_and_answers_to_full_solution(
         else AnswersOnlyBundle.model_validate(answers_bundle)
     )
 
-    answer_index: dict[tuple[int, str], Any] = {}
-    unmatched_answer_keys: set[tuple[int, str]] = set()
-
-    for aq in ab.questions:
-        qid = _normalize_question_id(aq.question_id)
-        if qid is None:
-            continue
-
-        for ap in aq.parts:
-            pk = _part_key(ap.part, ap.part_key)
-            if not pk:
-                continue
-
-            key = (qid, pk)
-            answer_index[key] = ap
-            unmatched_answer_keys.add(key)
+    candidates = _flatten_answer_parts(ab)
 
     full_questions: list[dict[str, Any]] = []
     warnings: list[str] = []
     warnings.extend(qb.warnings or [])
     warnings.extend(ab.warnings or [])
 
+    attached_count = 0
+    missing_count = 0
+    uncertain_count = 0
+
     for q in qb.questions:
         full_parts: list[dict[str, Any]] = []
 
         for p in q.parts:
             pk = _part_key(p.part, p.part_key)
-            key = (q.question_id, pk)
 
-            ap = answer_index.get(key)
             part_warnings = list(p.warnings or [])
 
-            if ap:
-                unmatched_answer_keys.discard(key)
+            best, best_score, alignment_warnings = _best_answer_candidate(
+                question_id=q.question_id,
+                part_key=pk,
+                question_part=p,
+                candidates=candidates,
+            )
+
+            # Conservative thresholds:
+            # >= 0.60 attach
+            # 0.45-0.59 mention possible candidate but do not attach
+            # < 0.45 ignore
+            attach = best is not None and best_score >= 0.60
+
+            if attach:
+                ap = best["part"]
+                best["used"] = True
+                attached_count += 1
+
                 part_warnings.extend(ap.warnings or [])
+                part_warnings.extend(alignment_warnings)
+
+                if best_score < 0.78:
+                    uncertain_count += 1
+                    review_status = "uncertain"
+                    part_warnings.append(
+                        f"Answer was attached by content alignment with moderate confidence ({best_score:.2f}). Teacher review recommended."
+                    )
+                else:
+                    review_status = ap.review_status or "ok"
 
                 official_solution = ap.official_solution
                 expected_answer = ap.expected_answer
                 grading_instructions = ap.grading_instructions
-                review_status = ap.review_status
-                confidence = ap.confidence
+                confidence = best_score
                 answer_source = ",".join(ab.source_names or [])
+
             else:
+                missing_count += 1
                 official_solution = ""
                 expected_answer = ""
                 grading_instructions = ""
                 review_status = "missing"
                 confidence = p.confidence
                 answer_source = ""
-                part_warnings.append("No matching answer was found for this question part.")
+
+                if best is not None and best_score >= 0.45:
+                    part_warnings.append(
+                        f"A possible answer candidate was found with weak confidence ({best_score:.2f}) but was not attached."
+                    )
+                    part_warnings.extend(alignment_warnings)
+                else:
+                    part_warnings.append("No matching answer was found for this question part.")
 
             full_parts.append(
                 {
@@ -651,8 +1057,34 @@ def merge_questions_and_answers_to_full_solution(
             }
         )
 
-    for qid, pk in sorted(unmatched_answer_keys):
-        warnings.append(f"Answer exists for Q{qid}{pk}, but no matching question part was found.")
+    unused_candidates = [c for c in candidates if not c.get("used")]
+    for cand in unused_candidates:
+        ap = cand.get("part")
+        preview = _answer_part_text(ap)
+        preview = re.sub(r"\s+", " ", preview).strip()[:180]
+        warnings.append(
+            f"Unused answer candidate #{cand.get('order')}: {preview}"
+        )
+
+    total_parts = attached_count + missing_count
+    missing_rate = (missing_count / total_parts) if total_parts else 1.0
+
+    warnings.append(
+        f"Answer alignment summary: attached={attached_count}, missing={missing_count}, uncertain={uncertain_count}, unused_answers={len(unused_candidates)}, missing_rate={missing_rate:.2f}"
+    )
+
+    if attached_count == 0:
+        warnings.append("No answers were aligned. This should be treated as questions-only, not a gradeable full solution.")
+
+    if missing_rate > 0.35:
+        warnings.append(
+            "High missing-answer rate. This full solution should be considered a draft and not automatically gradeable."
+        )
+
+    if uncertain_count:
+        warnings.append(
+            f"{uncertain_count} attached answers have only moderate alignment confidence and should be reviewed."
+        )
 
     full = FullSolutionBundle(
         exam_id=qb.exam_id or ab.exam_id or exam_id,
