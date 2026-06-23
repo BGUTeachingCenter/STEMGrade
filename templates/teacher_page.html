@@ -521,21 +521,43 @@ function setActiveExam(id) {
   }
 }
 
-function formatTokenLine(item) {
-  // Tokens used to OCR + structure this uploaded solution. May be absent on
-  // older items uploaded before token logging existed.
-  if (!item || item.total_tokens == null) {
+// Token usage per exam, aggregated from data/ai_usage_logs via
+// /routes/bank/token_usage. Keyed by exam_id.
+let tokenUsageByExam = {};
+
+function formatTokenLine(examId) {
+  // Tokens spent on OCR + AI structuring to decipher this solution, summed
+  // from the usage logs. Absent for solutions deciphered before usage
+  // attribution existed.
+  const usage = tokenUsageByExam[examId];
+
+  if (!usage || usage.total_tokens == null) {
     return `🔢 Tokens to decipher: <b>n/a</b>`;
   }
 
-  const total = Number(item.total_tokens || 0);
-  const ocr = Number(item.ocr_tokens || 0);
-  const ai = Number(item.ai_tokens || 0);
+  const total = Number(usage.total_tokens || 0);
+  const ocr = Number(usage.ocr_tokens || 0);
+  const ai = Number(usage.ai_tokens || 0);
 
   return (
     `🔢 Tokens to decipher: <b>${total.toLocaleString()}</b> ` +
     `<span class="mg-token-breakdown">(OCR ${ocr.toLocaleString()} · AI ${ai.toLocaleString()})</span>`
   );
+}
+
+async function loadTokenUsage() {
+  try {
+    const r = await authedFetch(API_BASE + "/routes/bank/token_usage");
+    if (!r.ok) {
+      tokenUsageByExam = {};
+      return;
+    }
+    const j = await r.json();
+    tokenUsageByExam = j.by_exam || {};
+  } catch (e) {
+    console.log("Token usage load failed:", e);
+    tokenUsageByExam = {};
+  }
 }
 
 function readableContentType(type) {
@@ -743,6 +765,9 @@ async function loadAllSolutionFiles(examIds) {
     }
   }
 
+  // Pull per-solution token usage from the AI usage logs before rendering.
+  await loadTokenUsage();
+
   renderSolutionList(allItems);
 }
 
@@ -811,8 +836,8 @@ function renderSolutionList(items) {
           <div class="mg-solution-meta">
             Updated: ${escapeHtml(group.latestCreatedAt || primary.created_at || "unknown date")}
           </div>
-          <div class="mg-solution-tokens" data-role="active-tokens">
-            ${formatTokenLine(primary)}
+          <div class="mg-solution-tokens">
+            ${formatTokenLine(group.exam_id)}
           </div>
           <div class="mg-solution-tags">${statusTags}</div>
           <div class="mg-solution-tabs">${roleTabs}</div>
@@ -833,7 +858,6 @@ function renderSolutionList(items) {
 
     const previewEl = div.querySelector(".preview");
     const activeFileEl = div.querySelector('[data-role="active-file"]');
-    const activeTokensEl = div.querySelector('[data-role="active-tokens"]');
 
     function selectedItem() {
       return group.items[selectedIndex] || group.primaryItem || group.items[0];
@@ -844,10 +868,6 @@ function renderSolutionList(items) {
 
       if (activeFileEl) {
         activeFileEl.textContent = selected?.filename || "No file selected";
-      }
-
-      if (activeTokensEl) {
-        activeTokensEl.innerHTML = formatTokenLine(selected);
       }
 
       div.querySelectorAll(".mg-solution-tab").forEach(btn => {
