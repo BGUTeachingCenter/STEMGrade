@@ -23,11 +23,12 @@ from core.debug import create_debug_trace, write_debug_log
 from core.security import require_session
 from services.student_grading.grading.grader_payloads import grade_payload_manifest
 from services.student_grading.grading.payloads import PayloadItem, build_payloads
-from services.student_grading.grading.solution_bank_matcher import pick_reference_with_exam_id
+from services.student_grading.grading.solution_bank_matcher import pick_reference_with_match_info
 from services.student_grading.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from services.student_grading.feedback_tex import build_feedback_tex
 from common.tex.student_tex import parse_student_tex_answers
+from common.exam_summary import compare_summaries, read_json_file, write_student_summary as write_student_summary_file
 from services.student_grading.unified_tex import build_unified_tex
 from core.ai_clients.ai_usage_logger import bind_usage_context
 
@@ -247,6 +248,7 @@ async def _grade_tex_flow(
     persistent_results_dir.mkdir(parents=True, exist_ok=True)
 
     tmp_dir: Path | None = None
+    student_summary_path: Path | None = None
 
     try:
         if job_id:
@@ -268,7 +270,8 @@ async def _grade_tex_flow(
 
         # summary (optional)
         try:
-            summary_path = _write_student_summary(tex_path, out_dir=out_dir)
+            summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
+            student_summary_path = summary_path
             trace.save_file(summary_path, "student_summary.json", stage="student_summary")
             try:
                 summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -302,13 +305,14 @@ async def _grade_tex_flow(
             raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
         t_ref = perf_counter()
-        exam_id, chosen_ref = await run_in_threadpool(
-            pick_reference_with_exam_id,
+        match = await run_in_threadpool(
+            pick_reference_with_match_info,
             bank_dir=BANK_ROOT,
             student_tex=tex_path,
             prefer_heuristic=True,
             llm_top_k=12,
         )
+        exam_id, chosen_ref = match.exam_id, match.path
         ref_secs = perf_counter() - t_ref
         reference_source = "json" if Path(chosen_ref).suffix.lower() == ".json" else "tex_fallback"
         trace.log(
@@ -317,6 +321,11 @@ async def _grade_tex_flow(
             exam_id=str(exam_id),
             reference_path=str(chosen_ref),
             reference_source=reference_source,
+            match_method=match.method,
+            match_reason=match.reason,
+            match_score=match.score,
+            student_qnums=list(match.student_qnums),
+            reference_qnums=list(match.reference_qnums),
             duration_s=round(ref_secs, 3),
         )
         if job_id:
@@ -330,6 +339,48 @@ async def _grade_tex_flow(
         )
         matched_artifact_name = "matched_reference.json" if reference_source == "json" else "matched_reference.tex"
         trace.save_file(ref_path, matched_artifact_name, stage="reference_match")
+
+        # Compare student_summary.json to reference_summary.json before building payloads.
+        # This makes matching failures and OCR structure problems visible even when
+        # we use the single-exam fallback.
+        try:
+            if student_summary_path is None or not student_summary_path.exists():
+                student_summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
+
+            reference_summary_path = BANK_ROOT / str(exam_id) / "uploads" / "reference_summary.json"
+            student_summary = read_json_file(student_summary_path) or {}
+            reference_summary = read_json_file(reference_summary_path) or {}
+
+            summary_compare = compare_summaries(
+                student_summary=student_summary,
+                reference_summary=reference_summary,
+                exam_id=str(exam_id),
+                reference_path=str(chosen_ref),
+                match_method=match.method,
+                match_reason=match.reason,
+            )
+            summary_compare_path = out_dir / "summary_compare.json"
+            summary_compare_path.write_text(
+                json.dumps(summary_compare, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            trace.save_file(summary_compare_path, "summary_compare.json", stage="reference_match")
+            trace.log(
+                "reference_match",
+                "summary_compared",
+                status=summary_compare.get("status", "ok"),
+                qnum_overlap=summary_compare.get("overlap", {}).get("qnum_overlap", []),
+                qnum_overlap_count=summary_compare.get("overlap", {}).get("qnum_overlap_count", 0),
+                part_overlap_count=summary_compare.get("overlap", {}).get("part_overlap_count", 0),
+                warnings=summary_compare.get("warnings", []),
+            )
+        except Exception as e:
+            trace.log(
+                "reference_match",
+                "summary_compare_failed",
+                status="warning",
+                error=_safe_str(e, 500),
+            )
 
         # Stage 4: build payloads ONCE (source-of-truth)
         if job_id:

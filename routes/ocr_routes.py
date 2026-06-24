@@ -12,6 +12,7 @@ from core.ai_clients.ai_usage_logger import bind_usage_context
 from core.debug import create_debug_trace
 from schemas.ocr_response import OcrOptions
 from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_result
+from common.exam_summary import write_student_summary, read_json_file
 
 router = APIRouter(prefix="/routes", tags=["ocr"])
 
@@ -104,8 +105,29 @@ async def ocr_handwritten(
         out_dir=run_dir,
     )
     trace.save_json("student_work_ocr_result.json", student_result.model_dump(), stage="student_tex")
+
+    student_summary_path: Path | None = None
+    student_summary: dict | None = None
+
     if student_result.student_tex_path:
-        trace.save_file(student_result.student_tex_path, "ocr_student_answer.tex", stage="student_tex")
+        student_tex_path = Path(student_result.student_tex_path)
+        trace.save_file(student_tex_path, "ocr_student_answer.tex", stage="student_tex")
+
+        try:
+            student_summary_path = write_student_summary(student_tex_path, out_dir=run_dir)
+            student_summary = read_json_file(student_summary_path) or {}
+            trace.save_file(student_summary_path, "student_summary.json", stage="student_summary")
+            trace.log(
+                "student_summary",
+                "built",
+                parse_ok=bool(student_summary.get("parse_ok")),
+                qnums=student_summary.get("qnums") or [],
+                part_count=student_summary.get("part_count"),
+                keys_preview=student_summary.get("keys_preview") or [],
+            )
+        except Exception as e:
+            trace.log("student_summary", "failed", status="warning", error=str(e)[:500])
+
     trace.log(
         "student_tex",
         "generated",
@@ -142,6 +164,8 @@ async def ocr_handwritten(
         "student_ocr_schema_version": student_result.schema_version,
         "student_tex": generated_tex,
         "student_tex_path": str(tex_path),
+        "student_summary_path": str(student_summary_path) if student_summary_path else None,
+        "student_summary": student_summary or {},
         "student_ocr_warnings": student_result.warnings,
         "student_ocr_needs_teacher_review": student_result.needs_teacher_review,
 

@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
 from .config import BANK_ROOT
-from common.tex.reference_tex import parse_reference_tex
+from common.exam_summary import (
+    build_reference_summary_from_full_solution_json,
+    build_reference_summary_from_tex,
+)
 
 # exam_id becomes a folder name on disk. Allow letters, numbers, spaces,
 # underscore and hyphen; it must start with a letter or number (no leading
@@ -50,86 +52,64 @@ def uploads_dir(exam_id: str) -> Path:
 
 
 # -----------------------------
-# NEW: reference summary support
+# Reference summary support
 # -----------------------------
 
 def reference_tex_path(exam_id: str) -> Path:
     """
-    Canonical location of the current reference file for an exam_id.
-    Your upload endpoint writes reference_current.tex here.
+    Canonical display/export TeX for an exam_id.
+
+    Grading should prefer full_solution_bundle.json. This TeX is kept for
+    preview/PDF/export and legacy fallback only.
     """
     return uploads_dir(exam_id) / "reference_current.tex"
+
+
+def reference_json_path(exam_id: str) -> Path:
+    """Canonical structured grading reference for an exam_id."""
+    return uploads_dir(exam_id) / "full_solution_bundle.json"
 
 
 def summary_path(exam_id: str) -> Path:
     """
     Canonical location of the precomputed summary JSON for an exam_id.
-    Matching reads these instead of parsing TeX files at runtime.
+    Matching reads these instead of parsing reference files at runtime.
     """
     return uploads_dir(exam_id) / "reference_summary.json"
 
 
-def _extract_qnums_and_preview(tex_path: Path, *, max_items: int = 18) -> dict[str, Any]:
+def write_reference_summary(
+    exam_id: str,
+    *,
+    tex_path: Path | None = None,
+    json_path: Path | None = None,
+) -> Path:
     """
-    Parse reference TeX and build a compact summary.
-    This is used at UPLOAD time (teacher bank), not during grading.
-    """
-    parts = parse_reference_tex(tex_path)  # keys might be tuple(q, part) or Key with .qnum/.part
-    qnums_set = set()
-    preview_items: list[str] = []
+    Generate + write reference_summary.json for this exam_id.
 
-    def _key_q_part(k):
-        # support both tuple and Key dataclass styles
-        if isinstance(k, tuple) and len(k) == 2:
-            return k[0], k[1]
-        return getattr(k, "qnum", None), getattr(k, "part", "")
+    Preferred source:
+      full_solution_bundle.json  (same structured source used for grading)
 
-    for k, rp in list(parts.items())[:max_items]:
-        q, part = _key_q_part(k)
-        if q is not None:
-            try:
-                qnums_set.add(int(q))
-            except Exception:
-                pass
-        title = re.sub(r"\s+", " ", (getattr(rp, "title", "") or "").strip())
-        if q is None:
-            label = "Q?"
-        else:
-            label = f"Q{q}{part}"
-        preview_items.append(f"{label}: {title[:80]}" if title else label)
+    Legacy fallback:
+      reference_current.tex      (display/export format only)
 
-    qnums = sorted(qnums_set)
-
-    return {
-        "qnums": qnums,
-        "q_count": len(set(qnums)),
-        "part_count": len(parts),
-        "parts_preview": preview_items,
-        "filename": tex_path.name,
-    }
-
-
-def write_reference_summary(exam_id: str, *, tex_path: Path | None = None) -> Path:
-    """
-    Generate + write summary JSON for this exam_id.
-
-    - If tex_path is not provided, uses the canonical reference_current.tex.
-    - Safe to call multiple times (overwrites summary).
+    Safe to call multiple times (overwrites summary).
     """
     exam_id = require_safe_exam_id(exam_id)
 
+    if json_path is None:
+        json_path = reference_json_path(exam_id)
     if tex_path is None:
         tex_path = reference_tex_path(exam_id)
 
-    if not tex_path.exists():
-        raise FileNotFoundError(f"reference TeX not found: {tex_path}")
-
-    summary = _extract_qnums_and_preview(tex_path)
-    payload = {
-        "exam_id": exam_id,
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-        **summary,
-    }
+    if json_path.exists():
+        payload = build_reference_summary_from_full_solution_json(json_path, exam_id=exam_id)
+    elif tex_path.exists():
+        payload = build_reference_summary_from_tex(tex_path, exam_id=exam_id)
+    else:
+        raise FileNotFoundError(
+            f"No reference source found for {exam_id}. Expected {json_path} or {tex_path}"
+        )
 
     p = summary_path(exam_id)
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -163,7 +143,9 @@ def list_exam_summaries() -> list[dict[str, Any]]:
         p = d / "uploads" / "reference_summary.json"
         if p.exists():
             try:
-                out.append(json.loads(p.read_text(encoding="utf-8")))
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    out.append(data)
             except Exception:
                 # ignore broken summary files
                 pass
@@ -176,19 +158,16 @@ def list_exam_summaries() -> list[dict[str, Any]]:
 def ensure_reference_summary(exam_id: str) -> Path | None:
     """
     Ensure summary exists for exam_id.
-    If missing but reference_current.tex exists, generate it.
-    Returns summary path if exists/created, else None.
+
+    If missing, prefer full_solution_bundle.json. Fall back to reference_current.tex
+    for legacy exams.
     """
     exam_id = require_safe_exam_id(exam_id)
     sp = summary_path(exam_id)
     if sp.exists():
         return sp
 
-    refp = reference_tex_path(exam_id)
-    if refp.exists():
-        try:
-            return write_reference_summary(exam_id, tex_path=refp)
-        except Exception:
-            return None
-
-    return None
+    try:
+        return write_reference_summary(exam_id)
+    except Exception:
+        return None
