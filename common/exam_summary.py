@@ -121,12 +121,21 @@ def _extract_student_summary(student_tex_path: Path, *, out_dir: Path) -> dict:
 
 
 def write_student_summary(student_tex_path: Path, *, out_dir: Path) -> Path:
-    """Write student_summary.json next to the run output. Returns its path."""
+    """Write student_summary.json next to the run output. Returns its path.
+
+    Accepts either a student answers .tex file or a student_answer_bundle .json
+    file as the source; the summary shape is identical for both.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
+    source = Path(student_tex_path)
+    if source.suffix.lower() == ".json":
+        summary = build_student_summary_from_answer_bundle(source)
+    else:
+        summary = _extract_student_summary(source, out_dir=out_dir)
     payload = {
         "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "filename": student_tex_path.name,
-        **_extract_student_summary(student_tex_path, out_dir=out_dir),
+        "filename": source.name,
+        **summary,
     }
     p = out_dir / "student_summary.json"
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
