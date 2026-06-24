@@ -8,6 +8,8 @@ from starlette.concurrency import run_in_threadpool
 from core.config import RUNS_ROOT
 from core.security import require_session
 from core.ai_clients.ocr_client import OcrClientError, run_ocr
+from core.ai_clients.ai_usage_logger import bind_usage_context
+from core.debug import create_debug_trace
 from schemas.ocr_response import OcrOptions
 from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_result
 
@@ -32,12 +34,28 @@ async def ocr_handwritten(
             status_code=400,
             detail="Unsupported file type. Please upload PNG, JPG, JPEG, WEBP, or PDF.",        )
 
+    trace = create_debug_trace(
+        "student_ocr",
+        provider=ocr_provider,
+        model=ocr_model or None,
+        source_name=filename,
+    )
+    bind_usage_context(
+        debug_run_id=trace.run_id,
+        route="ocr_handwritten",
+        provider=ocr_provider,
+    )
+    trace.log("ocr", "started", filename=filename, suffix=suffix, provider=ocr_provider, model=ocr_model or None)
+
     run_dir = Path(tempfile.mkdtemp(prefix="mathocr_", dir=str(RUNS_ROOT)))
     src_dir = run_dir / "ocr_input"
     src_dir.mkdir(parents=True, exist_ok=True)
 
     saved_path = src_dir / filename
-    saved_path.write_bytes(await file.read())
+    uploaded_bytes = await file.read()
+    saved_path.write_bytes(uploaded_bytes)
+    trace.save_bytes(f"input/{filename}", uploaded_bytes, stage="upload")
+    trace.log("upload", "saved", path=str(saved_path), bytes=len(uploaded_bytes))
 
     try:
         ocr_result = await run_in_threadpool(
@@ -56,8 +74,10 @@ async def ocr_handwritten(
             ),
         )
     except OcrClientError as e:
+        trace.error("ocr", e)
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
+        trace.error("ocr", e)
         raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
 
     # Save provider-neutral OCR result for debugging / later review UI
@@ -66,11 +86,31 @@ async def ocr_handwritten(
         json.dumps(ocr_result.model_dump(), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    trace.save_file(out_path, "ocr_response.json", stage="ocr")
+    trace.save_text("ocr_primary_text.txt", ocr_result.primary_text(), stage="ocr")
+    trace.log(
+        "ocr",
+        "completed",
+        provider=ocr_result.provider,
+        model=ocr_result.model,
+        confidence=ocr_result.confidence,
+        is_handwritten=ocr_result.is_handwritten,
+        line_count=len(ocr_result.pages[0].line_data) if ocr_result.pages else 0,
+    )
 
     student_result = build_student_work_ocr_result(
         ocr=ocr_result,
         source_name=filename,
         out_dir=run_dir,
+    )
+    trace.save_json("student_work_ocr_result.json", student_result.model_dump(), stage="student_tex")
+    if student_result.student_tex_path:
+        trace.save_file(student_result.student_tex_path, "ocr_student_answer.tex", stage="student_tex")
+    trace.log(
+        "student_tex",
+        "generated",
+        warnings=student_result.warnings,
+        needs_teacher_review=student_result.needs_teacher_review,
     )
 
     detected_text = student_result.raw_ocr_text
@@ -79,6 +119,8 @@ async def ocr_handwritten(
 
     return {
         "ok": True,
+        "debug_trace_id": trace.run_id,
+        "debug_trace_dir": str(trace.path) if trace.enabled else None,
         "uploaded_filename": filename,
         "saved_path": str(saved_path),
         "raw_json_path": str(out_path),

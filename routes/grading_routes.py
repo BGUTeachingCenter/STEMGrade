@@ -19,7 +19,7 @@ from routes.progress import done, fail, init_job, push
 from routes.student_log_routes import log_student_submission
 from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
-from core.debug import write_debug_log
+from core.debug import create_debug_trace, write_debug_log
 from core.security import require_session
 from services.student_grading.grading.grader_payloads import grade_payload_manifest
 from services.student_grading.grading.payloads import PayloadItem, build_payloads
@@ -29,6 +29,7 @@ from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from services.student_grading.feedback_tex import build_feedback_tex
 from common.tex.student_tex import parse_student_tex_answers
 from services.student_grading.unified_tex import build_unified_tex
+from core.ai_clients.ai_usage_logger import bind_usage_context
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 
@@ -226,6 +227,22 @@ async def _grade_tex_flow(
     _require_provider_env(provider)
     normalized_provider = _normalized_provider_name(provider)
 
+    trace = create_debug_trace(
+        "grading",
+        provider=normalized_provider,
+        job_id=job_id,
+        student_filename=student_tex.filename,
+        session_role=session.get("role") if session else None,
+        student_code=student_code,
+    )
+    bind_usage_context(
+        debug_run_id=trace.run_id,
+        route="grade_tex",
+        provider=normalized_provider,
+        student_code=student_code,
+    )
+    trace.log("grading", "started", provider=normalized_provider, student_filename=student_tex.filename)
+
     persistent_results_dir = RUNS_ROOT / "final_results"
     persistent_results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -242,13 +259,17 @@ async def _grade_tex_flow(
 
         # Stage 2: save student
         tex_path = tmp_dir / (student_tex.filename or "student.tex")
-        tex_path.write_bytes(await student_tex.read())
+        student_upload_bytes = await student_tex.read()
+        tex_path.write_bytes(student_upload_bytes)
+        trace.save_bytes("student_upload.tex", student_upload_bytes, stage="student_upload")
+        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes))
         if job_id:
             push(job_id, "Saved student file")
 
         # summary (optional)
         try:
             summary_path = _write_student_summary(tex_path, out_dir=out_dir)
+            trace.save_file(summary_path, "student_summary.json", stage="student_summary")
             if job_id:
                 push(job_id, f"Generated student summary: {summary_path.name}")
         except Exception as e:
@@ -271,6 +292,13 @@ async def _grade_tex_flow(
             llm_top_k=12,
         )
         ref_secs = perf_counter() - t_ref
+        trace.log(
+            "reference_match",
+            "selected",
+            exam_id=str(exam_id),
+            reference_path=str(chosen_ref),
+            duration_s=round(ref_secs, 3),
+        )
         if job_id:
             push(job_id, f"Fetched: {exam_id} (reference match {ref_secs:.1f}s)")
 
@@ -279,6 +307,7 @@ async def _grade_tex_flow(
             Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
             encoding="utf-8",
         )
+        trace.save_file(ref_path, "matched_reference.tex", stage="reference_match")
 
         # Stage 4: build payloads ONCE (source-of-truth)
         if job_id:
@@ -296,6 +325,10 @@ async def _grade_tex_flow(
             default_max_points=0.0,
         )
         payload_secs = perf_counter() - t_payloads
+        trace.save_file(manifest_json, "payload_manifest.json", stage="payloads")
+        trace.log("payloads", "built", duration_s=round(payload_secs, 3), payload_count=len(items))
+        for it in items[:80]:
+            trace.save_file(it.payload_path, f"payloads/{it.payload_path.name}", stage="payloads")
 
         if job_id:
             push(job_id, f"Payloads ready ({payload_secs:.1f}s)")
@@ -332,6 +365,7 @@ async def _grade_tex_flow(
             reference_snippets=reference_snippets,
             student_answers=student_answers,
         )
+        trace.save_file(bundle_tex, "qa_bundle.tex", stage="qa_bundle")
         if job_id:
             push(job_id, "Q/A bundle TeX ready")
 
@@ -352,6 +386,8 @@ async def _grade_tex_flow(
             log_fn=(lambda msg: push(job_id, msg)) if job_id else None,
         )
         grade_secs = perf_counter() - t_grade
+        trace.save_file(grades_json, "grades.json", stage="grading")
+        trace.log("grading", "completed", duration_s=round(grade_secs, 3), grades_path=str(grades_json))
         if job_id:
             push(job_id, f"Grading finished ({grade_secs:.1f}s)")
 
@@ -361,6 +397,7 @@ async def _grade_tex_flow(
             usage_path = ai_dir / "usage_summary.json"
             if usage_path.exists():
                 usage = json.loads(usage_path.read_text(encoding="utf-8"))
+                trace.save_file(usage_path, "usage_summary.json", stage="usage")
                 if (usage.get("provider") or "").lower() in ("google", "gemini", "google_ai_studio", "aistudio"):
                     gemini_tokens = int(usage.get("total_tokens") or 0)
         except Exception:
@@ -398,6 +435,8 @@ async def _grade_tex_flow(
             out_dir=ai_dir,
         )
         fb_secs = perf_counter() - t_fb
+        trace.save_file(feedback_tex, "feedback.tex", stage="feedback_tex")
+        trace.log("feedback_tex", "built", duration_s=round(fb_secs, 3), path=str(feedback_tex))
         if job_id:
             push(job_id, f"Feedback TeX ready ({fb_secs:.1f}s)")
 
@@ -414,6 +453,8 @@ async def _grade_tex_flow(
             output_stem=f"graded_{normalized_provider}",
         )
         union_secs = perf_counter() - t_union
+        trace.save_file(final_tex, "final_unified.tex", stage="unified_tex")
+        trace.log("unified_tex", "built", duration_s=round(union_secs, 3), path=str(final_tex))
         if job_id:
             push(job_id, f"Unified TeX ready ({union_secs:.1f}s)")
 
@@ -439,15 +480,19 @@ async def _grade_tex_flow(
 
             if compiled_pdf.exists() and compiled_pdf.suffix.lower() == ".pdf":
                 result_path = compiled_pdf
+                trace.save_file(compiled_pdf, "final_output.pdf", stage="pdf_compile")
+                trace.log("pdf_compile", "completed", duration_s=round(pdf_secs, 3), path=str(compiled_pdf))
                 if job_id:
                     push(job_id, f"PDF build finished ({pdf_secs:.1f}s)")
             else:
                 result_path = final_tex
+                trace.log("pdf_compile", "missing_pdf", status="warning", duration_s=round(pdf_secs, 3))
                 if job_id:
                     push(job_id, f"PDF build did not produce a valid PDF ({pdf_secs:.1f}s) — falling back to TeX")
         except Exception as e:
             pdf_secs = perf_counter() - t_pdf
             result_path = final_tex
+            trace.error("pdf_compile", e, duration_s=round(pdf_secs, 3))
             if job_id:
                 push(job_id, f"PDF compile failed ({pdf_secs:.1f}s); falling back to TeX: {_safe_str(e, 220)}")
 
@@ -469,6 +514,9 @@ async def _grade_tex_flow(
             final_path=final_persistent_path,
             debug=debug,
         )
+        trace.save_file(final_persistent_path, f"persisted_result{final_persistent_path.suffix}", stage="persist")
+        trace.save_file(final_persistent_path.with_suffix(".json"), "persisted_result_metadata.json", stage="persist")
+        trace.log("grading", "finished", exam_id=str(exam_id), final_path=str(final_persistent_path))
 
         if job_id:
             push(job_id, f"Done. Sending file: {final_persistent_path.name}")
@@ -476,12 +524,14 @@ async def _grade_tex_flow(
 
         return _response_for_path(final_persistent_path)
 
-    except HTTPException:
+    except HTTPException as e:
+        trace.error("http_exception", e)
         if job_id:
             fail(job_id, "HTTPException")
         raise
 
     except Exception as e:
+        trace.error("grading", e)
         log_path = write_debug_log(f"grade_tex_{_normalized_provider_name(provider)}", e)
         if job_id:
             push(job_id, f"FAILED: {_safe_str(e, 400)}")
