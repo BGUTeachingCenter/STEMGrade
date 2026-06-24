@@ -8,6 +8,7 @@ from common.exam_structure import structure_to_student_tex_template
 from schemas.ocr_response import OcrResponse
 from schemas.ocr_tasks import StudentWorkOcrResult
 from services.student_grading.student_answer_bundle import (
+    build_student_answer_bundle_from_tex,
     parse_student_answer_bundle_from_model_text,
     student_answer_bundle_to_tex,
     write_student_answer_bundle,
@@ -319,6 +320,20 @@ def build_student_work_ocr_result(
             source_name=source_name,
             exam_structure=exam_structure,
         )
+        if out_dir is not None:
+            tex_tmp = out_dir / "_ocr_tmp.tex"
+            tex_tmp.write_text(student_tex, encoding="utf-8")
+            try:
+                student_answer_bundle = build_student_answer_bundle_from_tex(
+                    tex_tmp,
+                    out_dir=out_dir,
+                    source_name=source_name,
+                    document_type=document_type,
+                )
+            except Exception:
+                pass
+            finally:
+                tex_tmp.unlink(missing_ok=True)
 
     student_tex_path = ""
 
