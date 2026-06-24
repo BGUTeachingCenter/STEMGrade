@@ -53,11 +53,17 @@ def _fallback_student_qnums(tex_path: Path) -> list[int]:
     text = tex_path.read_text(encoding="utf-8", errors="replace")
     found: set[int] = set()
 
-    for m in re.finditer(r"\b(?:Question|Q)\s*([0-9]{1,3})\b", text, flags=re.IGNORECASE):
-        found.add(int(m.group(1)))
-
-    for m in re.finditer(r"\bשאלה\s*([0-9]{1,3})\b", text):
-        found.add(int(m.group(1)))
+    patterns = [
+        r"\\subsection\*\{[^}]*?(?:Question|שאלה)\s*([0-9]{1,3})",
+        r"\b(?:Question|Q)\s*([0-9]{1,3})\b",
+        r"\bשאלה\s*([0-9]{1,3})\b",
+    ]
+    for pat in patterns:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE | re.UNICODE):
+            try:
+                found.add(int(m.group(1)))
+            except Exception:
+                pass
 
     return sorted(found)
 

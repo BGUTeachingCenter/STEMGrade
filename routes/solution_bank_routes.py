@@ -41,6 +41,7 @@ from services.solution_bank.full_solution_service import (
 from services.solution_bank.questions_answers_ocr import build_questions_answers_ocr_result
 from services.solution_bank.questions_ocr import build_questions_ocr_result
 from services.ocr_routing import decide_bank_ocr_path
+from common.exam_summary import read_json_file
 
 from routes.progress import init_job, push, done, fail
 
@@ -234,38 +235,12 @@ def _answer_fallback_enabled_for_provider(provider: str) -> bool:
     return (provider or "").strip().lower() in AI_SOLUTION_FALLBACK_PROVIDERS
 
 
-def _bundle_path(uploads: Path, name: str) -> Path:
-    return uploads / name
-
-
-def _read_json_if_exists(path: Path) -> dict | None:
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-
-
-def _count_full_solution(bundle: dict | FullSolutionBundle | None) -> tuple[int | None, int | None]:
-    if bundle is None:
-        return None, None
-
-    try:
-        full = bundle if isinstance(bundle, FullSolutionBundle) else FullSolutionBundle.model_validate(bundle)
-        q_count = len(full.questions)
-        part_count = sum(len(q.parts or []) for q in full.questions)
-        return q_count, part_count
-    except Exception:
-        return None, None
 
 
 def _gradeable_status_from_bundle(bundle: dict | FullSolutionBundle | None) -> str:
@@ -396,7 +371,7 @@ def _validation_for_saved_bundle(uploads: Path, content_type: str) -> tuple[dict
         candidates.append(("questions_answers", uploads / "questions_answers_bundle.json"))
 
     for kind, path in candidates:
-        data = _read_json_if_exists(path)
+        data = read_json_file(path)
         if data is None:
             continue
         return validate_bundle_snapshot(data, bundle_kind=kind), kind, path
@@ -448,8 +423,8 @@ def _build_and_save_full_solution_if_possible(
     questions_path = uploads / "questions_only_bundle.json"
     answers_path = uploads / "answers_only_bundle.json"
 
-    questions_dict = _read_json_if_exists(questions_path)
-    answers_dict = _read_json_if_exists(answers_path)
+    questions_dict = read_json_file(questions_path)
+    answers_dict = read_json_file(answers_path)
 
     if not questions_dict or not answers_dict:
         return None, "", None
@@ -1036,7 +1011,7 @@ async def upload_to_bank(
 
             _progress(job_id, "AI is organizing the official answers into answers-only JSON...")
 
-            existing_questions_bundle = _read_json_if_exists(uploads / "questions_only_bundle.json")
+            existing_questions_bundle = read_json_file(uploads / "questions_only_bundle.json")
 
             answers_result = build_answers_ocr_result(
                 ocr=ocr_response,
@@ -1101,7 +1076,7 @@ async def upload_to_bank(
                     text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
                 )
 
-            existing_questions_bundle = _read_json_if_exists(uploads / "questions_only_bundle.json")
+            existing_questions_bundle = read_json_file(uploads / "questions_only_bundle.json")
 
             if existing_questions_bundle:
                 _progress(

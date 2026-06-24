@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 
 from core.storage import list_exam_summaries, write_reference_summary
 from common.tex.student_tex import parse_student_tex_answers
-from common.exam_summary import build_student_summary_from_answer_bundle
+from common.exam_summary import build_student_summary_from_answer_bundle, _fallback_student_qnums
 from core.ai_clients.ollama_client import OllamaClient
 
 
@@ -95,32 +95,6 @@ def _collect_candidates_from_summaries(bank_dir: Path) -> List[CandidateRef]:
         )
 
     return out
-
-
-def _fallback_student_qnums(student_tex: Path) -> list[int]:
-    """Best-effort q-number extraction for OCR-generated TeX.
-
-    parse_student_tex_answers() is intentionally strict because payload alignment
-    needs clean question/part markers. Reference matching can be more forgiving:
-    if the OCR text contains plain markers like ``Question 1`` or ``שאלה 1``,
-    we can still use those numbers to choose the exam.
-    """
-    text = student_tex.read_text(encoding="utf-8", errors="replace")
-    found: set[int] = set()
-
-    patterns = [
-        r"\\subsection\*\{[^}]*?(?:Question|שאלה)\s*([0-9]{1,3})",
-        r"\b(?:Question|Q)\s*([0-9]{1,3})\b",
-        r"\bשאלה\s*([0-9]{1,3})\b",
-    ]
-    for pat in patterns:
-        for m in re.finditer(pat, text, flags=re.IGNORECASE | re.UNICODE):
-            try:
-                found.add(int(m.group(1)))
-            except Exception:
-                pass
-
-    return sorted(found)
 
 
 def _student_qnums_for_matching(student_tex: Path) -> list[int]:

@@ -282,14 +282,6 @@ def _normalize_part_item(p: dict[str, Any]) -> dict[str, str]:
     return item
 
 
-def _safe_model_dump(model_or_dict: Any) -> dict[str, Any]:
-    if hasattr(model_or_dict, "model_dump"):
-        return model_or_dict.model_dump()
-    if isinstance(model_or_dict, dict):
-        return model_or_dict
-    return {}
-
-
 def _normalize_question_id(value: Any) -> int | None:
     try:
         return int(value)
@@ -317,12 +309,6 @@ def _as_questions_answers_bundle(data: dict[str, Any], *, exam_id: str = "") -> 
     if exam_id and not data.get("exam_id"):
         data["exam_id"] = exam_id
     return QuestionsAnswersBundle.model_validate(data)
-
-
-def _as_full_solution_bundle(data: dict[str, Any], *, exam_id: str = "") -> FullSolutionBundle:
-    if exam_id and not data.get("exam_id"):
-        data["exam_id"] = exam_id
-    return FullSolutionBundle.model_validate(data)
 
 
 # ---------------------------------------------------------------------

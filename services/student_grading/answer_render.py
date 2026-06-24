@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, Optional
-import traceback
-from datetime import datetime
 
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from common.tex.reference_ranges import Key
@@ -74,17 +72,6 @@ def make_answer_tex(qnum: int, part: str, answer_latex: str, font_name: str) -> 
         "\\endgroup\n"
         "\\end{document}\n"
     )
-
-def _save_answer_compile_error(ans_dir: Path, stem: str, exc: Exception) -> None:
-    dbg = ans_dir / "debug_answer_compile"
-    dbg.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    (dbg / f"{stem}_{ts}.traceback.txt").write_text(
-        "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-        encoding="utf-8",
-    )
-
-
 
 def compile_student_answer_pdfs(
     answers: Dict[Key, str],
