@@ -86,7 +86,10 @@
         <div class="mg-model-meta">
           Ollama model: <b id="ollamaModelName">…</b><br/>
           Google model: <b id="googleModelName">…</b><br/>
-          GPT model: <b id="gptModelName">…</b>
+          Google OCR model: <b id="googleOcrModelName">…</b><br/>
+          GPT model: <b id="gptModelName">…</b><br/>
+          GPT OCR model: <b id="gptOcrModelName">…</b><br/>
+          Mathpix OCR: <b id="mathpixOcrStatus">…</b>
         </div>
       </div>
 
@@ -227,12 +230,18 @@
         const res = await fetch("/health");
         const j = await res.json();
         document.getElementById("ollamaModelName").textContent = j.ollama_model || "unknown";
-        document.getElementById("googleModelName").textContent = j.google_model || "not configured";
-        document.getElementById("gptModelName").textContent = j.gpt_model || "not configured";
+        document.getElementById("googleModelName").textContent = j.google_configured === false ? `${j.google_model || "unknown"} (key missing)` : (j.google_model || "unknown");
+        document.getElementById("googleOcrModelName").textContent = j.google_configured === false ? `${j.google_ocr_model || "unknown"} (key missing)` : (j.google_ocr_model || "unknown");
+        document.getElementById("gptModelName").textContent = j.gpt_configured === false ? `${j.gpt_model || "unknown"} (key missing)` : (j.gpt_model || "unknown");
+        document.getElementById("gptOcrModelName").textContent = j.gpt_configured === false ? `${j.gpt_ocr_model || "unknown"} (key missing)` : (j.gpt_ocr_model || "unknown");
+        document.getElementById("mathpixOcrStatus").textContent = j.mathpix_configured ? "configured" : "key missing";
       } catch (_) {
         document.getElementById("ollamaModelName").textContent = "unknown";
         document.getElementById("googleModelName").textContent = "unknown";
+        document.getElementById("googleOcrModelName").textContent = "unknown";
         document.getElementById("gptModelName").textContent = "unknown";
+        document.getElementById("gptOcrModelName").textContent = "unknown";
+        document.getElementById("mathpixOcrStatus").textContent = "unknown";
       }
     }
 

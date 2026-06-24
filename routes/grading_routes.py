@@ -216,8 +216,8 @@ async def _grade_tex_flow(
 
       1) Save student upload
       2) Match reference in solution bank
-      3) Build payloads ONCE (reference + student snippets)
-      4) Write Q/A bundle TeX from those payloads (question + solution + student)
+      3) Build payloads ONCE (full_solution_bundle.json + student snippets when available)
+      4) Write Q/A bundle TeX from those payloads (display/export only)
       5) Grade each payload (AI) -> grades.json (+ usage_summary.json)
       6) Build feedback TeX from grades.json
       7) Unify bundle + feedback into one TeX
@@ -292,22 +292,26 @@ async def _grade_tex_flow(
             llm_top_k=12,
         )
         ref_secs = perf_counter() - t_ref
+        reference_source = "json" if Path(chosen_ref).suffix.lower() == ".json" else "tex_fallback"
         trace.log(
             "reference_match",
             "selected",
             exam_id=str(exam_id),
             reference_path=str(chosen_ref),
+            reference_source=reference_source,
             duration_s=round(ref_secs, 3),
         )
         if job_id:
-            push(job_id, f"Fetched: {exam_id} (reference match {ref_secs:.1f}s)")
+            source_label = "JSON reference" if reference_source == "json" else "TeX fallback reference"
+            push(job_id, f"Fetched: {exam_id} ({source_label}, match {ref_secs:.1f}s)")
 
         ref_path = tmp_dir / Path(chosen_ref).name
         ref_path.write_text(
             Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
             encoding="utf-8",
         )
-        trace.save_file(ref_path, "matched_reference.tex", stage="reference_match")
+        matched_artifact_name = "matched_reference.json" if reference_source == "json" else "matched_reference.tex"
+        trace.save_file(ref_path, matched_artifact_name, stage="reference_match")
 
         # Stage 4: build payloads ONCE (source-of-truth)
         if job_id:
@@ -326,7 +330,13 @@ async def _grade_tex_flow(
         )
         payload_secs = perf_counter() - t_payloads
         trace.save_file(manifest_json, "payload_manifest.json", stage="payloads")
-        trace.log("payloads", "built", duration_s=round(payload_secs, 3), payload_count=len(items))
+        trace.log(
+            "payloads",
+            "built",
+            duration_s=round(payload_secs, 3),
+            payload_count=len(items),
+            reference_source=reference_source,
+        )
         for it in items[:80]:
             trace.save_file(it.payload_path, f"payloads/{it.payload_path.name}", stage="payloads")
 
@@ -516,7 +526,13 @@ async def _grade_tex_flow(
         )
         trace.save_file(final_persistent_path, f"persisted_result{final_persistent_path.suffix}", stage="persist")
         trace.save_file(final_persistent_path.with_suffix(".json"), "persisted_result_metadata.json", stage="persist")
-        trace.log("grading", "finished", exam_id=str(exam_id), final_path=str(final_persistent_path))
+        trace.log(
+            "grading",
+            "finished",
+            exam_id=str(exam_id),
+            reference_source=reference_source,
+            final_path=str(final_persistent_path),
+        )
 
         if job_id:
             push(job_id, f"Done. Sending file: {final_persistent_path.name}")

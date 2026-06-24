@@ -22,7 +22,7 @@
   </div>
 
   <div class="mg-teacher-hero-meta">
-    <span class="pill" id="healthPill">Health: …</span>
+    <span class="pill mg-health-pill" id="healthPill">Health: …</span>
   </div>
 </section>
 
@@ -296,11 +296,26 @@
       });
     }
 
+  function configuredModelLabel(model, configured) {
+    const name = model || "unknown";
+    if (configured === false) return `${name} (key missing)`;
+    return name;
+  }
+
   async function getHealth(){
     try{
       const r = await fetch(API_BASE + "/health");
       const j = await r.json();
-      $("healthPill").textContent = `Health: ${j.status} | Ollama: ${j.ollama_model}`;
+      const parts = [
+        `Health: ${j.status || "unknown"}`,
+        `Ollama: ${j.ollama_model || "unknown"}`,
+        `GPT: ${configuredModelLabel(j.gpt_model, j.gpt_configured)}`,
+        `GPT OCR: ${configuredModelLabel(j.gpt_ocr_model, j.gpt_configured)}`,
+        `Gemini: ${configuredModelLabel(j.google_model, j.google_configured)}`,
+        `Gemini OCR: ${configuredModelLabel(j.google_ocr_model, j.google_configured)}`,
+        `Mathpix OCR: ${j.mathpix_configured ? "configured" : "key missing"}`,
+      ];
+      $("healthPill").textContent = parts.join(" | ");
     }catch(e){
       $("healthPill").textContent = "Health: error";
     }
@@ -620,6 +635,14 @@ function groupSolutionItemsByExam(items) {
         exam_structure_question_count: null,
         exam_structure_part_count: null,
         ocr_providers: new Set(),
+        validation_status: "ok",
+        gradeable_status: "not_gradeable",
+        empty_solution_keys: [],
+        review_item_keys: [],
+        empty_solution_count: 0,
+        review_item_count: 0,
+        bundle_warning_count: 0,
+        structure_correction_count: 0,
       });
     }
 
@@ -639,6 +662,27 @@ function groupSolutionItemsByExam(items) {
 
     group.full_solution_available = group.full_solution_available || !!item.full_solution_available || role === "full_solution";
     group.reference_tex_available = group.reference_tex_available || !!item.reference_tex_available || item.filename === "reference_current.tex";
+
+    if (item.gradeable_status && item.gradeable_status !== "not_gradeable") {
+      group.gradeable_status = item.gradeable_status;
+    }
+    if (item.validation_status === "error") {
+      group.validation_status = "error";
+    } else if (item.validation_status === "warning" && group.validation_status !== "error") {
+      group.validation_status = "warning";
+    }
+
+    group.empty_solution_count = Math.max(group.empty_solution_count, Number(item.empty_solution_count || 0));
+    group.review_item_count = Math.max(group.review_item_count, Number(item.review_item_count || 0));
+    group.bundle_warning_count = Math.max(group.bundle_warning_count, Number(item.bundle_warning_count || 0));
+    group.structure_correction_count = Math.max(group.structure_correction_count, Number(item.structure_correction_count || 0));
+
+    for (const key of (item.empty_solution_keys || [])) {
+      if (!group.empty_solution_keys.includes(key)) group.empty_solution_keys.push(key);
+    }
+    for (const key of (item.review_item_keys || [])) {
+      if (!group.review_item_keys.includes(key)) group.review_item_keys.push(key);
+    }
 
     if (item.q_count != null) group.q_count = item.q_count;
     if (item.part_count != null) group.part_count = item.part_count;
@@ -813,14 +857,27 @@ function renderSolutionList(items) {
       `;
     }).join("");
 
+    const validationClass =
+      group.validation_status === "error" ? " err" :
+      group.validation_status === "warning" ? " warn" :
+      " ok";
+    const missingPreview = group.empty_solution_keys.slice(0, 6).join(", ");
+
     const statusTags = [
-      group.full_solution_available ? `<span class="tag">Full solution ready</span>` : `<span class="tag">Waiting for full solution</span>`,
-      group.reference_tex_available ? `<span class="tag">Gradeable TeX ready</span>` : "",
+      group.full_solution_available ? `<span class="tag ok">Grading JSON ready</span>` : `<span class="tag warn">Waiting for full-solution JSON</span>`,
+      group.reference_tex_available ? `<span class="tag">Display TeX ready</span>` : "",
+      group.gradeable_status === "clean" ? `<span class="tag ok">Clean reference</span>` : "",
+      group.gradeable_status === "draft_review_required" ? `<span class="tag warn">Teacher review needed</span>` : "",
+      `<span class="tag${validationClass}">Validation: ${escapeHtml(group.validation_status || "unknown")}</span>`,
+      group.empty_solution_count ? `<span class="tag err">Missing solutions: ${escapeHtml(missingPreview)}${group.empty_solution_keys.length > 6 ? "…" : ""}</span>` : "",
+      group.review_item_count ? `<span class="tag warn">Review items: ${group.review_item_count}</span>` : "",
+      group.bundle_warning_count ? `<span class="tag warn">Bundle warnings: ${group.bundle_warning_count}</span>` : "",
+      group.structure_correction_count ? `<span class="tag warn">Structure corrections: ${group.structure_correction_count}</span>` : "",
       group.ocr_providers.size ? `<span class="tag">OCR: ${escapeHtml(Array.from(group.ocr_providers).join(", "))}</span>` : "",
       (group.exam_structure_question_count != null) ? `<span class="tag">Structure Q: ${group.exam_structure_question_count}</span>` : "",
       (group.exam_structure_part_count != null) ? `<span class="tag">Structure parts: ${group.exam_structure_part_count}</span>` : "",
-      (group.q_count != null) ? `<span class="tag">Parsed Q: ${group.q_count}</span>` : "",
-      (group.part_count != null) ? `<span class="tag">Parsed parts: ${group.part_count}</span>` : "",
+      (group.q_count != null) ? `<span class="tag">JSON Q: ${group.q_count}</span>` : "",
+      (group.part_count != null) ? `<span class="tag">JSON parts: ${group.part_count}</span>` : "",
     ].join("");
 
     div.innerHTML = `
@@ -923,8 +980,28 @@ function renderSolutionList(items) {
         j2.ocr_used ? "OCR" : "",
         j2.source_kind ? String(j2.source_kind) : "",
         j2.full_solution_available ? "Full solution ready" : "",
-        j2.reference_tex_available ? "Gradeable TeX ready" : "",
+        j2.reference_tex_available ? "Display TeX ready" : "",
       ].filter(Boolean).join(" · ");
+
+      const validationLines = [];
+      if (j2.validation_status) {
+        validationLines.push(`Validation: ${j2.validation_status}`);
+      }
+      if (j2.gradeable_status) {
+        validationLines.push(`Gradeable status: ${j2.gradeable_status}`);
+      }
+      if (Number(j2.empty_solution_count || 0)) {
+        validationLines.push(`Missing solutions: ${(j2.empty_solution_keys || []).join(", ")}`);
+      }
+      if (Number(j2.review_item_count || 0)) {
+        validationLines.push(`Review items: ${j2.review_item_count}`);
+      }
+      if (Number(j2.structure_correction_count || 0)) {
+        validationLines.push(`Structure corrections: ${j2.structure_correction_count}`);
+      }
+      for (const w of (j2.validation_warnings || []).slice(0, 5)) {
+        validationLines.push(`Warning: ${w}`);
+      }
 
       previewEl.innerHTML =
         `<div class="mg-preview-meta-row">` +
@@ -932,6 +1009,7 @@ function renderSolutionList(items) {
           `${escapeHtml((j2.keys || []).join(", ") || "No keys detected")}` +
         `</div>` +
         (sourceTags ? `<div class="mg-preview-source">${escapeHtml(sourceTags)}</div>` : "") +
+        (validationLines.length ? `<div class="mg-preview-validation">${escapeHtml(validationLines.join("\n"))}</div>` : "") +
         `<div style="height:10px"></div>` +
         `<div><b>Preview:</b></div>` +
         `<pre class="mg-hebrew-preview-text">${escapeHtml(j2.preview_text || "")}</pre>`;

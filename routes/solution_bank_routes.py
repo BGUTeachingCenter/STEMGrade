@@ -347,6 +347,59 @@ def _practice_counts_from_bundle(bundle: dict | FullSolutionBundle | None) -> tu
     return q_count, part_count
 
 
+def _validation_for_saved_bundle(uploads: Path, content_type: str) -> tuple[dict | None, str | None, Path | None]:
+    """
+    Return the validation report that should drive teacher-facing status.
+
+    Once a full solution exists, that JSON is the important reference because
+    grading now uses full_solution_bundle.json as the source of truth. When the
+    full solution is not available yet, validate the current upload's bundle so
+    the teacher still sees useful warnings for questions-only / answers-only
+    intermediate uploads.
+    """
+    candidates: list[tuple[str, Path]] = []
+
+    full_path = uploads / "full_solution_bundle.json"
+    if full_path.exists():
+        candidates.append(("full_solution", full_path))
+    elif content_type == "questions_only":
+        candidates.append(("questions_only", uploads / "questions_only_bundle.json"))
+    elif content_type == "answers_only":
+        candidates.append(("answers_only", uploads / "answers_only_bundle.json"))
+    elif content_type == "questions_answers":
+        candidates.append(("questions_answers", uploads / "questions_answers_bundle.json"))
+
+    for kind, path in candidates:
+        data = _read_json_if_exists(path)
+        if data is None:
+            continue
+        return validate_bundle_snapshot(data, bundle_kind=kind), kind, path
+
+    return None, None, None
+
+
+def _validation_status_for_upload(
+    *,
+    report: dict | None,
+    gradeable_status: str,
+    full_solution_available: bool,
+) -> str:
+    """Collapse bundle validation + gradeable status into ok/warning/error."""
+    if report and report.get("status") == "error":
+        return "error"
+
+    if report and report.get("status") == "warning":
+        return "warning"
+
+    # A missing full solution is expected after a questions-only upload, so it
+    # should not automatically look like a failed run. But when a full solution
+    # exists and it is still draft/not gradeable, make that visible.
+    if full_solution_available and gradeable_status != "clean":
+        return "warning"
+
+    return "ok"
+
+
 def _build_and_save_full_solution_if_possible(
     *,
     uploads: Path,
@@ -1186,6 +1239,26 @@ async def upload_to_bank(
     except Exception:
         gradeable_status = "not_gradeable"
 
+    validation_report, validation_bundle_kind, validation_bundle_path = _validation_for_saved_bundle(
+        uploads,
+        content_type,
+    )
+
+    if validation_report:
+        # Prefer structured JSON counts over TeX parsing counts. This is
+        # especially important for answers-only uploads, where the preview TeX
+        # can be raw OCR but the generated full_solution_bundle.json is the
+        # actual grading source.
+        q_count = validation_report.get("question_count") if validation_report.get("question_count") is not None else q_count
+        part_count = validation_report.get("part_count") if validation_report.get("part_count") is not None else part_count
+
+    full_solution_available = (uploads / "full_solution_bundle.json").exists()
+    upload_validation_status = _validation_status_for_upload(
+        report=validation_report,
+        gradeable_status=gradeable_status,
+        full_solution_available=full_solution_available,
+    )
+
     # Live token feedback for this upload: OCR tokens (when an AI OCR provider
     # was used) + the AI structuring/fallback tokens accumulated on the
     # solution_ai_client. The authoritative per-call record is written to
@@ -1281,9 +1354,23 @@ async def upload_to_bank(
             if content_type == "questions_answers"
             else None
         ),
-        "full_solution_available": (uploads / "full_solution_bundle.json").exists(),
+        "full_solution_available": full_solution_available,
         "reference_tex_available": (uploads / "reference_current.tex").exists(),
         "gradeable_status": gradeable_status,
+        "validation_status": upload_validation_status,
+        "validation_bundle_kind": validation_bundle_kind,
+        "validation_bundle_path": str(validation_bundle_path) if validation_bundle_path else None,
+        "validation_warnings": (validation_report or {}).get("warnings", []),
+        "duplicate_key_count": (validation_report or {}).get("duplicate_key_count", 0),
+        "empty_question_text_count": (validation_report or {}).get("empty_question_text_count", 0),
+        "empty_solution_count": (validation_report or {}).get("empty_solution_count", 0),
+        "review_item_count": (validation_report or {}).get("review_item_count", 0),
+        "bundle_warning_count": (validation_report or {}).get("bundle_warning_count", 0),
+        "structure_correction_count": (validation_report or {}).get("structure_correction_count", 0),
+        "duplicate_keys": (validation_report or {}).get("duplicate_keys", []),
+        "empty_question_text_keys": (validation_report or {}).get("empty_question_text_keys", []),
+        "empty_solution_keys": (validation_report or {}).get("empty_solution_keys", []),
+        "review_item_keys": (validation_report or {}).get("review_item_keys", []),
         "practice_question_count": practice_question_count,
         "practice_part_count": practice_part_count,
         "bundle_warnings": bundle_warnings,
@@ -1293,9 +1380,35 @@ async def upload_to_bank(
     meta_path = uploads / (filename + ".meta.json")
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     trace.save_json("upload_meta.json", meta, stage="meta")
-    trace.log("bank_upload", "finished", exam_id=exam_id, content_type=content_type, q_count=q_count, part_count=part_count)
+    if validation_report:
+        trace.save_json("final_validation_summary.json", validation_report, stage="meta")
+    trace.log(
+        "bank_upload",
+        "finished",
+        status=upload_validation_status,
+        exam_id=exam_id,
+        content_type=content_type,
+        q_count=q_count,
+        part_count=part_count,
+        gradeable_status=gradeable_status,
+        validation_bundle_kind=validation_bundle_kind,
+        validation=validation_report,
+    )
     _progress(job_id, f"Saved metadata: {meta_path.name}")
-    _progress(job_id, f"Done. Parsed questions: {q_count}, parts: {part_count}")
+
+    if upload_validation_status == "ok":
+        _progress(job_id, f"Done. Parsed questions: {q_count}, parts: {part_count}")
+    else:
+        missing = (validation_report or {}).get("empty_solution_keys") or []
+        review_items = (validation_report or {}).get("review_item_keys") or []
+        warning_parts = [
+            f"Done with warnings. Parsed questions: {q_count}, parts: {part_count}"
+        ]
+        if missing:
+            warning_parts.append(f"missing solutions: {', '.join(missing[:8])}")
+        if review_items:
+            warning_parts.append(f"review items: {len(review_items)}")
+        _progress(job_id, "; ".join(warning_parts))
 
     if job_id:
         done(job_id)
@@ -1336,6 +1449,17 @@ def list_exam_files(
             "full_solution_available": meta.get("full_solution_available"),
             "reference_tex_available": meta.get("reference_tex_available"),
             "gradeable_status": meta.get("gradeable_status"),
+            "validation_status": meta.get("validation_status"),
+            "validation_bundle_kind": meta.get("validation_bundle_kind"),
+            "validation_warnings": meta.get("validation_warnings", []),
+            "duplicate_key_count": meta.get("duplicate_key_count", 0),
+            "empty_question_text_count": meta.get("empty_question_text_count", 0),
+            "empty_solution_count": meta.get("empty_solution_count", 0),
+            "review_item_count": meta.get("review_item_count", 0),
+            "bundle_warning_count": meta.get("bundle_warning_count", 0),
+            "structure_correction_count": meta.get("structure_correction_count", 0),
+            "empty_solution_keys": meta.get("empty_solution_keys", []),
+            "review_item_keys": meta.get("review_item_keys", []),
             "practice_question_count": meta.get("practice_question_count"),
             "practice_part_count": meta.get("practice_part_count"),
         })
@@ -1452,6 +1576,17 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "full_solution_available": meta.get("full_solution_available"),
             "reference_tex_available": meta.get("reference_tex_available"),
             "gradeable_status": meta.get("gradeable_status"),
+            "validation_status": meta.get("validation_status"),
+            "validation_bundle_kind": meta.get("validation_bundle_kind"),
+            "validation_warnings": meta.get("validation_warnings", []),
+            "duplicate_key_count": meta.get("duplicate_key_count", 0),
+            "empty_question_text_count": meta.get("empty_question_text_count", 0),
+            "empty_solution_count": meta.get("empty_solution_count", 0),
+            "review_item_count": meta.get("review_item_count", 0),
+            "bundle_warning_count": meta.get("bundle_warning_count", 0),
+            "structure_correction_count": meta.get("structure_correction_count", 0),
+            "empty_solution_keys": meta.get("empty_solution_keys", []),
+            "review_item_keys": meta.get("review_item_keys", []),
             "practice_question_count": meta.get("practice_question_count"),
             "practice_part_count": meta.get("practice_part_count"),
             "bundle_json_path": meta.get("bundle_json_path"),

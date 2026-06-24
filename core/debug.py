@@ -302,5 +302,12 @@ def validate_bundle_snapshot(bundle: Any, *, bundle_kind: str = "bundle") -> dic
         "review_item_count": len(review_items),
         "bundle_warning_count": len(top_warnings),
         "structure_correction_count": len(corrections),
+        # Keep the exact affected keys in the validation snapshot. The counts
+        # are useful for dashboards, but these lists are what let us pinpoint
+        # the first problematic question without opening the entire bundle.
+        "duplicate_keys": duplicate_keys,
+        "empty_question_text_keys": empty_question_text,
+        "empty_solution_keys": empty_solution,
+        "review_item_keys": review_items,
         "warnings": warnings,
     }
