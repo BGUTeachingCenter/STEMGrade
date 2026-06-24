@@ -21,6 +21,7 @@ from common.pdf.pdf_cleanse import cleanse_test_pdf
 from common.tex.reference_ranges import Key, find_reference_ranges
 from common.tex.reference_tex import parse_reference_tex
 from common.tex.student_tex import parse_student_tex_answers
+from services.student_grading.student_answer_bundle import read_student_answers_from_bundle
 
 
 @dataclass(frozen=True)
@@ -477,6 +478,16 @@ def _build_reference_parts_from_full_solution_json(reference_json: Path, default
     return ref_parts
 
 
+def _load_student_answers_for_payloads(student_path: Path, out_dir: Path) -> tuple[dict[Key, str], str]:
+    """Load student answers from preferred JSON bundle or legacy TeX."""
+    if student_path.suffix.lower() == ".json":
+        answers = read_student_answers_from_bundle(student_path)
+        return {_normalize_key(key): value for key, value in answers.items()}, "student_answer_bundle.json"
+
+    student_answers_raw, _student_ranges = parse_student_tex_answers(student_path, out_dir)
+    return {_normalize_key(key): value for key, value in student_answers_raw.items()}, "student.tex"
+
+
 def _build_payloads_from_full_solution_json(
     *,
     reference_json: Path,
@@ -496,12 +507,11 @@ def _build_payloads_from_full_solution_json(
 
     ref_parts = _build_reference_parts_from_full_solution_json(reference_json, default_max_points)
 
-    student_answers_raw, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
-    student_answers = {_normalize_key(key): value for key, value in student_answers_raw.items()}
+    student_answers, student_source = _load_student_answers_for_payloads(student_tex, out_dir)
     if not student_answers:
         raise RuntimeError(
-            "Could not parse any student answers from the TeX. "
-            "Check out/debug_student_tex_parts.txt."
+            "Could not parse any student answers from the uploaded student file. "
+            "For OCR submissions, prefer student_answer_bundle.json; for TeX, check out/debug_student_tex_parts.txt."
         )
 
     keys = sorted(set(ref_parts.keys()) | set(student_answers.keys()))
@@ -544,7 +554,7 @@ def _build_payloads_from_full_solution_json(
                 "metadata": metadata,
             },
             "student": {
-                "source": "student.tex",
+                "source": student_source,
                 "latex_raw": student_latex,
                 "latex_clean": "",
             },
@@ -578,7 +588,8 @@ def _build_payloads_from_full_solution_json(
         "version": 3,
         "reference_source": "full_solution_bundle.json",
         "reference_json": reference_json.name,
-        "student_tex": student_tex.name,
+        "student_source": student_source,
+        "student_file": student_tex.name,
         "count": len(items),
         "items": [
             {"qid": item.qid, "payload_file": item.payload_path.name}
@@ -614,14 +625,11 @@ def _build_payloads_from_reference_pdf(
             "If empty, the PDF may be scanned (no selectable text)."
         )
 
-    student_answers_raw, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
-    student_answers: Dict[Key, str] = {
-        _normalize_key(key): value for key, value in student_answers_raw.items()
-    }
+    student_answers, student_source = _load_student_answers_for_payloads(student_tex, out_dir)
     if not student_answers:
         raise RuntimeError(
-            "Could not parse any student answers from the TeX. "
-            "Check out/debug_student_tex_parts.txt."
+            "Could not parse any student answers from the uploaded student file. "
+            "For OCR submissions, prefer student_answer_bundle.json; for TeX, check out/debug_student_tex_parts.txt."
         )
 
     keys = sorted(set(ref_ranges.keys()) & set(student_answers.keys()))
@@ -667,7 +675,7 @@ def _build_payloads_from_reference_pdf(
                 "text": ref_text,
             },
             "student": {
-                "source": "student.tex",
+                "source": student_source,
                 "latex_raw": student_latex,
                 "latex_clean": "",
             },
@@ -700,7 +708,8 @@ def _build_payloads_from_reference_pdf(
     manifest = {
         "version": 2,
         "reference_pdf": reference_pdf.name,
-        "student_tex": student_tex.name,
+        "student_source": student_source,
+        "student_file": student_tex.name,
         "count": len(items),
         "items": [
             {"qid": item.qid, "payload_file": item.payload_path.name}
@@ -738,12 +747,11 @@ def _build_payloads_from_reference_tex(
             "Expected headings like \\section*{Question N} and \\subsection*{(a)}."
         )
 
-    student_answers_raw, _student_ranges = parse_student_tex_answers(student_tex, out_dir)
-    student_answers = {_normalize_key(key): value for key, value in student_answers_raw.items()}
+    student_answers, student_source = _load_student_answers_for_payloads(student_tex, out_dir)
     if not student_answers:
         raise RuntimeError(
-            "Could not parse any student answers from the TeX. "
-            "Check out/debug_student_tex_parts.txt."
+            "Could not parse any student answers from the uploaded student file. "
+            "For OCR submissions, prefer student_answer_bundle.json; for TeX, check out/debug_student_tex_parts.txt."
         )
 
     keys = sorted(set(ref_parts.keys()) | set(student_answers.keys()))
@@ -784,7 +792,7 @@ def _build_payloads_from_reference_tex(
                 "text": reference_block,
             },
             "student": {
-                "source": "student.tex",
+                "source": student_source,
                 "latex_raw": student_latex,
                 "latex_clean": "",
             },
@@ -817,7 +825,8 @@ def _build_payloads_from_reference_tex(
     manifest = {
         "version": 2,
         "reference_tex": reference_tex.name,
-        "student_tex": student_tex.name,
+        "student_source": student_source,
+        "student_file": student_tex.name,
         "count": len(items),
         "items": [
             {"qid": item.qid, "payload_file": item.payload_path.name}

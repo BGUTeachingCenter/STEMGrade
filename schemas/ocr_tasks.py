@@ -71,6 +71,14 @@ class StudentWorkOcrResult(BaseModel):
     student_tex: str = ""
     student_tex_path: str = ""
 
+    # Preferred structured source for grading/alignment. TeX remains useful
+    # for human review and PDF/display, but JSON is safer for machine grading.
+    student_answer_bundle: dict[str, Any] = Field(default_factory=dict)
+    student_answer_bundle_path: str = ""
+
+    document_type: str = "unknown"
+    ocr_path: str = "generic_ocr"
+
     detected_question_count: int | None = None
     detected_part_count: int | None = None
 

@@ -19,6 +19,7 @@ from routes.progress import done, fail, init_job, push
 from routes.student_log_routes import log_student_submission
 from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
+from core.storage import require_safe_exam_id, write_reference_summary
 from core.debug import create_debug_trace, write_debug_log
 from core.security import require_session
 from services.student_grading.grading.grader_payloads import grade_payload_manifest
@@ -208,6 +209,7 @@ async def _grade_tex_flow(
     job_id: str | None,
     session: dict,
     request: Request | None,
+    selected_exam_id: str | None = None,
     debug: bool = False,
 ) -> FileResponse:
     # Trust only the session for identity; never the form field.
@@ -242,7 +244,7 @@ async def _grade_tex_flow(
         provider=normalized_provider,
         student_code=student_code,
     )
-    trace.log("grading", "started", provider=normalized_provider, student_filename=student_tex.filename)
+    trace.log("grading", "started", provider=normalized_provider, student_filename=student_tex.filename, selected_exam_id=selected_exam_id if session.get("role") == "teacher" else None)
 
     persistent_results_dir = RUNS_ROOT / "final_results"
     persistent_results_dir.mkdir(parents=True, exist_ok=True)
@@ -260,11 +262,13 @@ async def _grade_tex_flow(
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # Stage 2: save student
-        tex_path = tmp_dir / (student_tex.filename or "student.tex")
+        uploaded_name = Path(student_tex.filename or "student.tex").name
+        tex_path = tmp_dir / uploaded_name
         student_upload_bytes = await student_tex.read()
         tex_path.write_bytes(student_upload_bytes)
-        trace.save_bytes("student_upload.tex", student_upload_bytes, stage="student_upload")
-        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes))
+        artifact_name = "student_answer_bundle.json" if tex_path.suffix.lower() == ".json" else f"student_upload{tex_path.suffix or '.tex'}"
+        trace.save_bytes(artifact_name, student_upload_bytes, stage="student_upload")
+        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes), suffix=tex_path.suffix.lower())
         if job_id:
             push(job_id, "Saved student file")
 
@@ -305,32 +309,75 @@ async def _grade_tex_flow(
             raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
         t_ref = perf_counter()
-        match = await run_in_threadpool(
-            pick_reference_with_match_info,
-            bank_dir=BANK_ROOT,
-            student_tex=tex_path,
-            prefer_heuristic=True,
-            llm_top_k=12,
-        )
-        exam_id, chosen_ref = match.exam_id, match.path
+        manual_exam_id = (selected_exam_id or "").strip() if session.get("role") == "teacher" else ""
+
+        if manual_exam_id:
+            exam_id = require_safe_exam_id(manual_exam_id)
+            uploads = BANK_ROOT / exam_id / "uploads"
+            json_ref = uploads / "full_solution_bundle.json"
+            tex_ref = uploads / "reference_current.tex"
+            if json_ref.exists():
+                chosen_ref = json_ref
+            elif tex_ref.exists():
+                chosen_ref = tex_ref
+            else:
+                raise HTTPException(status_code=404, detail=f"Selected reference exam has no full_solution_bundle.json or reference_current.tex: {exam_id}")
+
+            try:
+                write_reference_summary(exam_id)
+            except Exception as e:
+                trace.log("reference_match", "manual_summary_refresh_failed", status="warning", error=_safe_str(e, 500))
+
+            match_method = "manual_teacher_selection"
+            match_reason = "Teacher test mode selected the reference explicitly."
+            match_score = None
+            student_qnums = []
+            reference_qnums = []
+            reference_summary_path = uploads / "reference_summary.json"
+            try:
+                if student_summary_path and student_summary_path.exists():
+                    student_summary_for_log = read_json_file(student_summary_path) or {}
+                    student_qnums = [int(x) for x in (student_summary_for_log.get("qnums") or []) if str(x).isdigit()]
+                reference_summary_for_log = read_json_file(reference_summary_path) or {}
+                reference_qnums = [int(x) for x in (reference_summary_for_log.get("qnums") or []) if str(x).isdigit()]
+            except Exception:
+                pass
+        else:
+            match = await run_in_threadpool(
+                pick_reference_with_match_info,
+                bank_dir=BANK_ROOT,
+                student_tex=tex_path,
+                prefer_heuristic=True,
+                llm_top_k=12,
+            )
+            exam_id, chosen_ref = match.exam_id, match.path
+            match_method = match.method
+            match_reason = match.reason
+            match_score = match.score
+            student_qnums = list(match.student_qnums)
+            reference_qnums = list(match.reference_qnums)
+
         ref_secs = perf_counter() - t_ref
         reference_source = "json" if Path(chosen_ref).suffix.lower() == ".json" else "tex_fallback"
+        reference_selection_mode = "manual" if manual_exam_id else "automatic"
         trace.log(
             "reference_match",
             "selected",
             exam_id=str(exam_id),
             reference_path=str(chosen_ref),
             reference_source=reference_source,
-            match_method=match.method,
-            match_reason=match.reason,
-            match_score=match.score,
-            student_qnums=list(match.student_qnums),
-            reference_qnums=list(match.reference_qnums),
+            reference_selection_mode=reference_selection_mode,
+            match_method=match_method,
+            match_reason=match_reason,
+            match_score=match_score,
+            student_qnums=student_qnums,
+            reference_qnums=reference_qnums,
             duration_s=round(ref_secs, 3),
         )
         if job_id:
             source_label = "JSON reference" if reference_source == "json" else "TeX fallback reference"
-            push(job_id, f"Fetched: {exam_id} ({source_label}, match {ref_secs:.1f}s)")
+            mode_label = "manual" if manual_exam_id else "auto"
+            push(job_id, f"Fetched: {exam_id} ({source_label}, {mode_label} reference, {ref_secs:.1f}s)")
 
         ref_path = tmp_dir / Path(chosen_ref).name
         ref_path.write_text(
@@ -356,8 +403,8 @@ async def _grade_tex_flow(
                 reference_summary=reference_summary,
                 exam_id=str(exam_id),
                 reference_path=str(chosen_ref),
-                match_method=match.method,
-                match_reason=match.reason,
+                match_method=match_method,
+                match_reason=match_reason,
             )
             summary_compare_path = out_dir / "summary_compare.json"
             summary_compare_path.write_text(
@@ -600,6 +647,7 @@ async def _grade_tex_flow(
             "finished",
             exam_id=str(exam_id),
             reference_source=reference_source,
+            reference_selection_mode=reference_selection_mode,
             final_path=str(final_persistent_path),
         )
 
@@ -644,6 +692,7 @@ async def grade_tex_ollama(
     request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(
@@ -652,6 +701,7 @@ async def grade_tex_ollama(
         job_id=job_id,
         session=session,
         request=request,
+        selected_exam_id=selected_exam_id,
         debug=DEBUG,
     )
 
@@ -661,6 +711,7 @@ async def grade_tex_google(
     request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     # IMPORTANT: pass "google" (not "gemini") so client selection + schema pruning match
@@ -670,6 +721,7 @@ async def grade_tex_google(
         job_id=job_id,
         session=session,
         request=request,
+        selected_exam_id=selected_exam_id,
         debug=DEBUG,
     )
 
@@ -679,6 +731,7 @@ async def grade_tex_chatgpt(
     request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(

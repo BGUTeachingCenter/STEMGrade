@@ -193,6 +193,48 @@ def _file_to_data_url(path: Path) -> str:
 
 
 def _build_ocr_prompt(options: OcrOptions) -> str:
+    variant = (getattr(options, "prompt_variant", "default") or "default").strip().lower()
+
+    if variant == "student_answer_bundle":
+        return f"""
+You are a neutral OCR and segmentation engine for handwritten or scanned mathematics homework.
+
+Task: read the uploaded student submission and return JSON only.
+
+Return exactly this JSON shape:
+{{
+  "student_name": "",
+  "student_id": "",
+  "exam_id": "",
+  "answers": [
+    {{
+      "question_id": 1,
+      "part_key": "a",
+      "answer_text": "student's visible work, preserving mistakes and math notation",
+      "page_numbers": [1],
+      "confidence": 0.0,
+      "needs_review": false,
+      "warnings": []
+    }}
+  ],
+  "unmatched_blocks": [],
+  "warnings": []
+}}
+
+Rules:
+- Preserve the original language. Language hint: {options.language_hint}.
+- Use question_id as an integer.
+- Convert Hebrew part labels to latin keys: א=a, ב=b, ג=c, ד=d, ה=e, ו=f, ז=g, ח=h, ט=i, י=j.
+- If an answer has no visible part label, use part_key "".
+- Preserve the student's mistakes. Do not solve, correct, grade, or give feedback.
+- Do not invent missing answers.
+- Keep each question/part separate. Do not merge Q2 into Q1.
+- If local numbering is messy, use the visible order and labels, but mark needs_review=true.
+- For unclear handwriting, transcribe the best visible reading and set needs_review=true with a warning.
+- Put stray visible text that cannot be assigned to a question/part into unmatched_blocks.
+- Return JSON only, with no markdown fences and no prose outside JSON.
+""".strip()
+
     document_type = str((options.extra or {}).get("document_type") or "printed").strip().lower()
     upload_role = str((options.extra or {}).get("upload_role") or "generic").strip().lower()
     task_context = str((options.extra or {}).get("task_context") or "ocr").strip().lower()

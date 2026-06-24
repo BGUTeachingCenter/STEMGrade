@@ -91,7 +91,37 @@
             <option value="google">Google / Gemini OCR</option>
           </select>
           <div class="small mg-field-help">
-            Used only for handwritten OCR uploads. TeX/TXT uploads skip OCR.
+            Used only for OCR uploads. TeX/TXT uploads skip OCR.
+          </div>
+        </div>
+
+        <div style="margin-top:.5rem;">
+          <label for="ocrDocumentMode">OCR document type</label>
+          <select id="ocrDocumentMode">
+            <option value="auto">Auto detect</option>
+            <option value="handwritten">Handwritten scan</option>
+            <option value="printed">Printed / typed PDF</option>
+          </select>
+          <div class="small mg-field-help">
+            Auto should detect image-only handwritten PDFs. Override only while testing.
+          </div>
+        </div>
+
+        <div id="teacherReferencePanel" style="display:none; margin-top:.75rem; padding:.75rem; border:1px solid var(--border); border-radius:14px; background:rgba(255,255,255,.55);">
+          <div class="badge">Teacher test mode</div>
+          <label for="teacherReferenceMode" style="margin-top:.35rem; display:block;">Reference selection</label>
+          <select id="teacherReferenceMode">
+            <option value="auto">Auto match reference</option>
+            <option value="manual">Choose reference manually</option>
+          </select>
+          <div id="teacherReferenceChooser" style="display:none; margin-top:.5rem;">
+            <label for="teacherReferenceExam">Solution / exam reference</label>
+            <select id="teacherReferenceExam">
+              <option value="">Loading references…</option>
+            </select>
+          </div>
+          <div class="small mg-field-help">
+            This is visible only to teachers. Students still use automatic matching.
           </div>
         </div>
 
@@ -136,6 +166,7 @@
     const ENDPOINT_GRADE_GOOGLE = API_BASE + "/routes/grade_tex_google";
     const ENDPOINT_GRADE_GPT    = API_BASE + "/routes/grade_tex_chatgpt";
     const ENDPOINT_OCR          = API_BASE + "/routes/ocr_handwritten";
+    const ENDPOINT_BANK_EXAMS   = API_BASE + "/routes/bank/exams";
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
     const ENDPOINT_LOGOUT = API_BASE + "/routes/logout";
     const ENDPOINT_ME = API_BASE + "/routes/me";
@@ -173,10 +204,18 @@
     const ocrBtn = document.getElementById("ocrBtn");
     const logoutBtnTop = document.getElementById("logoutBtnTop");
     const backToTeacherBtn = document.getElementById("backToTeacherBtn");
+    const ocrDocumentMode = document.getElementById("ocrDocumentMode");
+    const teacherReferencePanel = document.getElementById("teacherReferencePanel");
+    const teacherReferenceMode = document.getElementById("teacherReferenceMode");
+    const teacherReferenceChooser = document.getElementById("teacherReferenceChooser");
+    const teacherReferenceExam = document.getElementById("teacherReferenceExam");
 
     let currentRole = null;
     let currentUserCode = null;
     let ocrGeneratedTexFile = null;
+    let ocrGeneratedBundleFile = null;
+    let ocrGeneratedBundleJson = "";
+    let ocrGeneratedOriginalTex = "";
 
     function nowTag() {
       const d = new Date();
@@ -197,7 +236,7 @@
     }
 
     function disableAll(disabled) {
-      const readyTex = !!((studentTex && studentTex.files && studentTex.files[0]) || ocrGeneratedTexFile);
+      const readyTex = !!((studentTex && studentTex.files && studentTex.files[0]) || ocrGeneratedBundleFile || ocrGeneratedTexFile);
       const readyOcr = !!(handwrittenFile && handwrittenFile.files && handwrittenFile.files[0]);
       gradeOllamaBtn.disabled = disabled || !readyTex;
       gradeGoogleBtn.disabled = disabled || !readyTex;
@@ -226,6 +265,12 @@
         }
         if (backToTeacherBtn) {
           backToTeacherBtn.style.display = currentRole === "teacher" ? "inline-flex" : "none";
+        }
+        if (teacherReferencePanel) {
+          teacherReferencePanel.style.display = currentRole === "teacher" ? "block" : "none";
+        }
+        if (currentRole === "teacher") {
+          loadTeacherReferences();
         }
       } catch (_) {
         currentRole = null;
@@ -257,11 +302,42 @@
       }
     }
 
+    async function loadTeacherReferences() {
+      if (!teacherReferenceExam || currentRole !== "teacher") return;
+      try {
+        const r = await authedFetch(ENDPOINT_BANK_EXAMS, { cache: "no-store" });
+        const j = await r.json();
+        const ids = Array.isArray(j.exam_ids) ? j.exam_ids : [];
+        teacherReferenceExam.innerHTML = "";
+        if (!ids.length) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "No references found";
+          teacherReferenceExam.appendChild(opt);
+          return;
+        }
+        for (const id of ids) {
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = id;
+          teacherReferenceExam.appendChild(opt);
+        }
+      } catch (e) {
+        teacherReferenceExam.innerHTML = `<option value="">Could not load references</option>`;
+      }
+    }
+
+    function updateTeacherReferenceUI() {
+      if (!teacherReferenceChooser || !teacherReferenceMode) return;
+      teacherReferenceChooser.style.display = (currentRole === "teacher" && teacherReferenceMode.value === "manual") ? "block" : "none";
+    }
+
     function updateUI() {
       const stu = studentTex.files[0];
-        const generated = ocrGeneratedTexFile;
-        stuChip.style.display = (stu || generated) ? "inline-flex" : "none";
-        stuName.textContent = stu ? stu.name : (generated ? generated.name : "");
+      const generated = ocrGeneratedBundleFile || ocrGeneratedTexFile;
+      stuChip.style.display = (stu || generated) ? "inline-flex" : "none";
+      stuName.textContent = stu ? stu.name : (generated ? generated.name : "");
+      updateTeacherReferenceUI();
 
       const hw = handwrittenFile.files[0];
       ocrChip.style.display = hw ? "inline-flex" : "none";
@@ -362,7 +438,7 @@
         window.location.href = "/student-login";
         return;
       }
-      const stu = (studentTex.files && studentTex.files[0]) || ocrGeneratedTexFile;
+      const stu = (studentTex.files && studentTex.files[0]) || ocrGeneratedBundleFile || ocrGeneratedTexFile;
       if (!stu) return;
 
       disableAll(true);
@@ -377,6 +453,14 @@
         const form = new FormData();
         form.append("student_tex", stu);
         form.append("job_id", jobId);
+        if (currentRole === "teacher" && teacherReferenceMode && teacherReferenceMode.value === "manual") {
+          const selectedExam = teacherReferenceExam ? (teacherReferenceExam.value || "") : "";
+          if (!selectedExam) {
+            throw new Error("Choose a reference exam, or switch reference selection back to Auto match.");
+          }
+          form.append("selected_exam_id", selectedExam);
+          lines.push(`[${nowTag()}] Manual reference selected: ${selectedExam}`);
+        }
         const res = await authedFetch(url, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
@@ -453,6 +537,7 @@
         form.append("file", hw);
         const ocrProvider = document.getElementById("ocrProvider").value;
         form.append("ocr_provider", ocrProvider);
+        form.append("ocr_document_mode", ocrDocumentMode ? ocrDocumentMode.value : "auto");
         const res = await authedFetch(ENDPOINT_OCR, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
         const data = contentType.includes("application/json") ? await res.json() : null;
@@ -461,6 +546,14 @@
         }
 
         lines.push(`[${nowTag()}] OCR finished ✅`);
+        if (data.ocr_document_type) lines.push(`[${nowTag()}] Document type: ${data.ocr_document_type}`);
+        if (data.ocr_path) lines.push(`[${nowTag()}] OCR path: ${data.ocr_path}`);
+        if (data.student_summary && data.student_summary.part_count !== undefined) {
+          lines.push(`[${nowTag()}] Detected parts: ${data.student_summary.part_count}`);
+        }
+        if (data.student_answer_bundle_json) {
+          lines.push(`[${nowTag()}] Structured student_answer_bundle.json is ready for grading.`);
+        }
         if (data.mathpix_mode) lines.push(`[${nowTag()}] Mathpix mode: ${data.mathpix_mode}`);
         if (data.pdf_id) lines.push(`[${nowTag()}] PDF id: ${data.pdf_id}`);
         if (data.confidence !== undefined && data.confidence !== null) lines.push(`[${nowTag()}] Confidence: ${data.confidence}`);
@@ -468,8 +561,11 @@
 
         if (ocrTexReview && ocrReviewPanel) {
           ocrTexReview.value = data.student_tex || data.text || "";
+          ocrGeneratedOriginalTex = ocrTexReview.value || "";
           ocrReviewPanel.style.display = "block";
           ocrGeneratedTexFile = null;
+          ocrGeneratedBundleFile = null;
+          ocrGeneratedBundleJson = data.student_answer_bundle_json || "";
         }
 
         lines.push(`[${nowTag()}] Review the generated LaTeX, then click "Use this as LaTeX answer".`);
@@ -505,15 +601,25 @@
         return;
       }
 
-      ocrGeneratedTexFile = new File(
-        [tex],
-        "ocr_student_answer.tex",
-        { type: "application/x-tex" }
-      );
+      const reviewUnchanged = ocrGeneratedBundleJson && ocrGeneratedOriginalTex && tex === ocrGeneratedOriginalTex.trim();
+
+      if (reviewUnchanged) {
+        ocrGeneratedTexFile = null;
+        ocrGeneratedBundleFile = new File([ocrGeneratedBundleJson], "student_answer_bundle.json", { type: "application/json" });
+        setStatusText([`[${nowTag()}] Structured OCR JSON is ready. Choose a grading model above.`], "ok");
+      } else {
+        ocrGeneratedBundleFile = null;
+        ocrGeneratedBundleJson = "";
+        ocrGeneratedTexFile = new File(
+          [tex],
+          "ocr_student_answer.tex",
+          { type: "application/x-tex" }
+        );
+        setStatusText([`[${nowTag()}] Reviewed OCR LaTeX is ready. Choose a grading model above.`], "ok");
+      }
 
       if (studentTex) studentTex.value = "";
 
-      setStatusText([`[${nowTag()}] OCR LaTeX is ready. Choose a grading model above.`], "ok");
       updateUI();
     }
 
@@ -522,6 +628,7 @@
     gradeGptBtn.addEventListener("click", () => postAndDownload(ENDPOINT_GRADE_GPT, "graded_test_gpt.pdf", "GPT grading"));
     ocrBtn.addEventListener("click", runOcr);
     useOcrTexBtn.addEventListener("click", useReviewedOcrTex);
+    if (teacherReferenceMode) teacherReferenceMode.addEventListener("change", updateTeacherReferenceUI);
 
     ensureSession();
     loadHealth();

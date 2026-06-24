@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple
 
 from core.storage import list_exam_summaries, write_reference_summary
 from common.tex.student_tex import parse_student_tex_answers
+from common.exam_summary import build_student_summary_from_answer_bundle
 from core.ai_clients.ollama_client import OllamaClient
 
 
@@ -125,9 +126,19 @@ def _fallback_student_qnums(student_tex: Path) -> list[int]:
 def _student_qnums_for_matching(student_tex: Path) -> list[int]:
     """Extract question numbers for reference matching.
 
-    Primary path uses the real student-answer parser. Fallback path is looser
-    and is only used for choosing the exam, not for grading payload alignment.
+    Primary path uses student_answer_bundle.json when available. Legacy TeX
+    parsing remains for manually uploaded .tex answers. Fallback regex is used
+    only for selecting the exam, not for grading alignment.
     """
+    if student_tex.suffix.lower() == ".json":
+        try:
+            summary = build_student_summary_from_answer_bundle(student_tex)
+            qnums = [int(x) for x in (summary.get("qnums") or [])]
+            if qnums:
+                return sorted(set(qnums))
+        except Exception:
+            pass
+
     try:
         student_answers, _ranges = parse_student_tex_answers(student_tex, student_tex.parent)
         if student_answers:
