@@ -36,6 +36,24 @@ _Q_LINE_RE = re.compile(
     re.UNICODE,
 )
 
+# Bare number at line start followed by a single part letter + delimiter:
+#   "3. א."  →  Q3 part א
+#   "6. א. בסיס האינדוקציה"  →  Q6 part א
+# The part letter must be followed by a non-letter char (. ) : or space)
+# to avoid matching word starts like "צ"ל" or "שטח".
+_BARE_QNUM_PART_RE = re.compile(
+    r"^\s*([0-9]{1,2})\s*[.)]\s+([א-תA-Za-z])\s*[.):]\s*(.*)",
+    re.UNICODE,
+)
+
+# Bare number at line start followed by non-math content (no part letter):
+#   "4. צ"ל:"  →  Q4
+#   "5. שטח מלבן = ..."  →  Q5
+_BARE_QNUM_TEXT_RE = re.compile(
+    r"^\s*([0-9]{1,2})\s*[.)]\s+(\S.*)",
+    re.UNICODE,
+)
+
 _PART_RE = re.compile(
     r"^\s*(?:סעיף\s*)?[\(\[]?\s*([A-Za-zא-ת])\s*[\)\].:]\s*(.*)$",
     re.UNICODE,
@@ -136,6 +154,21 @@ def normalize_ocr_lines_for_student_parser(text: str) -> str:
             qnum = int(q_line_match.group(1))
             add_question(qnum)
             continue
+
+        bare_qp = _BARE_QNUM_PART_RE.match(line)
+        if bare_qp:
+            qnum = int(bare_qp.group(1))
+            add_question(qnum)
+            add_part(bare_qp.group(2), bare_qp.group(3))
+            continue
+
+        bare_qt = _BARE_QNUM_TEXT_RE.match(line)
+        if bare_qt:
+            qnum = int(bare_qt.group(1))
+            if qnum > max(seen_q, default=0):
+                add_question(qnum)
+                out.append(bare_qt.group(2))
+                continue
 
         heb_part_match = _HEBREW_PART_WORD_RE.match(line)
         if heb_part_match:
