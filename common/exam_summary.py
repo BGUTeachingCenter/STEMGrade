@@ -127,6 +127,65 @@ def write_student_summary(student_tex_path: Path, *, out_dir: Path) -> Path:
     return p
 
 
+def build_student_summary_from_answer_bundle(bundle_path: Path | str) -> dict:
+    """
+    Build a compact student summary from a student_answer_bundle.json.
+
+    Mirrors the shape produced by _extract_student_summary (qnums, keys_preview,
+    preview_text, part_count, parse_ok) so callers can treat both sources the
+    same way. Parsed inline to keep common/ independent of services/.
+    """
+    summary: dict[str, Any] = {
+        "qnums": [],
+        "keys_preview": [],
+        "preview_text": "",
+        "part_count": 0,
+        "parse_ok": False,
+    }
+
+    try:
+        data = json.loads(Path(bundle_path).read_text(encoding="utf-8"))
+        items = (data or {}).get("answers") or []
+
+        qnums: set[int] = set()
+        keys: list[str] = []
+        preview_lines: list[str] = []
+        part_count = 0
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                qnum = int(str(item.get("question_id")).strip())
+            except (TypeError, ValueError):
+                continue
+
+            qnums.add(qnum)
+            part_count += 1
+            part = str(item.get("part_key") or "").strip()
+            key = f"Q{qnum}{part}"
+
+            if len(keys) < 60:
+                keys.append(key)
+            if len(preview_lines) < 14:
+                snip = _safe_str(item.get("answer_text"), limit=140)
+                preview_lines.append(f"{key}: {snip if snip else '(empty)'}")
+
+        summary.update(
+            {
+                "qnums": sorted(qnums),
+                "keys_preview": keys,
+                "preview_text": "\n".join(preview_lines)[:6000],
+                "part_count": part_count,
+                "parse_ok": part_count > 0,
+            }
+        )
+    except Exception as e:
+        summary["parse_error"] = _safe_str(e, 500)
+
+    return summary
+
+
 # -------------------------
 # Reference summary
 # -------------------------
