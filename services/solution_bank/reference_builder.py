@@ -94,8 +94,12 @@ into a clean structured JSON bundle for automated grading.
 Return strict JSON only.
 
 General rules:
-- Extract only questions intended for submission.
-- Ignore page headers, university names, dates, page numbers, repeated titles, and administrative text.
+- Extract all visible questions, including regular submitted questions and sections marked as not for submission / optional / practice.
+- Ignore headers, page numbers, dates, and administrative instructions that are not question content.
+- If a question appears after a marker such as "שאלות שאינן להגשה", "לא להגשה", "שאלות רשות", "optional", or "not for submission":
+  set is_gradeable=false, usage="practice_feedback_only", and section_label to the visible section marker.
+- For normal submitted questions:
+  set is_gradeable=true and usage="gradeable".
 - Stop before sections like "שאלות שאינן להגשה" or optional/starred questions not for submission.
 - Preserve Hebrew question text.
 - Preserve mathematics as LaTeX where possible.
@@ -354,18 +358,20 @@ NON_SUBMISSION_MARKERS = [
 ]
 
 
-def trim_non_submission_sections(ocr_text: str) -> tuple[str, list[str]]:
+def split_submission_sections(ocr_text: str) -> tuple[str, str, str, list[str]]:
     """
-    Remove sections that are explicitly marked as not for submission.
+    Split OCR text into:
+      - gradeable/submitted section text
+      - non-submission/practice section text
+      - marker that caused the split
+      - warnings
 
-    This is intentionally generic:
-    - it does not depend on a specific exam
-    - it only cuts when a visible marker appears
-    - it returns warnings so the teacher can review what happened
+    We do NOT discard the non-submission section anymore. It is kept and later
+    stored in the same JSON with is_gradeable=false.
     """
     text = str(ocr_text or "")
     if not text.strip():
-        return text, []
+        return text, "", "", []
 
     lowered = text.lower()
     best_idx: int | None = None
@@ -378,14 +384,249 @@ def trim_non_submission_sections(ocr_text: str) -> tuple[str, list[str]]:
             best_marker = marker
 
     if best_idx is None:
-        return text, []
+        return text, "", "", []
 
-    trimmed = text[:best_idx].rstrip()
+    gradeable_text = text[:best_idx].rstrip()
+    practice_text = text[best_idx:].strip()
+
     warnings = [
-        f"Questions-only OCR text was trimmed before non-submission marker: {best_marker!r}.",
-        "Content after this marker was ignored for gradeable question extraction.",
+        f"Detected non-submission/practice section marker: {best_marker!r}.",
+        "Questions after this marker were kept in the JSON as practice_feedback_only and excluded from reference_current.tex grading.",
     ]
-    return trimmed, warnings
+
+    return gradeable_text, practice_text, best_marker, warnings
+
+
+def trim_non_submission_sections(ocr_text: str) -> tuple[str, list[str]]:
+    """
+    Backward-compatible wrapper.
+
+    Prefer split_submission_sections() for new code. This wrapper still returns
+    only the gradeable text because older callers may depend on that behavior,
+    but its warning must not claim that practice questions were deleted.
+    """
+    gradeable_text, _practice_text, marker, warnings = split_submission_sections(ocr_text)
+    if marker:
+        return gradeable_text, warnings
+    return str(ocr_text or ""), []
+
+
+def _question_ids_after_non_submission_marker(ocr_text: str) -> tuple[set[int], str, list[str]]:
+    """
+    Detect visible question numbers after a non-submission marker.
+
+    Conservative generic patterns:
+      *.7
+      .7
+      Question 7
+
+    We avoid plain standalone numbers so random numbers inside the optional
+    section do not become question IDs.
+    """
+    _gradeable_text, practice_text, marker, warnings = split_submission_sections(ocr_text)
+    ids: set[int] = set()
+
+    if not practice_text:
+        return ids, marker, warnings
+
+    patterns = [
+        r"(?:^|\n)\s*\*+\s*\.?\s*(\d{1,3})(?=\s|[.)])",
+        r"(?:^|\n)\s*\.(\d{1,3})(?=\s|[.)])",
+        r"(?:^|\n)\s*question\s+(\d{1,3})(?=\s|[.)])",
+        r"(?:^|\n)\s*שאלה\s+(\d{1,3})(?=\s|[.)])",
+    ]
+
+    for pat in patterns:
+        for m in re.finditer(pat, practice_text, flags=re.IGNORECASE):
+            try:
+                qid = int(m.group(1))
+            except Exception:
+                continue
+            if 1 <= qid <= 300:
+                ids.add(qid)
+
+    if marker and ids:
+        warnings.append(
+            "Detected practice/non-submission question IDs after marker "
+            f"{marker!r}: {', '.join(str(x) for x in sorted(ids))}."
+        )
+    elif marker:
+        warnings.append(
+            f"Detected marker {marker!r}, but could not confidently detect practice question IDs after it."
+        )
+
+    return ids, marker, warnings
+
+
+def apply_gradeable_flags_from_source(
+    bundle: QuestionsOnlyBundle | QuestionsAnswersBundle | dict[str, Any],
+    *,
+    ocr_text: str,
+) -> QuestionsOnlyBundle | QuestionsAnswersBundle:
+    """
+    Mark questions after a non-submission marker as practice_feedback_only.
+
+    The same JSON can therefore contain:
+      - gradeable questions
+      - non-submission questions for later feedback-only use
+    """
+    if isinstance(bundle, (QuestionsOnlyBundle, QuestionsAnswersBundle)):
+        out = bundle
+    else:
+        # Prefer QuestionsOnlyBundle because this helper is mainly used there.
+        # If that fails, try QuestionsAnswersBundle.
+        try:
+            out = QuestionsOnlyBundle.model_validate(bundle)
+        except Exception:
+            out = QuestionsAnswersBundle.model_validate(bundle)
+
+    practice_ids, marker, warnings = _question_ids_after_non_submission_marker(ocr_text)
+
+    for q in out.questions:
+        qid = int(q.question_id)
+        question_is_practice = qid in practice_ids
+
+        # Respect an AI-produced false flag too.
+        if getattr(q, "is_gradeable", True) is False:
+            question_is_practice = True
+
+        if question_is_practice:
+            q.is_gradeable = False
+            q.usage = "practice_feedback_only"
+            q.section_label = q.section_label or marker or "non-submission"
+        else:
+            q.is_gradeable = True
+            q.usage = "gradeable"
+            q.section_label = q.section_label or ""
+
+        for p in q.parts:
+            if question_is_practice or getattr(p, "is_gradeable", True) is False:
+                p.is_gradeable = False
+                p.usage = "practice_feedback_only"
+                p.section_label = p.section_label or q.section_label or marker or "non-submission"
+            else:
+                p.is_gradeable = True
+                p.usage = "gradeable"
+                p.section_label = p.section_label or ""
+
+    if warnings:
+        out.warnings = list(dict.fromkeys([*(out.warnings or []), *warnings]))
+
+    return out
+
+
+def mark_bundle_as_practice_only(
+    bundle: QuestionsOnlyBundle | dict[str, Any],
+    *,
+    section_label: str = "non-submission",
+) -> QuestionsOnlyBundle:
+    """
+    Mark every question and part in a QuestionsOnlyBundle as practice-only.
+
+    Used for questions extracted from a section such as:
+      שאלות שאינן להגשה
+    """
+    qb = (
+        bundle
+        if isinstance(bundle, QuestionsOnlyBundle)
+        else QuestionsOnlyBundle.model_validate(bundle)
+    )
+
+    for q in qb.questions:
+        q.is_gradeable = False
+        q.usage = "practice_feedback_only"
+        q.section_label = q.section_label or section_label
+
+        for p in q.parts:
+            p.is_gradeable = False
+            p.usage = "practice_feedback_only"
+            p.section_label = p.section_label or q.section_label or section_label
+
+    qb.warnings = list(
+        dict.fromkeys(
+            [
+                *(qb.warnings or []),
+                f"Questions in this section were marked as practice_feedback_only: {section_label}.",
+            ]
+        )
+    )
+
+    return qb
+
+
+def combine_questions_only_bundles(
+    *,
+    gradeable_bundle: QuestionsOnlyBundle | dict[str, Any],
+    practice_bundle: QuestionsOnlyBundle | dict[str, Any] | None = None,
+    exam_id: str = "",
+) -> QuestionsOnlyBundle:
+    """
+    Combine gradeable questions and practice-only questions into one bundle.
+
+    The final JSON can contain both, while later TeX/reference generation
+    filters practice-only questions out of grading.
+    """
+    gradeable = (
+        gradeable_bundle
+        if isinstance(gradeable_bundle, QuestionsOnlyBundle)
+        else QuestionsOnlyBundle.model_validate(gradeable_bundle)
+    )
+
+    if practice_bundle is None:
+        return gradeable
+
+    practice = (
+        practice_bundle
+        if isinstance(practice_bundle, QuestionsOnlyBundle)
+        else QuestionsOnlyBundle.model_validate(practice_bundle)
+    )
+
+    existing_ids = {int(q.question_id) for q in gradeable.questions}
+    combined_questions = list(gradeable.questions)
+
+    for q in practice.questions:
+        qid = int(q.question_id)
+
+        # If the AI accidentally re-extracts a gradeable question from the
+        # practice section, do not duplicate it.
+        if qid in existing_ids:
+            gradeable.warnings.append(
+                f"Skipped duplicate practice question_id {qid}; already exists in gradeable section."
+            )
+            continue
+
+        combined_questions.append(q)
+
+    combined_questions.sort(key=lambda q: int(q.question_id))
+
+    gradeable.questions = combined_questions
+    gradeable.exam_id = gradeable.exam_id or practice.exam_id or exam_id
+    gradeable.exam_title = gradeable.exam_title or practice.exam_title
+
+    gradeable.warnings = list(
+        dict.fromkeys(
+            [
+                *(gradeable.warnings or []),
+                *(practice.warnings or []),
+            ]
+        )
+    )
+
+    gradeable.structure_corrections = [
+        *(gradeable.structure_corrections or []),
+        *(practice.structure_corrections or []),
+    ]
+
+    gradeable.source_names = list(
+        dict.fromkeys(
+            [
+                *(gradeable.source_names or []),
+                *(practice.source_names or []),
+            ]
+        )
+    )
+
+    return gradeable
 
 
 def _norm_text_for_alignment(text: str) -> str:
@@ -811,33 +1052,121 @@ def build_questions_only_bundle_from_ocr(
 
     Output:
       QuestionsOnlyBundle as dict.
+
+    Behavior:
+      - If no non-submission marker exists, extract normally.
+      - If a marker exists, extract the gradeable section and the practice
+        section separately, then combine them into one JSON bundle.
     """
     client = client or GptClient()
 
-    trimmed_ocr_text, trim_warnings = trim_non_submission_sections(ocr_text)
+    gradeable_text, practice_text, marker, section_warnings = split_submission_sections(ocr_text)
 
-    user_prompt = f"""
-    exam_id: {exam_id}
-    source_name: {source_name}
+    # ------------------------------------------------------------
+    # Pass 1: gradeable/submitted questions
+    # ------------------------------------------------------------
+    gradeable_prompt = f"""
+exam_id: {exam_id}
+source_name: {source_name}
 
-    OCR source:
-    -----------
-    {trimmed_ocr_text}
-    """
+This OCR section contains the submitted / gradeable questions.
+Extract the questions in this section as gradeable.
 
-    result = client.chat_json(
+Rules:
+- Set is_gradeable=true.
+- Set usage="gradeable".
+- Set section_label="שאלות להגשה".
+- Do not include answers or grading instructions.
+
+OCR source:
+-----------
+{gradeable_text}
+"""
+
+    gradeable_result = client.chat_json(
         system=QUESTIONS_ONLY_SYSTEM_PROMPT,
-        user=user_prompt,
+        user=gradeable_prompt,
         schema=questions_only_bundle_schema(),
         schema_name="mathgrade_questions_only_bundle",
         strict=False,
         timeout_s=240,
     )
 
-    bundle = _as_questions_only_bundle(result, exam_id=exam_id)
-    if trim_warnings:
-        bundle.warnings = list(dict.fromkeys([*(bundle.warnings or []), *trim_warnings]))
-    return bundle.model_dump()
+    gradeable_bundle = _as_questions_only_bundle(gradeable_result, exam_id=exam_id)
+
+    for q in gradeable_bundle.questions:
+        q.is_gradeable = True
+        q.usage = "gradeable"
+        q.section_label = q.section_label or "שאלות להגשה"
+
+        for p in q.parts:
+            p.is_gradeable = True
+            p.usage = "gradeable"
+            p.section_label = p.section_label or q.section_label
+
+    # ------------------------------------------------------------
+    # Pass 2: non-submission / practice-only questions
+    # ------------------------------------------------------------
+    practice_bundle: QuestionsOnlyBundle | None = None
+
+    if practice_text.strip():
+        practice_prompt = f"""
+exam_id: {exam_id}
+source_name: {source_name}
+
+This OCR section contains questions that are explicitly NOT for submission,
+optional, practice-only, bonus, or otherwise not gradeable.
+
+Extract these questions too, but mark them as practice-only.
+
+Rules:
+- Set is_gradeable=false for every question and every part.
+- Set usage="practice_feedback_only" for every question and every part.
+- Set section_label to the visible marker if possible: {marker or "non-submission"}.
+- Do not include answers or grading instructions.
+- Preserve visible question numbers, including starred numbers such as *.7.
+- If a question has no explicit parts, represent it as one part: part="א", part_key="a".
+
+OCR source:
+-----------
+{practice_text}
+"""
+
+        practice_result = client.chat_json(
+            system=QUESTIONS_ONLY_SYSTEM_PROMPT,
+            user=practice_prompt,
+            schema=questions_only_bundle_schema(),
+            schema_name="mathgrade_practice_questions_bundle",
+            strict=False,
+            timeout_s=240,
+        )
+
+        practice_bundle = _as_questions_only_bundle(practice_result, exam_id=exam_id)
+        practice_bundle = mark_bundle_as_practice_only(
+            practice_bundle,
+            section_label=marker or "non-submission",
+        )
+
+    combined = combine_questions_only_bundles(
+        gradeable_bundle=gradeable_bundle,
+        practice_bundle=practice_bundle,
+        exam_id=exam_id,
+    )
+
+    # Keep source-based marker warnings, but remove old/contradictory wording if
+    # the AI generated it.
+    combined.warnings = [
+        w
+        for w in (combined.warnings or [])
+        if "הושמטו" not in str(w) and "ignored for gradeable question extraction" not in str(w)
+    ]
+
+    if section_warnings:
+        combined.warnings = list(dict.fromkeys([*(combined.warnings or []), *section_warnings]))
+
+    combined = apply_gradeable_flags_from_source(combined, ocr_text=ocr_text)
+
+    return combined.model_dump()
 
 
 def build_answers_only_bundle_from_ocr(
@@ -870,7 +1199,10 @@ def build_answers_only_bundle_from_ocr(
     {json.dumps(qb.model_dump(), ensure_ascii=False, indent=2)}
 
     Important:
-    - The locked question structure above is the only gradeable structure.
+    - The locked question structure above is the only allowed question structure.
+    - Some locked questions may have is_gradeable=false and usage="practice_feedback_only".
+    - Gradeable questions are used for scoring.
+    - Practice-feedback-only questions may receive answers for later student feedback, but they must not be treated as scored questions.
     - Extract answer candidates only.
     - Do not create new gradeable questions from the answer file.
     - If a visible solution appears to belong to a question that is not in the locked structure, keep it as an uncertain answer candidate or leave it unmatched.
@@ -974,6 +1306,9 @@ def build_questions_answers_bundle_from_questions_only(
                     "expected_answer": "",
                     "grading_instructions": "",
                     "max_points": p.max_points,
+                    "is_gradeable": bool(getattr(p, "is_gradeable", True)),
+                    "usage": getattr(p, "usage", "gradeable"),
+                    "section_label": getattr(p, "section_label", ""),
                     "review_status": "missing",
                     "confidence": p.confidence,
                     "warnings": list(
@@ -991,6 +1326,9 @@ def build_questions_answers_bundle_from_questions_only(
         questions.append(
             {
                 "question_id": int(q.question_id),
+                "is_gradeable": bool(getattr(q, "is_gradeable", True)),
+                "usage": getattr(q, "usage", "gradeable"),
+                "section_label": getattr(q, "section_label", ""),
                 "parts": parts,
             }
         )
@@ -1060,6 +1398,9 @@ def promote_questions_answers_to_full_solution(
                     "expected_answer": p.expected_answer,
                     "grading_instructions": p.grading_instructions,
                     "max_points": p.max_points,
+                    "is_gradeable": bool(getattr(p, "is_gradeable", getattr(q, "is_gradeable", True))),
+                    "usage": getattr(p, "usage", getattr(q, "usage", "gradeable")),
+                    "section_label": getattr(p, "section_label", getattr(q, "section_label", "")),
                     "review_status": review_status,
                     "confidence": p.confidence,
                     "warnings": warnings,
@@ -1071,6 +1412,9 @@ def promote_questions_answers_to_full_solution(
         questions.append(
             {
                 "question_id": q.question_id,
+                "is_gradeable": bool(getattr(q, "is_gradeable", True)),
+                "usage": getattr(q, "usage", "gradeable"),
+                "section_label": getattr(q, "section_label", ""),
                 "parts": parts,
             }
         )
@@ -1134,8 +1478,16 @@ def merge_questions_and_answers_to_full_solution(
     for q in qb.questions:
         full_parts: list[dict[str, Any]] = []
 
+        q_is_gradeable = bool(getattr(q, "is_gradeable", True))
+        q_usage = getattr(q, "usage", "gradeable")
+        q_section_label = getattr(q, "section_label", "")
+
         for p in q.parts:
             pk = _part_key(p.part, p.part_key)
+
+            p_is_gradeable = bool(getattr(p, "is_gradeable", q_is_gradeable))
+            p_usage = getattr(p, "usage", q_usage)
+            p_section_label = getattr(p, "section_label", q_section_label)
 
             part_warnings = list(p.warnings or [])
 
@@ -1202,6 +1554,9 @@ def merge_questions_and_answers_to_full_solution(
                     "expected_answer": expected_answer,
                     "grading_instructions": grading_instructions,
                     "max_points": p.max_points,
+                    "is_gradeable": p_is_gradeable,
+                    "usage": p_usage,
+                    "section_label": p_section_label,
                     "review_status": review_status,
                     "confidence": confidence,
                     "warnings": part_warnings,
@@ -1213,6 +1568,9 @@ def merge_questions_and_answers_to_full_solution(
         full_questions.append(
             {
                 "question_id": q.question_id,
+                "is_gradeable": q_is_gradeable,
+                "usage": q_usage,
+                "section_label": q_section_label,
                 "parts": full_parts,
             }
         )

@@ -279,7 +279,15 @@ def _gradeable_status_from_bundle(bundle: dict | FullSolutionBundle | None) -> s
     ]
 
     for q in full.questions:
+        if not bool(getattr(q, "is_gradeable", True)) or getattr(q, "usage", "gradeable") != "gradeable":
+            continue
+
         for p in q.parts:
+            if not bool(getattr(p, "is_gradeable", getattr(q, "is_gradeable", True))):
+                continue
+            if getattr(p, "usage", getattr(q, "usage", "gradeable")) != "gradeable":
+                continue
+
             total += 1
             if str(p.official_solution or "").strip() or str(p.expected_answer or "").strip():
                 answered += 1
@@ -302,6 +310,40 @@ def _gradeable_status_from_bundle(bundle: dict | FullSolutionBundle | None) -> s
         return "draft_review_required"
 
     return "clean"
+
+
+def _practice_counts_from_bundle(bundle: dict | FullSolutionBundle | None) -> tuple[int, int]:
+    if bundle is None:
+        return 0, 0
+
+    try:
+        full = bundle if isinstance(bundle, FullSolutionBundle) else FullSolutionBundle.model_validate(bundle)
+    except Exception:
+        return 0, 0
+
+    q_count = 0
+    part_count = 0
+
+    for q in full.questions:
+        q_is_practice = (
+            not bool(getattr(q, "is_gradeable", True))
+            or getattr(q, "usage", "gradeable") == "practice_feedback_only"
+        )
+
+        practice_parts = [
+            p for p in q.parts
+            if (
+                q_is_practice
+                or not bool(getattr(p, "is_gradeable", getattr(q, "is_gradeable", True)))
+                or getattr(p, "usage", getattr(q, "usage", "gradeable")) == "practice_feedback_only"
+            )
+        ]
+
+        if practice_parts:
+            q_count += 1
+            part_count += len(practice_parts)
+
+    return q_count, part_count
 
 
 def _build_and_save_full_solution_if_possible(
@@ -596,12 +638,16 @@ def _preview_from_exam_structure(structure: dict | None, tex_text: str) -> tuple
 
             parts = [str(p).strip() for p in (q.get("parts") or []) if str(p).strip()]
 
+            usage = str(q.get("usage") or "gradeable")
+            label = "practice only" if usage == "practice_feedback_only" or q.get(
+                "is_gradeable") is False else "gradeable"
+
             if parts:
                 keys.extend([f"Q{qid}{p}" for p in parts])
-                preview_lines.append(f"Question {qid}: parts {', '.join(parts)}")
+                preview_lines.append(f"Question {qid}: parts {', '.join(parts)} [{label}]")
             else:
                 keys.append(f"Q{qid}")
-                preview_lines.append(f"Question {qid}: no parts detected")
+                preview_lines.append(f"Question {qid}: no parts detected [{label}]")
 
         preview_lines.append("")
         preview_lines.append("Extracted text preview:")
@@ -1081,6 +1127,34 @@ async def upload_to_bank(
         f"Token usage — OCR: {ocr_tokens}, AI structuring: {ai_tokens}, total: {total_tokens}",
     )
 
+    practice_question_count = 0
+    practice_part_count = 0
+    try:
+        if (uploads / "full_solution_bundle.json").exists():
+            practice_question_count, practice_part_count = _practice_counts_from_bundle(
+                json.loads((uploads / "full_solution_bundle.json").read_text(encoding="utf-8"))
+            )
+        elif (uploads / "questions_only_bundle.json").exists():
+            q_only = QuestionsOnlyBundle.model_validate(
+                json.loads((uploads / "questions_only_bundle.json").read_text(encoding="utf-8"))
+            )
+            practice_question_count = sum(
+                1
+                for q in q_only.questions
+                if not bool(getattr(q, "is_gradeable", True))
+                or getattr(q, "usage", "gradeable") == "practice_feedback_only"
+            )
+            practice_part_count = sum(
+                1
+                for q in q_only.questions
+                for p in q.parts
+                if not bool(getattr(p, "is_gradeable", getattr(q, "is_gradeable", True)))
+                or getattr(p, "usage", getattr(q, "usage", "gradeable")) == "practice_feedback_only"
+            )
+    except Exception:
+        practice_question_count = 0
+        practice_part_count = 0
+
     meta = {
         "exam_id": exam_id,
         "filename": filename,
@@ -1123,6 +1197,8 @@ async def upload_to_bank(
         "full_solution_available": (uploads / "full_solution_bundle.json").exists(),
         "reference_tex_available": (uploads / "reference_current.tex").exists(),
         "gradeable_status": gradeable_status,
+        "practice_question_count": practice_question_count,
+        "practice_part_count": practice_part_count,
         "bundle_warnings": bundle_warnings,
         "bundle_structure_corrections": bundle_structure_corrections,
     }
@@ -1171,6 +1247,8 @@ def list_exam_files(
             "full_solution_available": meta.get("full_solution_available"),
             "reference_tex_available": meta.get("reference_tex_available"),
             "gradeable_status": meta.get("gradeable_status"),
+            "practice_question_count": meta.get("practice_question_count"),
+            "practice_part_count": meta.get("practice_part_count"),
         })
 
     return {"exam_id": exam_id, "items": items}
@@ -1285,6 +1363,8 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "full_solution_available": meta.get("full_solution_available"),
             "reference_tex_available": meta.get("reference_tex_available"),
             "gradeable_status": meta.get("gradeable_status"),
+            "practice_question_count": meta.get("practice_question_count"),
+            "practice_part_count": meta.get("practice_part_count"),
             "bundle_json_path": meta.get("bundle_json_path"),
             "bundle_warnings": meta.get("bundle_warnings", []),
             "bundle_structure_corrections": meta.get("bundle_structure_corrections", []),

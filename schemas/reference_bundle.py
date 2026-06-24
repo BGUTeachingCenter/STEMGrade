@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 ReviewStatus = Literal["ok", "needs_review", "missing", "conflict", "uncertain"]
+QuestionUsage = Literal["gradeable", "practice_feedback_only"]
 
 
 # ---------------------------------------------------------------------
@@ -59,6 +60,12 @@ class QuestionsOnlyPart(BaseModel):
 
     max_points: float | None = None
 
+    # True = submitted/gradable question.
+    # False = non-submission / practice-only question.
+    is_gradeable: bool = True
+    usage: QuestionUsage = "gradeable"
+    section_label: str = ""
+
     review_status: ReviewStatus = "ok"
     confidence: float | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -74,6 +81,11 @@ class QuestionsOnlyQuestion(BaseModel):
     """
 
     question_id: int
+
+    is_gradeable: bool = True
+    usage: QuestionUsage = "gradeable"
+    section_label: str = ""
+
     parts: list[QuestionsOnlyPart] = Field(default_factory=list)
 
 
@@ -138,6 +150,10 @@ class AnswersOnlyPart(BaseModel):
 
     max_points: float | None = None
 
+    is_gradeable: bool = True
+    usage: QuestionUsage = "gradeable"
+    section_label: str = ""
+
     review_status: ReviewStatus = "ok"
     confidence: float | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -153,6 +169,11 @@ class AnswersOnlyQuestion(BaseModel):
     """
 
     question_id: int | None = None
+
+    is_gradeable: bool = True
+    usage: QuestionUsage = "gradeable"
+    section_label: str = ""
+
     parts: list[AnswersOnlyPart] = Field(default_factory=list)
 
 
@@ -208,6 +229,10 @@ class QuestionsAnswersPart(BaseModel):
 
     max_points: float | None = None
 
+    is_gradeable: bool = True
+    usage: QuestionUsage = "gradeable"
+    section_label: str = ""
+
     review_status: ReviewStatus = "ok"
     confidence: float | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -223,6 +248,11 @@ class QuestionsAnswersQuestion(BaseModel):
     """
 
     question_id: int
+
+    is_gradeable: bool = True
+    usage: QuestionUsage = "gradeable"
+    section_label: str = ""
+
     parts: list[QuestionsAnswersPart] = Field(default_factory=list)
 
 

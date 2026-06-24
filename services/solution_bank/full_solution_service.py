@@ -57,10 +57,22 @@ def full_solution_to_tex(bundle: dict[str, Any] | FullSolutionBundle) -> str:
         lines.append("")
 
     for q in full.questions:
+        q_gradeable_parts = [
+            p for p in q.parts
+            if bool(getattr(p, "is_gradeable", getattr(q, "is_gradeable", True)))
+               and getattr(p, "usage", getattr(q, "usage", "gradeable")) == "gradeable"
+        ]
+
+        if not bool(getattr(q, "is_gradeable", True)) or getattr(q, "usage", "gradeable") != "gradeable":
+            q_gradeable_parts = []
+
+        if not q_gradeable_parts:
+            continue
+
         lines.append("")
         lines.append(rf"\section*{{Question {q.question_id}}}")
 
-        for p in q.parts:
+        for p in q_gradeable_parts:
             display_part = p.part or p.part_key or "a"
 
             lines.append("")
@@ -122,14 +134,24 @@ def full_solution_to_exam_structure(bundle: dict[str, Any] | FullSolutionBundle)
     questions = []
 
     for q in full.questions:
+        if not bool(getattr(q, "is_gradeable", True)) or getattr(q, "usage", "gradeable") != "gradeable":
+            continue
+
+        parts = [
+            p.part
+            for p in q.parts
+            if p.part
+               and bool(getattr(p, "is_gradeable", getattr(q, "is_gradeable", True)))
+               and getattr(p, "usage", getattr(q, "usage", "gradeable")) == "gradeable"
+        ]
+
+        if not parts:
+            continue
+
         questions.append(
             {
                 "question_id": str(q.question_id),
-                "parts": [
-                    p.part
-                    for p in q.parts
-                    if p.part
-                ],
+                "parts": parts,
             }
         )
 
