@@ -40,6 +40,7 @@ from services.solution_bank.full_solution_service import (
 )
 from services.solution_bank.questions_answers_ocr import build_questions_answers_ocr_result
 from services.solution_bank.questions_ocr import build_questions_ocr_result
+from services.ocr_routing import decide_bank_ocr_path
 
 from routes.progress import init_job, push, done, fail
 
@@ -105,6 +106,31 @@ OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 ALL_BANK_UPLOAD_SUFFIXES = TEX_SUFFIXES | OCR_SUFFIXES
 
 OCR_PROVIDERS = {"mathpix", "openai", "gpt", "chatgpt", "google", "gemini", "ai_studio", "aistudio"}
+
+BANK_DOCUMENT_TYPES = {"printed", "handwritten"}
+
+
+def _canonical_bank_document_type(value: str | None) -> str:
+    """Normalize teacher-facing document type for OCR routing.
+
+    UI uses only printed/handwritten. Backend accepts a few aliases for
+    future compatibility. TeX/TXT uploads ignore this value, but we still store
+    it in metadata so debugging is explicit.
+    """
+    v = (value or "printed").strip().lower()
+    aliases = {
+        "print": "printed",
+        "typed": "printed",
+        "typed_pdf": "printed",
+        "native": "printed",
+        "scan": "printed",
+        "printed_scan": "printed",
+        "hand": "handwritten",
+        "handwrite": "handwritten",
+        "handwritten_scan": "handwritten",
+    }
+    v = aliases.get(v, v)
+    return v if v in BANK_DOCUMENT_TYPES else "printed"
 
 AI_SOLUTION_FALLBACK_PROVIDERS = {
     "openai",
@@ -483,6 +509,7 @@ async def _bank_upload_to_tex(
     content_type: str,
     ocr_provider: str = "mathpix",
     ocr_model: str = "",
+    document_type: str = "printed",
     trace=None,
 ) -> tuple[bytes, dict]:
     """
@@ -496,11 +523,12 @@ async def _bank_upload_to_tex(
     original_name = upload.filename or "upload.bin"
     safe_original_name = _safe_bank_upload_filename(original_name)
     suffix = Path(safe_original_name).suffix.lower()
+    document_type = _canonical_bank_document_type(document_type)
 
     raw = await upload.read()
     if trace is not None:
         trace.save_bytes(f"input/{safe_original_name}", raw, stage="upload")
-        trace.log("upload", "received", filename=safe_original_name, suffix=suffix, bytes=len(raw))
+        trace.log("upload", "received", filename=safe_original_name, suffix=suffix, bytes=len(raw), document_type=document_type)
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
 
@@ -534,6 +562,9 @@ async def _bank_upload_to_tex(
         return raw, {
             "source_kind": "tex",
             "original_filename": safe_original_name,
+            "document_type": document_type,
+            "ocr_path": "tex_text_direct",
+            "ocr_route_reason": "TeX/TXT upload; OCR skipped.",
             "ocr_used": False,
             "pdf_text_layer_used": False,
             "ocr_provider": "tex",
@@ -570,32 +601,77 @@ async def _bank_upload_to_tex(
     original_path = originals_dir / safe_original_name
     original_path.write_bytes(raw)
 
-    try:
-        if trace is not None:
-            trace.log("ocr", "started", provider=ocr_provider, model=ocr_model or None, source=str(original_path))
-        ocr_response = await run_in_threadpool(
-            run_ocr,
-            file_path=original_path,
-            provider=ocr_provider,
-            model=ocr_model or None,
-            options=OcrOptions(
-                temperature=0.0,
-                max_output_tokens=12000,
-                timeout_s=300,
-                language_hint="hebrew",
-                preserve_math=True,
-                preserve_layout=True,
-                include_line_data=True,
-            ),
+    route_decision = decide_bank_ocr_path(original_path, requested_mode=document_type)
+    route_decision_payload = {
+        "requested_mode": route_decision.requested_mode,
+        "document_type": route_decision.document_type,
+        "ocr_path": route_decision.ocr_path,
+        "reason": route_decision.reason,
+        "native_text_char_count": route_decision.native_text_char_count,
+        "text_layer_pages": route_decision.text_layer_pages,
+    }
+    if trace is not None:
+        trace.save_json("ocr_route_decision.json", route_decision_payload, stage="ocr_route")
+        trace.log("ocr_route", "selected", **route_decision_payload)
+
+    if route_decision.ocr_path == "native_pdf_text_layer" and route_decision.native_text.strip():
+        ocr_text = route_decision.native_text.strip()
+        ocr_response = OcrResponse(
+            provider="tex",
+            model=None,
+            input_kind="pdf",
+            source_filename=safe_original_name,
+            source_path=str(original_path),
+            text=ocr_text,
+            pages=[],
+            provider_mode="native_pdf_text_layer",
+            is_handwritten=False,
         )
-    except OcrClientError as e:
         if trace is not None:
-            trace.error("ocr", e)
-        raise HTTPException(status_code=502, detail=f"OCR failed: {e}") from e
-    except Exception as e:
-        if trace is not None:
-            trace.error("ocr", e)
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
+            trace.save_json("ocr_response.json", ocr_response.model_dump(), stage="ocr")
+            trace.save_text("ocr_primary_text.txt", ocr_text, stage="ocr")
+            trace.log("ocr", "completed", provider="native_pdf_text_layer", model=None, confidence=None, is_handwritten=False)
+    else:
+        try:
+            if trace is not None:
+                trace.log(
+                    "ocr",
+                    "started",
+                    provider=ocr_provider,
+                    model=ocr_model or None,
+                    source=str(original_path),
+                    document_type=document_type,
+                    ocr_path=route_decision.ocr_path,
+                )
+            ocr_response = await run_in_threadpool(
+                run_ocr,
+                file_path=original_path,
+                provider=ocr_provider,
+                model=ocr_model or None,
+                options=OcrOptions(
+                    temperature=0.0,
+                    max_output_tokens=12000,
+                    timeout_s=300,
+                    language_hint="hebrew",
+                    preserve_math=True,
+                    preserve_layout=True,
+                    include_line_data=True,
+                    extra={
+                        "document_type": document_type,
+                        "ocr_path": route_decision.ocr_path,
+                        "upload_role": content_type,
+                        "task_context": "teacher_solution_bank_upload",
+                    },
+                ),
+            )
+        except OcrClientError as e:
+            if trace is not None:
+                trace.error("ocr", e)
+            raise HTTPException(status_code=502, detail=f"OCR failed: {e}") from e
+        except Exception as e:
+            if trace is not None:
+                trace.error("ocr", e)
+            raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
 
     ocr_text = ocr_response.primary_text()
     if trace is not None:
@@ -652,10 +728,18 @@ async def _bank_upload_to_tex(
     if trace is not None:
         trace.save_text("ocr_wrapped_as_tex.tex", tex, stage="ocr")
 
+    ocr_was_used = route_decision.ocr_path != "native_pdf_text_layer"
+
     return tex.encode("utf-8"), {
-        "source_kind": provider,
+        "source_kind": provider if ocr_was_used else "native_pdf_text_layer",
         "original_filename": safe_original_name,
-        "ocr_used": True,
+        "document_type": document_type,
+        "detected_document_type": route_decision.document_type,
+        "ocr_path": route_decision.ocr_path,
+        "ocr_route_reason": route_decision.reason,
+        "native_text_char_count": route_decision.native_text_char_count,
+        "pdf_text_layer_used": route_decision.ocr_path == "native_pdf_text_layer",
+        "ocr_used": ocr_was_used,
         "ocr_provider": provider,
         "ocr_model": ocr_response.model,
         "ocr_response": ocr_response,
@@ -766,6 +850,7 @@ async def upload_to_bank(
     job_id: Optional[str] = Form(None),
     ocr_provider: str = Form("mathpix"),
     ocr_model: str = Form(""),
+    document_type: str = Form("printed"),
     _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher file into the solution bank.
@@ -777,6 +862,7 @@ async def upload_to_bank(
     """
     exam_id = require_safe_exam_id(exam_id)
     content_type = _canonical_content_type(content_type)
+    document_type = _canonical_bank_document_type(document_type)
 
     if content_type not in {"questions_only", "answers_only", "questions_answers"}:
         raise HTTPException(
@@ -790,6 +876,7 @@ async def upload_to_bank(
         content_type=content_type,
         provider=ocr_provider,
         model=ocr_model or None,
+        document_type=document_type,
         source_name=tex_file.filename,
         job_id=job_id,
     )
@@ -802,7 +889,7 @@ async def upload_to_bank(
         bank_source=tex_file.filename,
         debug_run_id=trace.run_id,
     )
-    trace.log("bank_upload", "started", exam_id=exam_id, content_type=content_type, source_name=tex_file.filename)
+    trace.log("bank_upload", "started", exam_id=exam_id, content_type=content_type, document_type=document_type, source_name=tex_file.filename)
 
     if job_id:
         init_job(job_id)
@@ -828,6 +915,7 @@ async def upload_to_bank(
             content_type=content_type,
             ocr_provider=ocr_provider,
             ocr_model=ocr_model,
+            document_type=document_type,
             trace=trace,
         )
     except Exception as e:
@@ -840,7 +928,7 @@ async def upload_to_bank(
             f"Extraction complete. Source: {extra_meta.get('source_kind')}, "
             f"provider: {extra_meta.get('ocr_provider') or 'none'}, "
             f"model: {extra_meta.get('ocr_model') or extra_meta.get('openai_model') or 'tex'}, "
-            f"mode: {extra_meta.get('mathpix_mode') or 'standard'}"
+            f"mode: {extra_meta.get('mathpix_mode') or extra_meta.get('ocr_path') or 'standard'}"
         ),
     )
 
@@ -1320,6 +1408,12 @@ async def upload_to_bank(
         "filename": filename,
         "original_filename": extra_meta.get("original_filename") or tex_file.filename,
         "content_type": content_type,
+        "document_type": extra_meta.get("document_type") or document_type,
+        "detected_document_type": extra_meta.get("detected_document_type"),
+        "ocr_path": extra_meta.get("ocr_path"),
+        "ocr_route_reason": extra_meta.get("ocr_route_reason"),
+        "pdf_text_layer_used": bool(extra_meta.get("pdf_text_layer_used")),
+        "native_text_char_count": extra_meta.get("native_text_char_count"),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "q_count": q_count,
         "part_count": part_count,
@@ -1388,6 +1482,7 @@ async def upload_to_bank(
         status=upload_validation_status,
         exam_id=exam_id,
         content_type=content_type,
+        document_type=document_type,
         q_count=q_count,
         part_count=part_count,
         gradeable_status=gradeable_status,
@@ -1414,6 +1509,96 @@ async def upload_to_bank(
         done(job_id)
     return meta
 
+
+@router.post("/upload_pair")
+async def upload_questions_and_answers_pair_to_bank(
+    exam_id: str = Form(...),
+    questions_file: UploadFile = File(...),
+    answers_file: UploadFile = File(...),
+    job_id: Optional[str] = Form(None),
+    ocr_provider: str = Form("mathpix"),
+    ocr_model: str = Form(""),
+    questions_document_type: str = Form("printed"),
+    answers_document_type: str = Form("printed"),
+    _session: dict = Depends(require_teacher),
+):
+    """Upload separate questions and answers files as one teacher-facing job.
+
+    Internally this reuses the existing single-file builders:
+      1. questions_file -> questions_only_bundle.json
+      2. answers_file   -> answers_only_bundle.json
+      3. existing merge step -> full_solution_bundle.json
+
+    This keeps the old pipeline stable while giving the UI a simpler
+    one-button workflow for the common Q/A-in-separate-files case.
+    """
+    exam_id = require_safe_exam_id(exam_id)
+    questions_document_type = _canonical_bank_document_type(questions_document_type)
+    answers_document_type = _canonical_bank_document_type(answers_document_type)
+
+    if job_id:
+        init_job(job_id)
+
+    q_name = questions_file.filename or "questions_upload"
+    a_name = answers_file.filename or "answers_upload"
+
+    try:
+        _progress(job_id, f"Starting one-job solution build for {exam_id}.")
+        _progress(job_id, f"Step 1/2: processing questions file: {q_name}")
+
+        questions_meta = await upload_to_bank(
+            exam_id=exam_id,
+            content_type="questions_only",
+            tex_file=questions_file,
+            job_id=None,
+            ocr_provider=ocr_provider,
+            ocr_model=ocr_model,
+            document_type=questions_document_type,
+            _session=_session,
+        )
+
+        _progress(job_id, "Questions structure saved. Step 2/2: processing answers file.")
+
+        answers_meta = await upload_to_bank(
+            exam_id=exam_id,
+            content_type="answers_only",
+            tex_file=answers_file,
+            job_id=None,
+            ocr_provider=ocr_provider,
+            ocr_model=ocr_model,
+            document_type=answers_document_type,
+            _session=_session,
+        )
+
+        uploads = uploads_dir(exam_id)
+        full_path = uploads / "full_solution_bundle.json"
+        status = str(answers_meta.get("validation_status") or questions_meta.get("validation_status") or "ok")
+
+        if full_path.exists():
+            _progress(job_id, "Generated full_solution_bundle.json from questions + answers ✅")
+        else:
+            status = "warning"
+            _progress(job_id, "Questions and answers were uploaded, but full_solution_bundle.json was not generated.")
+
+        if job_id:
+            done(job_id)
+
+        return {
+            "ok": True,
+            "exam_id": exam_id,
+            "content_type": "questions_answers_separate",
+            "questions_meta": questions_meta,
+            "answers_meta": answers_meta,
+            "full_solution_available": full_path.exists(),
+            "validation_status": status,
+        }
+
+    except Exception as e:
+        if job_id:
+            fail(job_id, f"Separate Q/A upload failed: {e}")
+        raise
+
+
 @router.get("/list")
 def list_exam_files(
     exam_id: str,
@@ -1439,6 +1624,11 @@ def list_exam_files(
             "q_count": meta.get("q_count"),
             "part_count": meta.get("part_count"),
             "source_kind": meta.get("source_kind"),
+            "document_type": meta.get("document_type"),
+            "detected_document_type": meta.get("detected_document_type"),
+            "ocr_path": meta.get("ocr_path"),
+            "ocr_route_reason": meta.get("ocr_route_reason"),
+            "pdf_text_layer_used": meta.get("pdf_text_layer_used", False),
             "ocr_used": meta.get("ocr_used", False),
             "ocr_provider": meta.get("ocr_provider"),
             "ocr_model": meta.get("ocr_model"),
@@ -1561,6 +1751,11 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "filename": filename,
             "content_type": meta.get("content_type"),
             "source_kind": meta.get("source_kind"),
+            "document_type": meta.get("document_type"),
+            "detected_document_type": meta.get("detected_document_type"),
+            "ocr_path": meta.get("ocr_path"),
+            "ocr_route_reason": meta.get("ocr_route_reason"),
+            "pdf_text_layer_used": meta.get("pdf_text_layer_used", False),
             "ocr_provider": meta.get("ocr_provider"),
             "ocr_model": meta.get("ocr_model"),
             "ocr_response_path": meta.get("ocr_response_path"),
