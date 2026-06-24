@@ -83,6 +83,18 @@
           <button id="ocrBtn" class="btnGoogle" disabled type="button">OCR Handwritten</button>
         </div>
 
+        <div style="margin-top:.5rem;">
+          <label for="ocrProvider">OCR engine</label>
+          <select id="ocrProvider">
+            <option value="mathpix">Mathpix OCR</option>
+            <option value="openai">OpenAI / GPT OCR</option>
+            <option value="google">Google / Gemini OCR</option>
+          </select>
+          <div class="small mg-field-help">
+            Used only for handwritten OCR uploads. TeX/TXT uploads skip OCR.
+          </div>
+        </div>
+
         <div class="mg-model-meta">
           Ollama model: <b id="ollamaModelName">…</b><br/>
           Google model: <b id="googleModelName">…</b><br/>
@@ -424,16 +436,23 @@
       if (!hw) return;
 
       disableAll(true);
+      const ocrProv = document.getElementById("ocrProvider").value;
+      const ocrLabel =
+        ocrProv === "openai" ? "OpenAI / GPT" :
+        ocrProv === "google" ? "Google / Gemini" :
+        "Mathpix";
       showBusy(hw.name.toLowerCase().endsWith(".pdf")
-          ? "OCR is reading the PDF. Large PDFs can take a few minutes…"
-          : "OCR is reading your handwritten image…"
+          ? `OCR (${ocrLabel}) is reading the PDF. Large PDFs can take a few minutes…`
+          : `OCR (${ocrLabel}) is reading your handwritten image…`
         );
-      const lines = [`[${nowTag()}] Started: Handwritten OCR`, `[${nowTag()}] Uploading ${hw.name}…`];
+      const lines = [`[${nowTag()}] Started: Handwritten OCR (${ocrLabel})`, `[${nowTag()}] Uploading ${hw.name}…`];
       setStatusText(lines, "work");
 
       try {
         const form = new FormData();
         form.append("file", hw);
+        const ocrProvider = document.getElementById("ocrProvider").value;
+        form.append("ocr_provider", ocrProvider);
         const res = await authedFetch(ENDPOINT_OCR, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
         const data = contentType.includes("application/json") ? await res.json() : null;
