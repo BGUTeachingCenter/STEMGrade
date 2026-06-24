@@ -17,19 +17,17 @@ from starlette.concurrency import run_in_threadpool
 
 from routes.progress import done, fail, init_job, push
 from routes.student_log_routes import log_student_submission
-from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
 from core.storage import require_safe_exam_id, write_reference_summary
 from core.debug import create_debug_trace, write_debug_log
 from core.security import require_session
 from services.student_grading.grading.grader_payloads import grade_payload_manifest
-from services.student_grading.grading.payloads import PayloadItem, build_payloads
+from services.student_grading.grading.payloads import build_payloads
 from services.student_grading.grading.solution_bank_matcher import pick_reference_with_match_info
 from services.student_grading.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from services.student_grading.feedback_tex import build_feedback_tex
-from common.tex.student_tex import parse_student_tex_answers
-from common.exam_summary import compare_summaries, read_json_file, write_student_summary as write_student_summary_file
+from common.exam_summary import _safe_str, compare_summaries, read_json_file, write_student_summary as write_student_summary_file
 from services.student_grading.unified_tex import build_unified_tex
 from core.ai_clients.ai_usage_logger import bind_usage_context
 
@@ -41,11 +39,6 @@ DEBUG = True
 # -------------------------
 # Small helpers (already in your style)
 # -------------------------
-
-def _safe_str(x: Any, limit: int = 200) -> str:
-    s = str(x) if x is not None else ""
-    s = re.sub(r"\s+", " ", s).strip()
-    return s[:limit]
 
 
 def _response_for_path(p: Path) -> FileResponse:
@@ -76,7 +69,7 @@ def _safe_name(s: str, fallback: str = "unknown") -> str:
     return cleaned or fallback
 
 
-def _normalized_provider_name(provider: str) -> str:
+def _display_provider(provider: str) -> str:
     p = (provider or "").strip().lower()
     if p in ("google", "gemini", "google_ai_studio", "aistudio"):
         return "gemini"
@@ -155,7 +148,7 @@ async def _grade_tex_flow(
       9) Persist final output and return it
     """
     _require_provider_env(provider)
-    normalized_provider = _normalized_provider_name(provider)
+    normalized_provider = _display_provider(provider)
 
     trace = create_debug_trace(
         "grading",
@@ -592,7 +585,7 @@ async def _grade_tex_flow(
 
     except Exception as e:
         trace.error("grading", e)
-        log_path = write_debug_log(f"grade_tex_{_normalized_provider_name(provider)}", e)
+        log_path = write_debug_log(f"grade_tex_{_display_provider(provider)}", e)
         if job_id:
             push(job_id, f"FAILED: {_safe_str(e, 400)}")
             fail(job_id, f"{e}")
