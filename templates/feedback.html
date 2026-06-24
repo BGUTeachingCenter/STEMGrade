@@ -473,10 +473,14 @@
         return;
       }
 
-      if (!tex.includes("\\subsection*{Question")) {
+      const hasQuestionNumber =
+        /\\subsection\*\{[^}]*Question\s+[0-9]{1,3}/i.test(tex) ||
+        /\\subsection\*\{[^}]*שאלה\s+[0-9]{1,3}/.test(tex);
+
+      if (!hasQuestionNumber) {
         setStatusText([
-          `[${nowTag()}] Missing question titles.`,
-          `Add markers like: \\subsection*{Question 1}`,
+          `[${nowTag()}] Missing parseable question titles.`,
+          `Add markers like: \\subsection*{Question 1} or \\subsection*{שאלה 1}`,
           `Then click "Use this as LaTeX answer" again.`
         ], "err");
         return;

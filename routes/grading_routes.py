@@ -270,9 +270,27 @@ async def _grade_tex_flow(
         try:
             summary_path = _write_student_summary(tex_path, out_dir=out_dir)
             trace.save_file(summary_path, "student_summary.json", stage="student_summary")
+            try:
+                summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+                trace.log(
+                    "student_summary",
+                    "built",
+                    parse_ok=bool(summary_data.get("parse_ok")),
+                    qnums=summary_data.get("qnums") or [],
+                    keys_preview=summary_data.get("keys_preview") or [],
+                    preview_chars=len(summary_data.get("preview_text") or ""),
+                )
+            except Exception as summary_log_error:
+                trace.log(
+                    "student_summary",
+                    "log_summary_failed",
+                    status="warning",
+                    error=_safe_str(summary_log_error, 300),
+                )
             if job_id:
                 push(job_id, f"Generated student summary: {summary_path.name}")
         except Exception as e:
+            trace.log("student_summary", "failed", status="warning", error=_safe_str(e, 500))
             if job_id:
                 push(job_id, f"Student summary failed (continuing): {_safe_str(e, 220)}")
 

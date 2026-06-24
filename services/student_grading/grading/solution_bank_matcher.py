@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -61,19 +62,56 @@ def _collect_candidates_from_summaries(bank_dir: Path) -> List[CandidateRef]:
     return out
 
 
+def _fallback_student_qnums(student_tex: Path) -> list[int]:
+    """Best-effort q-number extraction for OCR-generated TeX.
+
+    parse_student_tex_answers() is intentionally strict because payload alignment
+    needs clean question/part markers. Reference matching can be more forgiving:
+    if the OCR text contains plain markers like ``Question 1`` or ``שאלה 1``,
+    we can still use those numbers to choose the exam.
+    """
+    text = student_tex.read_text(encoding="utf-8", errors="replace")
+    found: set[int] = set()
+
+    patterns = [
+        r"\\subsection\*\{[^}]*?(?:Question|שאלה)\s*([0-9]{1,3})",
+        r"\b(?:Question|Q)\s*([0-9]{1,3})\b",
+        r"\bשאלה\s*([0-9]{1,3})\b",
+    ]
+    for pat in patterns:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE | re.UNICODE):
+            try:
+                found.add(int(m.group(1)))
+            except Exception:
+                pass
+
+    return sorted(found)
+
+
+def _student_qnums_for_matching(student_tex: Path) -> list[int]:
+    """Extract question numbers for reference matching.
+
+    Primary path uses the real student-answer parser. Fallback path is looser
+    and is only used for choosing the exam, not for grading payload alignment.
+    """
+    try:
+        student_answers, _ranges = parse_student_tex_answers(student_tex, student_tex.parent)
+        if student_answers:
+            qnums = sorted({q for (q, _part) in student_answers.keys()})
+            if qnums:
+                return qnums
+    except Exception:
+        pass
+
+    return _fallback_student_qnums(student_tex)
+
+
 def _heuristic_match_by_qnums(student_tex: Path, candidates: List[CandidateRef]) -> Optional[CandidateRef]:
     """
     If student TeX has parseable question numbers, pick reference with best overlap.
     Returns None if there is no confident match.
     """
-    try:
-        student_answers, _ranges = parse_student_tex_answers(student_tex, student_tex.parent)
-    except Exception:
-        return None
-    if not student_answers:
-        return None
-
-    student_qnums = sorted({q for (q, _part) in student_answers.keys()})
+    student_qnums = _student_qnums_for_matching(student_tex)
     if not student_qnums:
         return None
 
@@ -222,10 +260,28 @@ def pick_reference_with_exam_id(
         h = _heuristic_match_by_qnums(student_tex, candidates)
         if h:
             return h.exam_id, h.path
-        raise RuntimeError(
-            "No confident match found by heuristic matching (qnums overlap). "
-            "Student answers did not match any exam in the bank."
-        )
+
+        # Controlled fallback for the common development/teacher-test case:
+        # if the bank has exactly one exam, use it instead of failing before
+        # grading. This is safer than guessing among multiple exams and lets us
+        # continue testing OCR -> JSON grading end-to-end.
+        if len(candidates) == 1:
+            only = candidates[0]
+            return only.exam_id, only.path
+
+        # If there are multiple exams, ask the lightweight matcher model.
+        # If that also fails, surface a useful error.
+        try:
+            chosen = _llm_match(student_tex, candidates, top_k=llm_top_k)
+            return chosen.exam_id, chosen.path
+        except Exception as e:
+            raise RuntimeError(
+                "No confident match found by heuristic matching (qnums overlap), "
+                "and LLM fallback could not choose an exam. "
+                "Student answers may be missing clear markers like "
+                "\\subsection*{Question 1} or \\subsection*{שאלה 1}. "
+                f"Fallback error: {e}"
+            ) from e
 
     chosen = _llm_match(student_tex, candidates, top_k=llm_top_k)
     return chosen.exam_id, chosen.path
