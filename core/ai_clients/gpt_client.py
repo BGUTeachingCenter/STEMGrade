@@ -193,10 +193,87 @@ def _file_to_data_url(path: Path) -> str:
 
 
 def _build_ocr_prompt(options: OcrOptions) -> str:
+    variant = (getattr(options, "prompt_variant", "default") or "default").strip().lower()
+
+    if variant == "student_answer_bundle":
+        return f"""
+You are a neutral OCR and segmentation engine for handwritten or scanned mathematics homework.
+
+Task: read the uploaded student submission and return JSON only.
+
+Return exactly this JSON shape:
+{{
+  "student_name": "",
+  "student_id": "",
+  "exam_id": "",
+  "answers": [
+    {{
+      "question_id": 1,
+      "part_key": "a",
+      "answer_text": "student's visible work, preserving mistakes and math notation",
+      "page_numbers": [1],
+      "confidence": 0.0,
+      "needs_review": false,
+      "warnings": []
+    }}
+  ],
+  "unmatched_blocks": [],
+  "warnings": []
+}}
+
+Rules:
+- Preserve the original language. Language hint: {options.language_hint}.
+- Use question_id as an integer.
+- Convert Hebrew part labels to latin keys: א=a, ב=b, ג=c, ד=d, ה=e, ו=f, ז=g, ח=h, ט=i, י=j.
+- If an answer has no visible part label, use part_key "".
+- Preserve the student's mistakes. Do not solve, correct, grade, or give feedback.
+- Do not invent missing answers.
+- Keep each question/part separate. Do not merge Q2 into Q1.
+- If local numbering is messy, use the visible order and labels, but mark needs_review=true.
+- For unclear handwriting, transcribe the best visible reading and set needs_review=true with a warning.
+- Put stray visible text that cannot be assigned to a question/part into unmatched_blocks.
+- Return JSON only, with no markdown fences and no prose outside JSON.
+""".strip()
+
+    document_type = str((options.extra or {}).get("document_type") or "printed").strip().lower()
+    upload_role = str((options.extra or {}).get("upload_role") or "generic").strip().lower()
+    task_context = str((options.extra or {}).get("task_context") or "ocr").strip().lower()
+
+    if document_type == "handwritten":
+        mode_rules = """
+Document mode: HANDWRITTEN SCAN.
+- Treat the file as handwritten mathematics, possibly on grid paper.
+- Read page images visually; do not rely on embedded text.
+- Preserve the student's/teacher's original mistakes and uncertain wording.
+- Do not clean up the mathematics into a corrected solution.
+- Mark unclear words or symbols as [unclear] rather than guessing.
+- Preserve visible question numbers and Hebrew part labels such as א, ב, ג.
+- Keep answer/question boundaries explicit when visible.
+""".strip()
+    else:
+        mode_rules = """
+Document mode: PRINTED / TYPED DOCUMENT.
+- Treat the file as a printed or typed mathematics document.
+- Preserve printed layout, question numbers, headings, and part labels.
+- If the PDF has selectable text, keep that text faithfully.
+- Do not add interpretation beyond the visible content.
+""".strip()
+
+    role_rules = """
+Teacher solution-bank context:
+- The file may be questions-only, answers-only, or combined questions+answers.
+- Preserve enough numbering and labels so a later structuring step can build full_solution_bundle.json.
+- Do not decide grading, do not summarize, and do not add feedback.
+""".strip() if "teacher_solution_bank" in task_context or upload_role in {"questions_only", "answers_only", "questions_answers"} else ""
+
     return f"""
 You are a neutral OCR engine for mathematics documents.
 
 Extract the visible text from the uploaded file.
+
+{mode_rules}
+
+{role_rules}
 
 Requirements:
 - Preserve the original language. Language hint: {options.language_hint}.
@@ -210,7 +287,6 @@ Requirements:
 - Do not add explanations.
 - Return only the extracted OCR text.
 """.strip()
-
 
 def _extract_openai_usage(data: dict[str, Any]) -> AiUsage:
     usage_raw = data.get("usage") or {}

@@ -22,7 +22,7 @@
   </div>
 
   <div class="mg-teacher-hero-meta">
-    <span class="pill" id="healthPill">Health: …</span>
+    <span class="pill mg-health-pill" id="healthPill">Health: …</span>
   </div>
 </section>
 
@@ -131,11 +131,10 @@
         </div>
 
         <div>
-          <label for="contentType">What are you uploading?</label>
+          <label for="contentType">Upload mode</label>
           <select id="contentType">
-            <option value="questions_answers">Questions + answers: complete solution file</option>
-            <option value="questions_only">Questions only: exam form without official answers</option>
-            <option value="answers_only">Answers only: official solutions without full questions</option>
+            <option value="questions_answers">One file: questions + answers</option>
+            <option value="questions_answers_separate">Two files: questions file + answers file</option>
           </select>
           <div class="small mg-field-help" id="contentTypeHelp">
             Best option when one file includes both the exam questions and the official solutions.
@@ -155,15 +154,56 @@
         </div>
       </div>
 
-      <div class="drop mg-upload-reference-drop" id="dropTex">
-        <div class="labelBig">📄 Upload questions / answers file</div>
-        <div class="hint">
-          Drag & drop a <b>.tex</b>, <b>.txt</b>, <b>.pdf</b>, <b>.png</b>, <b>.jpg</b>, <b>.jpeg</b>, or <b>.webp</b> file here, or click to choose.
+      <div id="singleUploadBox">
+        <div class="mg-doc-type-row">
+          <span class="small mg-field-help">Document type:</span>
+          <label class="mg-radio-pill"><input type="radio" name="singleDocumentType" value="printed" checked /> Printed / typed</label>
+          <label class="mg-radio-pill"><input type="radio" name="singleDocumentType" value="handwritten" /> Handwritten</label>
         </div>
-        <div class="chip" id="texChip" style="display:none;">
-          <span>Selected:</span> <span id="texName" style="color:var(--text)"></span>
+        <div class="drop mg-upload-reference-drop" id="dropTex">
+          <div class="labelBig">📄 Upload questions + answers file</div>
+          <div class="hint">
+            Drag & drop a <b>.tex</b>, <b>.txt</b>, <b>.pdf</b>, <b>.png</b>, <b>.jpg</b>, <b>.jpeg</b>, or <b>.webp</b> file here, or click to choose.
+          </div>
+          <div class="chip" id="texChip" style="display:none;">
+            <span>Selected:</span> <span id="texName" style="color:var(--text)"></span>
+          </div>
+          <input id="texFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
         </div>
-        <input id="texFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+      </div>
+
+      <div id="separateUploadBox" class="mg-separated-upload-grid" style="display:none;">
+        <div>
+          <div class="mg-doc-type-row">
+            <span class="small mg-field-help">Questions document type:</span>
+            <label class="mg-radio-pill"><input type="radio" name="questionsDocumentType" value="printed" checked /> Printed / typed</label>
+            <label class="mg-radio-pill"><input type="radio" name="questionsDocumentType" value="handwritten" /> Handwritten</label>
+          </div>
+          <div class="drop mg-upload-reference-drop" id="dropQuestions">
+            <div class="labelBig">📘 Upload questions file</div>
+            <div class="hint">Drag & drop the exam/questions file here, or click to choose.</div>
+            <div class="chip" id="questionsChip" style="display:none;">
+              <span>Selected:</span> <span id="questionsName" style="color:var(--text)"></span>
+            </div>
+            <input id="questionsFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+          </div>
+        </div>
+
+        <div>
+          <div class="mg-doc-type-row">
+            <span class="small mg-field-help">Answers document type:</span>
+            <label class="mg-radio-pill"><input type="radio" name="answersDocumentType" value="printed" checked /> Printed / typed</label>
+            <label class="mg-radio-pill"><input type="radio" name="answersDocumentType" value="handwritten" /> Handwritten</label>
+          </div>
+          <div class="drop mg-upload-reference-drop" id="dropAnswers">
+            <div class="labelBig">🧾 Upload answers / solution file</div>
+            <div class="hint">Drag & drop the official answers/solutions file here, or click to choose.</div>
+            <div class="chip" id="answersChip" style="display:none;">
+              <span>Selected:</span> <span id="answersName" style="color:var(--text)"></span>
+            </div>
+            <input id="answersFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+          </div>
+        </div>
       </div>
 
       <div class="mg-upload-reference-actions">
@@ -296,11 +336,26 @@
       });
     }
 
+  function configuredModelLabel(model, configured) {
+    const name = model || "unknown";
+    if (configured === false) return `${name} (key missing)`;
+    return name;
+  }
+
   async function getHealth(){
     try{
       const r = await fetch(API_BASE + "/health");
       const j = await r.json();
-      $("healthPill").textContent = `Health: ${j.status} | Ollama: ${j.ollama_model}`;
+      const parts = [
+        `Health: ${j.status || "unknown"}`,
+        `Ollama: ${j.ollama_model || "unknown"}`,
+        `GPT: ${configuredModelLabel(j.gpt_model, j.gpt_configured)}`,
+        `GPT OCR: ${configuredModelLabel(j.gpt_ocr_model, j.gpt_configured)}`,
+        `Gemini: ${configuredModelLabel(j.google_model, j.google_configured)}`,
+        `Gemini OCR: ${configuredModelLabel(j.google_ocr_model, j.google_configured)}`,
+        `Mathpix OCR: ${j.mathpix_configured ? "configured" : "key missing"}`,
+      ];
+      $("healthPill").textContent = parts.join(" | ");
     }catch(e){
       $("healthPill").textContent = "Health: error";
     }
@@ -443,16 +498,49 @@
   // load once and refresh every 30s
   loadStatsAndRender();
 
-  // --------- Drop zone ----------
+  // --------- Upload mode + drop zones ----------
   const dropTex = $("dropTex");
   const texFile = $("texFile");
   const texChip = $("texChip");
   const texName = $("texName");
+  const dropQuestions = $("dropQuestions");
+  const questionsFile = $("questionsFile");
+  const questionsChip = $("questionsChip");
+  const questionsName = $("questionsName");
+  const dropAnswers = $("dropAnswers");
+  const answersFile = $("answersFile");
+  const answersChip = $("answersChip");
+  const answersName = $("answersName");
+
+  function isAllowedBankUploadFile(f) {
+    const n = String(f?.name || "").toLowerCase();
+    return (
+      n.endsWith(".tex") ||
+      n.endsWith(".txt") ||
+      n.endsWith(".pdf") ||
+      n.endsWith(".png") ||
+      n.endsWith(".jpg") ||
+      n.endsWith(".jpeg") ||
+      n.endsWith(".webp")
+    );
+  }
+
+  function updateNamedFileChip(input, chip, nameEl){
+    if (!input || !chip || !nameEl) return;
+    const f = input.files && input.files[0];
+    if (f){ chip.style.display="inline-flex"; nameEl.textContent = f.name; }
+    else { chip.style.display="none"; nameEl.textContent=""; }
+  }
 
   function updateFileChip(){
-    const f = texFile.files[0];
-    if (f){ texChip.style.display="inline-flex"; texName.textContent = f.name; }
-    else { texChip.style.display="none"; texName.textContent=""; }
+    updateNamedFileChip(texFile, texChip, texName);
+    updateNamedFileChip(questionsFile, questionsChip, questionsName);
+    updateNamedFileChip(answersFile, answersChip, answersName);
+  }
+
+  function selectedRadioValue(name, fallback="printed") {
+    const el = document.querySelector(`input[name="${name}"]:checked`);
+    return el ? el.value : fallback;
   }
 
   function updateContentTypeHelp() {
@@ -462,16 +550,16 @@
 
       if (type === "questions_answers") {
         help.textContent =
-          "Use this when one file contains both the exam questions and the official solutions. This creates a full solution immediately.";
-      } else if (type === "questions_only") {
+          "Use this when one file contains both the exam questions and the official solutions. This creates full_solution_bundle.json in one upload.";
+      } else if (type === "questions_answers_separate") {
         help.textContent =
-          "Use this when the file contains only the exam form/questions. Upload answers later to create the full solution.";
-      } else if (type === "answers_only") {
-        help.textContent =
-          "Use this when the file contains only official answers/solutions. If questions already exist, MathGrade will generate the full solution.";
+          "Use this when questions and official answers are in two files. MathGrade runs one job: questions first, answers second, then generates the full solution JSON.";
       } else {
         help.textContent = "";
       }
+
+      if ($("singleUploadBox")) $("singleUploadBox").style.display = type === "questions_answers" ? "block" : "none";
+      if ($("separateUploadBox")) $("separateUploadBox").style.display = type === "questions_answers_separate" ? "grid" : "none";
     }
 
     if ($("contentType")) {
@@ -479,7 +567,8 @@
       updateContentTypeHelp();
     }
 
-  function wireDropZone(zone, input, acceptCheck) {
+  function wireDropZone(zone, input, afterChange) {
+    if (!zone || !input) return;
     zone.addEventListener("click", () => input.click());
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
     zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
@@ -487,27 +576,23 @@
       e.preventDefault(); zone.classList.remove("drag");
       const file = e.dataTransfer.files && e.dataTransfer.files[0];
       if (!file) return;
-      if (!acceptCheck(file)) {
-          setUploadStatus("Wrong file type. Upload .tex, .txt, .pdf, .png, .jpg, .jpeg, or .webp");
+      if (!isAllowedBankUploadFile(file)) {
+          setUploadStatus("Wrong file type. Upload .tex, .txt, .pdf, .png, .jpg, .jpeg, or .webp", "err");
           return;
         }
       const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
+      if (afterChange) afterChange();
       updateFileChip();
     });
-    input.addEventListener("change", updateFileChip);
-  }
-  wireDropZone(dropTex, texFile, (f)=> {
-      const n = f.name.toLowerCase();
-      return (
-        n.endsWith(".tex") ||
-        n.endsWith(".txt") ||
-        n.endsWith(".pdf") ||
-        n.endsWith(".png") ||
-        n.endsWith(".jpg") ||
-        n.endsWith(".jpeg") ||
-        n.endsWith(".webp")
-      );
+    input.addEventListener("change", () => {
+      if (afterChange) afterChange();
+      updateFileChip();
     });
+  }
+
+  wireDropZone(dropTex, texFile);
+  wireDropZone(dropQuestions, questionsFile);
+  wireDropZone(dropAnswers, answersFile);
   updateFileChip();
 
 // --------- Solution bank: show all solutions ----------
@@ -561,7 +646,8 @@ async function loadTokenUsage() {
 }
 
 function readableContentType(type) {
-  if (type === "questions_answers") return "Questions + answers";
+  if (type === "questions_answers") return "One file: questions + answers";
+  if (type === "questions_answers_separate") return "Two files: questions + answers";
   if (type === "questions_only") return "Questions only";
   if (type === "answers_only") return "Answers only";
   if (type === "reference") return "Official reference solution";
@@ -620,6 +706,14 @@ function groupSolutionItemsByExam(items) {
         exam_structure_question_count: null,
         exam_structure_part_count: null,
         ocr_providers: new Set(),
+        validation_status: "ok",
+        gradeable_status: "not_gradeable",
+        empty_solution_keys: [],
+        review_item_keys: [],
+        empty_solution_count: 0,
+        review_item_count: 0,
+        bundle_warning_count: 0,
+        structure_correction_count: 0,
       });
     }
 
@@ -639,6 +733,27 @@ function groupSolutionItemsByExam(items) {
 
     group.full_solution_available = group.full_solution_available || !!item.full_solution_available || role === "full_solution";
     group.reference_tex_available = group.reference_tex_available || !!item.reference_tex_available || item.filename === "reference_current.tex";
+
+    if (item.gradeable_status && item.gradeable_status !== "not_gradeable") {
+      group.gradeable_status = item.gradeable_status;
+    }
+    if (item.validation_status === "error") {
+      group.validation_status = "error";
+    } else if (item.validation_status === "warning" && group.validation_status !== "error") {
+      group.validation_status = "warning";
+    }
+
+    group.empty_solution_count = Math.max(group.empty_solution_count, Number(item.empty_solution_count || 0));
+    group.review_item_count = Math.max(group.review_item_count, Number(item.review_item_count || 0));
+    group.bundle_warning_count = Math.max(group.bundle_warning_count, Number(item.bundle_warning_count || 0));
+    group.structure_correction_count = Math.max(group.structure_correction_count, Number(item.structure_correction_count || 0));
+
+    for (const key of (item.empty_solution_keys || [])) {
+      if (!group.empty_solution_keys.includes(key)) group.empty_solution_keys.push(key);
+    }
+    for (const key of (item.review_item_keys || [])) {
+      if (!group.review_item_keys.includes(key)) group.review_item_keys.push(key);
+    }
 
     if (item.q_count != null) group.q_count = item.q_count;
     if (item.part_count != null) group.part_count = item.part_count;
@@ -813,14 +928,27 @@ function renderSolutionList(items) {
       `;
     }).join("");
 
+    const validationClass =
+      group.validation_status === "error" ? " err" :
+      group.validation_status === "warning" ? " warn" :
+      " ok";
+    const missingPreview = group.empty_solution_keys.slice(0, 6).join(", ");
+
     const statusTags = [
-      group.full_solution_available ? `<span class="tag">Full solution ready</span>` : `<span class="tag">Waiting for full solution</span>`,
-      group.reference_tex_available ? `<span class="tag">Gradeable TeX ready</span>` : "",
+      group.full_solution_available ? `<span class="tag ok">Grading JSON ready</span>` : `<span class="tag warn">Waiting for full-solution JSON</span>`,
+      group.reference_tex_available ? `<span class="tag">Display TeX ready</span>` : "",
+      group.gradeable_status === "clean" ? `<span class="tag ok">Clean reference</span>` : "",
+      group.gradeable_status === "draft_review_required" ? `<span class="tag warn">Teacher review needed</span>` : "",
+      `<span class="tag${validationClass}">Validation: ${escapeHtml(group.validation_status || "unknown")}</span>`,
+      group.empty_solution_count ? `<span class="tag err">Missing solutions: ${escapeHtml(missingPreview)}${group.empty_solution_keys.length > 6 ? "…" : ""}</span>` : "",
+      group.review_item_count ? `<span class="tag warn">Review items: ${group.review_item_count}</span>` : "",
+      group.bundle_warning_count ? `<span class="tag warn">Bundle warnings: ${group.bundle_warning_count}</span>` : "",
+      group.structure_correction_count ? `<span class="tag warn">Structure corrections: ${group.structure_correction_count}</span>` : "",
       group.ocr_providers.size ? `<span class="tag">OCR: ${escapeHtml(Array.from(group.ocr_providers).join(", "))}</span>` : "",
       (group.exam_structure_question_count != null) ? `<span class="tag">Structure Q: ${group.exam_structure_question_count}</span>` : "",
       (group.exam_structure_part_count != null) ? `<span class="tag">Structure parts: ${group.exam_structure_part_count}</span>` : "",
-      (group.q_count != null) ? `<span class="tag">Parsed Q: ${group.q_count}</span>` : "",
-      (group.part_count != null) ? `<span class="tag">Parsed parts: ${group.part_count}</span>` : "",
+      (group.q_count != null) ? `<span class="tag">JSON Q: ${group.q_count}</span>` : "",
+      (group.part_count != null) ? `<span class="tag">JSON parts: ${group.part_count}</span>` : "",
     ].join("");
 
     div.innerHTML = `
@@ -919,12 +1047,35 @@ function renderSolutionList(items) {
         "Parsed keys";
 
       const sourceTags = [
+        j2.document_type ? `Document: ${j2.document_type}` : "",
+        j2.detected_document_type ? `Detected: ${j2.detected_document_type}` : "",
         j2.pdf_text_layer_used ? "PDF text layer" : "",
         j2.ocr_used ? "OCR" : "",
+        j2.ocr_path ? String(j2.ocr_path) : "",
         j2.source_kind ? String(j2.source_kind) : "",
         j2.full_solution_available ? "Full solution ready" : "",
-        j2.reference_tex_available ? "Gradeable TeX ready" : "",
+        j2.reference_tex_available ? "Display TeX ready" : "",
       ].filter(Boolean).join(" · ");
+
+      const validationLines = [];
+      if (j2.validation_status) {
+        validationLines.push(`Validation: ${j2.validation_status}`);
+      }
+      if (j2.gradeable_status) {
+        validationLines.push(`Gradeable status: ${j2.gradeable_status}`);
+      }
+      if (Number(j2.empty_solution_count || 0)) {
+        validationLines.push(`Missing solutions: ${(j2.empty_solution_keys || []).join(", ")}`);
+      }
+      if (Number(j2.review_item_count || 0)) {
+        validationLines.push(`Review items: ${j2.review_item_count}`);
+      }
+      if (Number(j2.structure_correction_count || 0)) {
+        validationLines.push(`Structure corrections: ${j2.structure_correction_count}`);
+      }
+      for (const w of (j2.validation_warnings || []).slice(0, 5)) {
+        validationLines.push(`Warning: ${w}`);
+      }
 
       previewEl.innerHTML =
         `<div class="mg-preview-meta-row">` +
@@ -932,6 +1083,7 @@ function renderSolutionList(items) {
           `${escapeHtml((j2.keys || []).join(", ") || "No keys detected")}` +
         `</div>` +
         (sourceTags ? `<div class="mg-preview-source">${escapeHtml(sourceTags)}</div>` : "") +
+        (validationLines.length ? `<div class="mg-preview-validation">${escapeHtml(validationLines.join("\n"))}</div>` : "") +
         `<div style="height:10px"></div>` +
         `<div><b>Preview:</b></div>` +
         `<pre class="mg-hebrew-preview-text">${escapeHtml(j2.preview_text || "")}</pre>`;
@@ -999,8 +1151,11 @@ async function refreshFiles() {
 }
   async function upload(){
     const id = examId();
-    const f = texFile.files[0];
     const type = $("contentType").value;
+    const isSeparate = type === "questions_answers_separate";
+    const f = texFile && texFile.files ? texFile.files[0] : null;
+    const qf = questionsFile && questionsFile.files ? questionsFile.files[0] : null;
+    const af = answersFile && answersFile.files ? answersFile.files[0] : null;
     const ocrProvider = $("ocrProvider") ? $("ocrProvider").value : "mathpix";
     const ocrLabel =
       ocrProvider === "openai" ? "OpenAI / GPT" :
@@ -1008,25 +1163,35 @@ async function refreshFiles() {
       "Mathpix";
 
     if(!id){ setUploadStatus("Please select or type an exam_id.", "err"); return; }
-    if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
+
+    if (isSeparate) {
+      if(!qf){ setUploadStatus("Please select the questions file.", "err"); return; }
+      if(!af){ setUploadStatus("Please select the answers/solutions file.", "err"); return; }
+    } else {
+      if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
+    }
 
     const jobId = mkJobId();
-    const isPdf = f.name.toLowerCase().endsWith(".pdf");
-    const isOcrFile = /\.(pdf|png|jpg|jpeg|webp)$/i.test(f.name);
-
+    const files = isSeparate ? [qf, af] : [f];
+    const hasOcrFile = files.some(file => /\.(pdf|png|jpg|jpeg|webp)$/i.test(file.name));
     const readableType = readableContentType(type);
 
     const lines = [
-      `[${nowTag()}] Started upload: ${f.name}`,
-      `[${nowTag()}] Upload type: ${readableType}`,
-      isOcrFile
+      `[${nowTag()}] Started upload for ${id}`,
+      `[${nowTag()}] Upload mode: ${readableType}`,
+      isSeparate
+        ? `[${nowTag()}] Questions: ${qf.name} (${selectedRadioValue("questionsDocumentType")}); Answers: ${af.name} (${selectedRadioValue("answersDocumentType")})`
+        : `[${nowTag()}] File: ${f.name} (${selectedRadioValue("singleDocumentType")})`,
+      hasOcrFile
         ? `[${nowTag()}] OCR file detected — OCR via ${ocrLabel} may take a few minutes…`
         : `[${nowTag()}] TeX/TXT upload detected — OCR will be skipped.`,
     ];
     setUploadStatus(lines, "work");
     showBusy(
-      isOcrFile ? "Processing OCR…" : "Uploading…",
-      isOcrFile ? `OCR via ${ocrLabel} is running. This may take a few minutes.` : `Uploading ${f.name}…`
+      hasOcrFile ? "Processing OCR…" : "Uploading…",
+      isSeparate
+        ? `MathGrade is running one job: questions first, answers second, then full_solution_bundle.json.`
+        : (hasOcrFile ? `OCR via ${ocrLabel} is running. This may take a few minutes.` : `Uploading ${f.name}…`)
     );
 
     if ($("uploadBtn")) $("uploadBtn").disabled = true;
@@ -1037,12 +1202,24 @@ async function refreshFiles() {
     try {
       const fd = new FormData();
       fd.append("exam_id", id);
-      fd.append("content_type", type);
-      fd.append("tex_file", f);
       fd.append("job_id", jobId);
       fd.append("ocr_provider", ocrProvider);
 
-      const r = await authedFetch(API_BASE + "/routes/bank/upload", { method:"POST", body: fd });
+      let endpoint = API_BASE + "/routes/bank/upload";
+
+      if (isSeparate) {
+        endpoint = API_BASE + "/routes/bank/upload_pair";
+        fd.append("questions_file", qf);
+        fd.append("answers_file", af);
+        fd.append("questions_document_type", selectedRadioValue("questionsDocumentType"));
+        fd.append("answers_document_type", selectedRadioValue("answersDocumentType"));
+      } else {
+        fd.append("content_type", "questions_answers");
+        fd.append("tex_file", f);
+        fd.append("document_type", selectedRadioValue("singleDocumentType"));
+      }
+
+      const r = await authedFetch(endpoint, { method:"POST", body: fd });
 
       stopSignal.stopped = true;
       await pollPromise;
@@ -1054,9 +1231,18 @@ async function refreshFiles() {
         return;
       }
 
-      lines.push(`[${nowTag()}] Upload complete ✅`);
-      setUploadStatus(lines, "ok");
-      texFile.value = ""; updateFileChip();
+      const result = await r.json();
+      const warn = result.validation_status && result.validation_status !== "ok";
+      lines.push(warn ? `[${nowTag()}] Upload complete with warnings ⚠️` : `[${nowTag()}] Upload complete ✅`);
+      if (result.full_solution_available === false) {
+        lines.push(`[${nowTag()}] Warning: full_solution_bundle.json was not generated.`);
+      }
+      setUploadStatus(lines, warn ? "work" : "ok");
+
+      if (texFile) texFile.value = "";
+      if (questionsFile) questionsFile.value = "";
+      if (answersFile) answersFile.value = "";
+      updateFileChip();
 
       setActiveExam(id);
       await loadExams();

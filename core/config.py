@@ -26,9 +26,9 @@ def env_str(name: str, default: str = "") -> str:
 # that still reads os.getenv(...) directly sees the same values.
 DEFAULT_OLLAMA_MODEL = "gemma3:4b"
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
-DEFAULT_OPENAI_OCR_MODEL = "gpt-5.4-mini"
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
-DEFAULT_GEMINI_OCR_MODEL = "gemini-3.5-flash"
+DEFAULT_OPENAI_OCR_MODEL = "gpt-5.5"
+DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
+DEFAULT_GEMINI_OCR_MODEL = "gemini-3-flash-preview"
 DEFAULT_MATHGRADE_OLLAMA_PROOFREAD = "0"
 
 

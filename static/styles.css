@@ -2573,3 +2573,79 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 .mg-solution-group-row .mg-solution-file {
   margin-top: 4px;
 }
+/* MathGrade observability: model/status pill + validation tags */
+.mg-health-pill {
+  white-space: normal;
+  flex-wrap: wrap;
+  line-height: 1.55;
+  max-width: min(920px, 100%);
+  justify-content: flex-start;
+}
+
+.tag.ok {
+  background: rgba(47, 125, 50, 0.10);
+  border-color: rgba(47, 125, 50, 0.22);
+  color: #2f7d32;
+}
+
+.tag.warn {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #b45309;
+}
+
+.tag.err {
+  background: rgba(196, 61, 47, 0.10);
+  border-color: rgba(196, 61, 47, 0.25);
+  color: #b91c1c;
+}
+
+.mg-preview-validation {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--text);
+  white-space: pre-wrap;
+  font-weight: 750;
+}
+
+/* Teacher solution-bank upload: one-file / two-file workflow */
+.mg-separated-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.mg-doc-type-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.mg-radio-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.72);
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.mg-radio-pill input {
+  margin: 0;
+}
+
+@media (max-width: 820px) {
+  .mg-separated-upload-grid {
+    grid-template-columns: 1fr;
+  }
+}

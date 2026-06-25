@@ -7,6 +7,12 @@ from typing import Any
 from common.exam_structure import structure_to_student_tex_template
 from schemas.ocr_response import OcrResponse
 from schemas.ocr_tasks import StudentWorkOcrResult
+from services.student_grading.student_answer_bundle import (
+    build_student_answer_bundle_from_tex,
+    parse_student_answer_bundle_from_model_text,
+    student_answer_bundle_to_tex,
+    write_student_answer_bundle,
+)
 
 
 _MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
@@ -33,6 +39,24 @@ _Q_RE = re.compile(
 
 _Q_LINE_RE = re.compile(
     r"^\s*(?:#{1,6}\s*)?([0-9]{1,2})\s*[\).:]\s*$",
+    re.UNICODE,
+)
+
+# Bare number at line start followed by a single part letter + delimiter:
+#   "3. א."  →  Q3 part א
+#   "6. א. בסיס האינדוקציה"  →  Q6 part א
+# The part letter must be followed by a non-letter char (. ) : or space)
+# to avoid matching word starts like "צ"ל" or "שטח".
+_BARE_QNUM_PART_RE = re.compile(
+    r"^\s*([0-9]{1,2})\s*[.)]\s+([א-תA-Za-z])\s*[.):]\s*(.*)",
+    re.UNICODE,
+)
+
+# Bare number at line start followed by non-math content (no part letter):
+#   "4. צ"ל:"  →  Q4
+#   "5. שטח מלבן = ..."  →  Q5
+_BARE_QNUM_TEXT_RE = re.compile(
+    r"^\s*([0-9]{1,2})\s*[.)]\s+(\S.*)",
     re.UNICODE,
 )
 
@@ -137,6 +161,21 @@ def normalize_ocr_lines_for_student_parser(text: str) -> str:
             add_question(qnum)
             continue
 
+        bare_qp = _BARE_QNUM_PART_RE.match(line)
+        if bare_qp:
+            qnum = int(bare_qp.group(1))
+            add_question(qnum)
+            add_part(bare_qp.group(2), bare_qp.group(3))
+            continue
+
+        bare_qt = _BARE_QNUM_TEXT_RE.match(line)
+        if bare_qt:
+            qnum = int(bare_qt.group(1))
+            if qnum > max(seen_q, default=0):
+                add_question(qnum)
+                out.append(bare_qt.group(2))
+                continue
+
         heb_part_match = _HEBREW_PART_WORD_RE.match(line)
         if heb_part_match:
             add_part(heb_part_match.group(1), heb_part_match.group(2))
@@ -238,24 +277,63 @@ def build_student_work_ocr_result(
     source_name: str = "",
     out_dir: Path | None = None,
     exam_structure: dict[str, Any] | None = None,
+    document_type: str = "unknown",
+    ocr_path: str = "generic_ocr",
 ) -> StudentWorkOcrResult:
     """
     Task-specific student-work OCR processor.
 
     Input:
-      OcrResponse from any provider.
+      OcrResponse from any provider, plus the OCR routing decision
+      (document_type / ocr_path) so the result records how it was produced.
 
     Output:
-      StudentWorkOcrResult with reviewable student TeX.
+      StudentWorkOcrResult with reviewable student TeX. When the OCR used the
+      structured "student_answer_bundle" prompt (vision providers on handwritten
+      scans), the primary text is JSON; we parse it into a normalized bundle and
+      render the TeX from that. Otherwise we fall back to the text->TeX path.
     """
     raw_text = ocr.primary_text()
     source_name = source_name or ocr.source_filename
 
-    student_tex = ocr_text_to_student_tex(
+    warnings: list[str] = []
+    student_answer_bundle: dict[str, Any] = {}
+    student_answer_bundle_path = ""
+
+    # Returns None when the text is not a usable JSON answer bundle, so this is
+    # safe to attempt for every path (plain OCR text simply falls through).
+    bundle = parse_student_answer_bundle_from_model_text(
         raw_text,
         source_name=source_name,
-        exam_structure=exam_structure,
+        provider=ocr.provider or "",
+        model=ocr.model,
+        document_type=document_type,
     )
+
+    if bundle is not None:
+        student_answer_bundle = bundle
+        student_tex = student_answer_bundle_to_tex(bundle, source_name=source_name)
+        warnings.extend(bundle.get("warnings") or [])
+    else:
+        student_tex = ocr_text_to_student_tex(
+            raw_text,
+            source_name=source_name,
+            exam_structure=exam_structure,
+        )
+        if out_dir is not None:
+            tex_tmp = out_dir / "_ocr_tmp.tex"
+            tex_tmp.write_text(student_tex, encoding="utf-8")
+            try:
+                student_answer_bundle = build_student_answer_bundle_from_tex(
+                    tex_tmp,
+                    out_dir=out_dir,
+                    source_name=source_name,
+                    document_type=document_type,
+                )
+            except Exception:
+                pass
+            finally:
+                tex_tmp.unlink(missing_ok=True)
 
     student_tex_path = ""
 
@@ -265,13 +343,25 @@ def build_student_work_ocr_result(
         path.write_text(student_tex, encoding="utf-8")
         student_tex_path = str(path)
 
-    warnings: list[str] = []
+        if student_answer_bundle:
+            student_answer_bundle_path = str(
+                write_student_answer_bundle(student_answer_bundle, out_dir)
+            )
 
     if not raw_text.strip():
         warnings.append("OCR returned empty text.")
 
     if "% WARNING: MathGrade could not confidently detect question titles." in student_tex:
         warnings.append("Could not confidently detect question titles from OCR text.")
+
+    detected_question_count: int | None = None
+    detected_part_count: int | None = None
+    if student_answer_bundle:
+        answers = student_answer_bundle.get("answers") or []
+        detected_part_count = len(answers)
+        detected_question_count = len(
+            {a.get("question_id") for a in answers if a.get("question_id") is not None}
+        )
 
     return StudentWorkOcrResult(
         ok=True,
@@ -280,8 +370,12 @@ def build_student_work_ocr_result(
         raw_ocr_text=raw_text,
         student_tex=student_tex,
         student_tex_path=student_tex_path,
-        detected_question_count=None,
-        detected_part_count=None,
+        student_answer_bundle=student_answer_bundle,
+        student_answer_bundle_path=student_answer_bundle_path,
+        document_type=document_type,
+        ocr_path=ocr_path,
+        detected_question_count=detected_question_count,
+        detected_part_count=detected_part_count,
         warnings=warnings,
         needs_teacher_review=True,
         ocr=ocr,

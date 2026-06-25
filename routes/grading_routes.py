@@ -17,18 +17,19 @@ from starlette.concurrency import run_in_threadpool
 
 from routes.progress import done, fail, init_job, push
 from routes.student_log_routes import log_student_submission
-from core.security import get_session
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
-from core.debug import write_debug_log
+from core.storage import require_safe_exam_id, write_reference_summary
+from core.debug import create_debug_trace, write_debug_log
 from core.security import require_session
 from services.student_grading.grading.grader_payloads import grade_payload_manifest
-from services.student_grading.grading.payloads import PayloadItem, build_payloads
-from services.student_grading.grading.solution_bank_matcher import pick_reference_with_exam_id
+from services.student_grading.grading.payloads import build_payloads
+from services.student_grading.grading.solution_bank_matcher import pick_reference_with_match_info
 from services.student_grading.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from services.student_grading.feedback_tex import build_feedback_tex
-from common.tex.student_tex import parse_student_tex_answers
+from common.exam_summary import _safe_str, compare_summaries, read_json_file, write_student_summary as write_student_summary_file
 from services.student_grading.unified_tex import build_unified_tex
+from core.ai_clients.ai_usage_logger import bind_usage_context
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 
@@ -38,84 +39,6 @@ DEBUG = True
 # -------------------------
 # Small helpers (already in your style)
 # -------------------------
-
-def _safe_str(x: Any, limit: int = 200) -> str:
-    s = str(x) if x is not None else ""
-    s = re.sub(r"\s+", " ", s).strip()
-    return s[:limit]
-
-
-def _fallback_student_qnums(tex_path: Path) -> list[int]:
-    text = tex_path.read_text(encoding="utf-8", errors="replace")
-    found = set()
-
-    for m in re.finditer(r"\b(?:Question|Q)\s*([0-9]{1,3})\b", text, flags=re.IGNORECASE):
-        found.add(int(m.group(1)))
-
-    for m in re.finditer(r"\bשאלה\s*([0-9]{1,3})\b", text):
-        found.add(int(m.group(1)))
-
-    return sorted(found)
-
-
-def _extract_student_summary(student_tex_path: Path, *, out_dir: Path) -> dict:
-    summary: dict[str, Any] = {
-        "qnums": [],
-        "keys_preview": [],
-        "preview_text": "",
-        "parse_ok": False,
-    }
-
-    try:
-        student_answers, _ranges = parse_student_tex_answers(student_tex_path, out_dir)
-        if student_answers:
-            qnums = sorted({q for (q, _part) in student_answers.keys()})
-            keys = []
-            preview_lines = []
-
-            for (q, part), body in list(student_answers.items())[:14]:
-                part_str = (part or "").strip()
-                key = f"Q{q}{part_str}"
-                keys.append(key)
-
-                snip = _safe_str(body, limit=140)
-                preview_lines.append(f"{key}: {snip if snip else '(empty)'}")
-
-            summary.update(
-                {
-                    "qnums": qnums,
-                    "keys_preview": keys[:60],
-                    "preview_text": "\n".join(preview_lines)[:6000],
-                    "parse_ok": True,
-                }
-            )
-            return summary
-
-    except Exception as e:
-        summary["parse_error"] = _safe_str(e, 500)
-
-    qnums = _fallback_student_qnums(student_tex_path)
-    summary.update(
-        {
-            "qnums": qnums,
-            "keys_preview": [f"Q{q}" for q in qnums][:60],
-            "preview_text": "(fallback qnum detection)",
-            "parse_ok": False,
-        }
-    )
-    return summary
-
-
-def _write_student_summary(student_tex_path: Path, *, out_dir: Path) -> Path:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "filename": student_tex_path.name,
-        **_extract_student_summary(student_tex_path, out_dir=out_dir),
-    }
-    p = out_dir / "student_summary.json"
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return p
 
 
 def _response_for_path(p: Path) -> FileResponse:
@@ -146,7 +69,7 @@ def _safe_name(s: str, fallback: str = "unknown") -> str:
     return cleaned or fallback
 
 
-def _normalized_provider_name(provider: str) -> str:
+def _display_provider(provider: str) -> str:
     p = (provider or "").strip().lower()
     if p in ("google", "gemini", "google_ai_studio", "aistudio"):
         return "gemini"
@@ -206,6 +129,7 @@ async def _grade_tex_flow(
     job_id: str | None,
     session: dict,
     request: Request | None,
+    selected_exam_id: str | None = None,
     debug: bool = False,
 ) -> FileResponse:
     # Trust only the session for identity; never the form field.
@@ -215,8 +139,8 @@ async def _grade_tex_flow(
 
       1) Save student upload
       2) Match reference in solution bank
-      3) Build payloads ONCE (reference + student snippets)
-      4) Write Q/A bundle TeX from those payloads (question + solution + student)
+      3) Build payloads ONCE (full_solution_bundle.json + student snippets when available)
+      4) Write Q/A bundle TeX from those payloads (display/export only)
       5) Grade each payload (AI) -> grades.json (+ usage_summary.json)
       6) Build feedback TeX from grades.json
       7) Unify bundle + feedback into one TeX
@@ -224,12 +148,29 @@ async def _grade_tex_flow(
       9) Persist final output and return it
     """
     _require_provider_env(provider)
-    normalized_provider = _normalized_provider_name(provider)
+    normalized_provider = _display_provider(provider)
+
+    trace = create_debug_trace(
+        "grading",
+        provider=normalized_provider,
+        job_id=job_id,
+        student_filename=student_tex.filename,
+        session_role=session.get("role") if session else None,
+        student_code=student_code,
+    )
+    bind_usage_context(
+        debug_run_id=trace.run_id,
+        route="grade_tex",
+        provider=normalized_provider,
+        student_code=student_code,
+    )
+    trace.log("grading", "started", provider=normalized_provider, student_filename=student_tex.filename, selected_exam_id=selected_exam_id if session.get("role") == "teacher" else None)
 
     persistent_results_dir = RUNS_ROOT / "final_results"
     persistent_results_dir.mkdir(parents=True, exist_ok=True)
 
     tmp_dir: Path | None = None
+    student_summary_path: Path | None = None
 
     try:
         if job_id:
@@ -241,17 +182,42 @@ async def _grade_tex_flow(
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # Stage 2: save student
-        tex_path = tmp_dir / (student_tex.filename or "student.tex")
-        tex_path.write_bytes(await student_tex.read())
+        uploaded_name = Path(student_tex.filename or "student.tex").name
+        tex_path = tmp_dir / uploaded_name
+        student_upload_bytes = await student_tex.read()
+        tex_path.write_bytes(student_upload_bytes)
+        artifact_name = "student_answer_bundle.json" if tex_path.suffix.lower() == ".json" else f"student_upload{tex_path.suffix or '.tex'}"
+        trace.save_bytes(artifact_name, student_upload_bytes, stage="student_upload")
+        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes), suffix=tex_path.suffix.lower())
         if job_id:
             push(job_id, "Saved student file")
 
         # summary (optional)
         try:
-            summary_path = _write_student_summary(tex_path, out_dir=out_dir)
+            summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
+            student_summary_path = summary_path
+            trace.save_file(summary_path, "student_summary.json", stage="student_summary")
+            try:
+                summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+                trace.log(
+                    "student_summary",
+                    "built",
+                    parse_ok=bool(summary_data.get("parse_ok")),
+                    qnums=summary_data.get("qnums") or [],
+                    keys_preview=summary_data.get("keys_preview") or [],
+                    preview_chars=len(summary_data.get("preview_text") or ""),
+                )
+            except Exception as summary_log_error:
+                trace.log(
+                    "student_summary",
+                    "log_summary_failed",
+                    status="warning",
+                    error=_safe_str(summary_log_error, 300),
+                )
             if job_id:
                 push(job_id, f"Generated student summary: {summary_path.name}")
         except Exception as e:
+            trace.log("student_summary", "failed", status="warning", error=_safe_str(e, 500))
             if job_id:
                 push(job_id, f"Student summary failed (continuing): {_safe_str(e, 220)}")
 
@@ -263,22 +229,125 @@ async def _grade_tex_flow(
             raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
 
         t_ref = perf_counter()
-        exam_id, chosen_ref = await run_in_threadpool(
-            pick_reference_with_exam_id,
-            bank_dir=BANK_ROOT,
-            student_tex=tex_path,
-            prefer_heuristic=True,
-            llm_top_k=12,
-        )
+        manual_exam_id = (selected_exam_id or "").strip() if session.get("role") == "teacher" else ""
+
+        if manual_exam_id:
+            exam_id = require_safe_exam_id(manual_exam_id)
+            uploads = BANK_ROOT / exam_id / "uploads"
+            json_ref = uploads / "full_solution_bundle.json"
+            tex_ref = uploads / "reference_current.tex"
+            if json_ref.exists():
+                chosen_ref = json_ref
+            elif tex_ref.exists():
+                chosen_ref = tex_ref
+            else:
+                raise HTTPException(status_code=404, detail=f"Selected reference exam has no full_solution_bundle.json or reference_current.tex: {exam_id}")
+
+            try:
+                write_reference_summary(exam_id)
+            except Exception as e:
+                trace.log("reference_match", "manual_summary_refresh_failed", status="warning", error=_safe_str(e, 500))
+
+            match_method = "manual_teacher_selection"
+            match_reason = "Teacher test mode selected the reference explicitly."
+            match_score = None
+            student_qnums = []
+            reference_qnums = []
+            reference_summary_path = uploads / "reference_summary.json"
+            try:
+                if student_summary_path and student_summary_path.exists():
+                    student_summary_for_log = read_json_file(student_summary_path) or {}
+                    student_qnums = [int(x) for x in (student_summary_for_log.get("qnums") or []) if str(x).isdigit()]
+                reference_summary_for_log = read_json_file(reference_summary_path) or {}
+                reference_qnums = [int(x) for x in (reference_summary_for_log.get("qnums") or []) if str(x).isdigit()]
+            except Exception:
+                pass
+        else:
+            match = await run_in_threadpool(
+                pick_reference_with_match_info,
+                bank_dir=BANK_ROOT,
+                student_tex=tex_path,
+                prefer_heuristic=True,
+                llm_top_k=12,
+            )
+            exam_id, chosen_ref = match.exam_id, match.path
+            match_method = match.method
+            match_reason = match.reason
+            match_score = match.score
+            student_qnums = list(match.student_qnums)
+            reference_qnums = list(match.reference_qnums)
+
         ref_secs = perf_counter() - t_ref
+        reference_source = "json" if Path(chosen_ref).suffix.lower() == ".json" else "tex_fallback"
+        reference_selection_mode = "manual" if manual_exam_id else "automatic"
+        trace.log(
+            "reference_match",
+            "selected",
+            exam_id=str(exam_id),
+            reference_path=str(chosen_ref),
+            reference_source=reference_source,
+            reference_selection_mode=reference_selection_mode,
+            match_method=match_method,
+            match_reason=match_reason,
+            match_score=match_score,
+            student_qnums=student_qnums,
+            reference_qnums=reference_qnums,
+            duration_s=round(ref_secs, 3),
+        )
         if job_id:
-            push(job_id, f"Fetched: {exam_id} (reference match {ref_secs:.1f}s)")
+            source_label = "JSON reference" if reference_source == "json" else "TeX fallback reference"
+            mode_label = "manual" if manual_exam_id else "auto"
+            push(job_id, f"Fetched: {exam_id} ({source_label}, {mode_label} reference, {ref_secs:.1f}s)")
 
         ref_path = tmp_dir / Path(chosen_ref).name
         ref_path.write_text(
             Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
             encoding="utf-8",
         )
+        matched_artifact_name = "matched_reference.json" if reference_source == "json" else "matched_reference.tex"
+        trace.save_file(ref_path, matched_artifact_name, stage="reference_match")
+
+        # Compare student_summary.json to reference_summary.json before building payloads.
+        # This makes matching failures and OCR structure problems visible even when
+        # we use the single-exam fallback.
+        try:
+            if student_summary_path is None or not student_summary_path.exists():
+                student_summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
+
+            reference_summary_path = BANK_ROOT / str(exam_id) / "uploads" / "reference_summary.json"
+            student_summary = read_json_file(student_summary_path) or {}
+            reference_summary = read_json_file(reference_summary_path) or {}
+
+            summary_compare = compare_summaries(
+                student_summary=student_summary,
+                reference_summary=reference_summary,
+                exam_id=str(exam_id),
+                reference_path=str(chosen_ref),
+                match_method=match_method,
+                match_reason=match_reason,
+            )
+            summary_compare_path = out_dir / "summary_compare.json"
+            summary_compare_path.write_text(
+                json.dumps(summary_compare, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            trace.save_file(summary_compare_path, "summary_compare.json", stage="reference_match")
+            trace.log(
+                "reference_match",
+                "summary_compared",
+                status=summary_compare.get("status", "ok"),
+                qnum_overlap=summary_compare.get("overlap", {}).get("qnum_overlap", []),
+                qnum_overlap_count=summary_compare.get("overlap", {}).get("qnum_overlap_count", 0),
+                part_overlap_count=summary_compare.get("overlap", {}).get("part_overlap_count", 0),
+                warnings=summary_compare.get("warnings", []),
+            )
+        except Exception as e:
+            trace.log(
+                "reference_match",
+                "summary_compare_failed",
+                status="warning",
+                error=_safe_str(e, 500),
+            )
 
         # Stage 4: build payloads ONCE (source-of-truth)
         if job_id:
@@ -296,6 +365,16 @@ async def _grade_tex_flow(
             default_max_points=0.0,
         )
         payload_secs = perf_counter() - t_payloads
+        trace.save_file(manifest_json, "payload_manifest.json", stage="payloads")
+        trace.log(
+            "payloads",
+            "built",
+            duration_s=round(payload_secs, 3),
+            payload_count=len(items),
+            reference_source=reference_source,
+        )
+        for it in items[:80]:
+            trace.save_file(it.payload_path, f"payloads/{it.payload_path.name}", stage="payloads")
 
         if job_id:
             push(job_id, f"Payloads ready ({payload_secs:.1f}s)")
@@ -332,6 +411,7 @@ async def _grade_tex_flow(
             reference_snippets=reference_snippets,
             student_answers=student_answers,
         )
+        trace.save_file(bundle_tex, "qa_bundle.tex", stage="qa_bundle")
         if job_id:
             push(job_id, "Q/A bundle TeX ready")
 
@@ -352,6 +432,8 @@ async def _grade_tex_flow(
             log_fn=(lambda msg: push(job_id, msg)) if job_id else None,
         )
         grade_secs = perf_counter() - t_grade
+        trace.save_file(grades_json, "grades.json", stage="grading")
+        trace.log("grading", "completed", duration_s=round(grade_secs, 3), grades_path=str(grades_json))
         if job_id:
             push(job_id, f"Grading finished ({grade_secs:.1f}s)")
 
@@ -361,6 +443,7 @@ async def _grade_tex_flow(
             usage_path = ai_dir / "usage_summary.json"
             if usage_path.exists():
                 usage = json.loads(usage_path.read_text(encoding="utf-8"))
+                trace.save_file(usage_path, "usage_summary.json", stage="usage")
                 if (usage.get("provider") or "").lower() in ("google", "gemini", "google_ai_studio", "aistudio"):
                     gemini_tokens = int(usage.get("total_tokens") or 0)
         except Exception:
@@ -398,6 +481,8 @@ async def _grade_tex_flow(
             out_dir=ai_dir,
         )
         fb_secs = perf_counter() - t_fb
+        trace.save_file(feedback_tex, "feedback.tex", stage="feedback_tex")
+        trace.log("feedback_tex", "built", duration_s=round(fb_secs, 3), path=str(feedback_tex))
         if job_id:
             push(job_id, f"Feedback TeX ready ({fb_secs:.1f}s)")
 
@@ -414,6 +499,8 @@ async def _grade_tex_flow(
             output_stem=f"graded_{normalized_provider}",
         )
         union_secs = perf_counter() - t_union
+        trace.save_file(final_tex, "final_unified.tex", stage="unified_tex")
+        trace.log("unified_tex", "built", duration_s=round(union_secs, 3), path=str(final_tex))
         if job_id:
             push(job_id, f"Unified TeX ready ({union_secs:.1f}s)")
 
@@ -439,15 +526,19 @@ async def _grade_tex_flow(
 
             if compiled_pdf.exists() and compiled_pdf.suffix.lower() == ".pdf":
                 result_path = compiled_pdf
+                trace.save_file(compiled_pdf, "final_output.pdf", stage="pdf_compile")
+                trace.log("pdf_compile", "completed", duration_s=round(pdf_secs, 3), path=str(compiled_pdf))
                 if job_id:
                     push(job_id, f"PDF build finished ({pdf_secs:.1f}s)")
             else:
                 result_path = final_tex
+                trace.log("pdf_compile", "missing_pdf", status="warning", duration_s=round(pdf_secs, 3))
                 if job_id:
                     push(job_id, f"PDF build did not produce a valid PDF ({pdf_secs:.1f}s) — falling back to TeX")
         except Exception as e:
             pdf_secs = perf_counter() - t_pdf
             result_path = final_tex
+            trace.error("pdf_compile", e, duration_s=round(pdf_secs, 3))
             if job_id:
                 push(job_id, f"PDF compile failed ({pdf_secs:.1f}s); falling back to TeX: {_safe_str(e, 220)}")
 
@@ -469,6 +560,16 @@ async def _grade_tex_flow(
             final_path=final_persistent_path,
             debug=debug,
         )
+        trace.save_file(final_persistent_path, f"persisted_result{final_persistent_path.suffix}", stage="persist")
+        trace.save_file(final_persistent_path.with_suffix(".json"), "persisted_result_metadata.json", stage="persist")
+        trace.log(
+            "grading",
+            "finished",
+            exam_id=str(exam_id),
+            reference_source=reference_source,
+            reference_selection_mode=reference_selection_mode,
+            final_path=str(final_persistent_path),
+        )
 
         if job_id:
             push(job_id, f"Done. Sending file: {final_persistent_path.name}")
@@ -476,13 +577,15 @@ async def _grade_tex_flow(
 
         return _response_for_path(final_persistent_path)
 
-    except HTTPException:
+    except HTTPException as e:
+        trace.error("http_exception", e)
         if job_id:
             fail(job_id, "HTTPException")
         raise
 
     except Exception as e:
-        log_path = write_debug_log(f"grade_tex_{_normalized_provider_name(provider)}", e)
+        trace.error("grading", e)
+        log_path = write_debug_log(f"grade_tex_{_display_provider(provider)}", e)
         if job_id:
             push(job_id, f"FAILED: {_safe_str(e, 400)}")
             fail(job_id, f"{e}")
@@ -509,6 +612,7 @@ async def grade_tex_ollama(
     request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(
@@ -517,6 +621,7 @@ async def grade_tex_ollama(
         job_id=job_id,
         session=session,
         request=request,
+        selected_exam_id=selected_exam_id,
         debug=DEBUG,
     )
 
@@ -526,6 +631,7 @@ async def grade_tex_google(
     request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     # IMPORTANT: pass "google" (not "gemini") so client selection + schema pruning match
@@ -535,6 +641,7 @@ async def grade_tex_google(
         job_id=job_id,
         session=session,
         request=request,
+        selected_exam_id=selected_exam_id,
         debug=DEBUG,
     )
 
@@ -544,6 +651,7 @@ async def grade_tex_chatgpt(
     request: Request,
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
+    selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(

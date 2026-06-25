@@ -6,12 +6,10 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from services.student_grading.grading.payloads import build_payloads
-from services.student_grading.answer_render import compile_student_answer_pdfs
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
 from common.tex.part_normalize import normalize_part
-from common.pdf.pdf_cleanse import CleanseReport, cleanse_test_pdf
-from common.tex.reference_ranges import Key, find_reference_ranges
-from common.tex.student_tex import parse_student_tex_answers
+from common.pdf.pdf_cleanse import CleanseReport
+from common.tex.reference_ranges import Key
 
 
 @dataclass(frozen=True)
@@ -137,72 +135,6 @@ def _compile_bundle_pdf(
         raise RuntimeError("Bundle PDF was not created. Check LaTeX logs in build/.")
 
     return bundle_pdf
-
-
-def _write_bundle_tex_from_pdf_reference(
-    out_tex: Path,
-    *,
-    title: str,
-    font_name: str,
-    reference_pdf: Path,
-    ref_ranges: Dict[Key, Tuple[int, int]],
-    answer_pdfs: Dict[Key, Optional[Path]],
-) -> None:
-    """
-    PDF-reference mode:
-    include reference PDF page ranges + rendered student answer PDFs.
-    """
-    out_tex.parent.mkdir(parents=True, exist_ok=True)
-
-    keys = _union_keys(ref_ranges, answer_pdfs)
-    ref_pdf_tex = _tex_path(reference_pdf)
-
-    tex: list[str] = []
-    tex.append("\\documentclass[12pt]{article}\n")
-    tex.append("\\usepackage[a4paper,margin=1.7cm]{geometry}\n")
-    tex.append("\\usepackage{hyperref}\n")
-    tex.append("\\usepackage{bookmark}\n")
-    tex.append("\\usepackage{pdfpages}\n")
-    tex.append("\\usepackage{xcolor}\n")
-    tex.append("\\usepackage{amsmath,amssymb,mathtools}\n")
-    tex.append("\\usepackage{fontspec}\n")
-    tex.append("\\usepackage{bidi}\n")
-    tex.append(f"\\setmainfont[Script=Hebrew]{{{font_name}}}\n")
-    tex.append(f"\\setmonofont{{{font_name}}}\n")
-    tex.append("\\setRTL\n")
-    tex.append("\\setlength{\\parskip}{0.6em}\n")
-    tex.append("\\setlength{\\parindent}{0pt}\n")
-    tex.append("\\begin{document}\n")
-    tex.append(f"\\section*{{{title}}}\n")
-    tex.append("\\tableofcontents\n\\newpage\n")
-
-    for qnum, part in keys:
-        section_title = f"שאלה {qnum}" + (f"({part})" if part else "")
-        tex.append(f"\\section{{{section_title}}}\n")
-
-        tex.append("\\subsection*{Reference (question + official solution)}\n")
-        rng = ref_ranges.get((qnum, part)) or ref_ranges.get((qnum, ""))
-        if rng:
-            start, end = rng
-            tex.append(
-                f"\\includepdf[pages={{{start}-{end}}},pagecommand={{}}]{{{ref_pdf_tex}}}\n"
-            )
-        else:
-            tex.append("\\textcolor{red}{Missing reference page-range for this part.}\\par\n")
-
-        tex.append("\\subsection*{Student answer (rendered)}\n")
-        answer_pdf = answer_pdfs.get((qnum, part)) or answer_pdfs.get((qnum, ""))
-        if answer_pdf is None:
-            tex.append("\\textcolor{red}{Could not compile student answer for this part.}\\par\n")
-        else:
-            tex.append(
-                f"\\includepdf[pages=-,pagecommand={{}}]{{{_tex_path(answer_pdf)}}}\n"
-            )
-
-        tex.append("\\newpage\n")
-
-    tex.append("\\end{document}\n")
-    out_tex.write_text("".join(tex), encoding="utf-8")
 
 
 def _write_bundle_tex_inline_answers(

@@ -23,6 +23,7 @@ from common.tex.reference_tex import parse_reference_tex
 from starlette.concurrency import run_in_threadpool
 
 from core.ai_clients.ai_usage_logger import bind_usage_context, usage_log_dir
+from core.debug import create_debug_trace, validate_bundle_snapshot
 from core.ai_clients.ocr_client import OcrClientError, run_ocr
 from core.ai_clients.gpt_client import GptClient
 from core.ai_clients.google_client import GoogleClient
@@ -39,6 +40,8 @@ from services.solution_bank.full_solution_service import (
 )
 from services.solution_bank.questions_answers_ocr import build_questions_answers_ocr_result
 from services.solution_bank.questions_ocr import build_questions_ocr_result
+from services.ocr_routing import decide_bank_ocr_path
+from common.exam_summary import read_json_file
 
 from routes.progress import init_job, push, done, fail
 
@@ -104,6 +107,31 @@ OCR_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 ALL_BANK_UPLOAD_SUFFIXES = TEX_SUFFIXES | OCR_SUFFIXES
 
 OCR_PROVIDERS = {"mathpix", "openai", "gpt", "chatgpt", "google", "gemini", "ai_studio", "aistudio"}
+
+BANK_DOCUMENT_TYPES = {"printed", "handwritten"}
+
+
+def _canonical_bank_document_type(value: str | None) -> str:
+    """Normalize teacher-facing document type for OCR routing.
+
+    UI uses only printed/handwritten. Backend accepts a few aliases for
+    future compatibility. TeX/TXT uploads ignore this value, but we still store
+    it in metadata so debugging is explicit.
+    """
+    v = (value or "printed").strip().lower()
+    aliases = {
+        "print": "printed",
+        "typed": "printed",
+        "typed_pdf": "printed",
+        "native": "printed",
+        "scan": "printed",
+        "printed_scan": "printed",
+        "hand": "handwritten",
+        "handwrite": "handwritten",
+        "handwritten_scan": "handwritten",
+    }
+    v = aliases.get(v, v)
+    return v if v in BANK_DOCUMENT_TYPES else "printed"
 
 AI_SOLUTION_FALLBACK_PROVIDERS = {
     "openai",
@@ -207,38 +235,12 @@ def _answer_fallback_enabled_for_provider(provider: str) -> bool:
     return (provider or "").strip().lower() in AI_SOLUTION_FALLBACK_PROVIDERS
 
 
-def _bundle_path(uploads: Path, name: str) -> Path:
-    return uploads / name
-
-
-def _read_json_if_exists(path: Path) -> dict | None:
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-
-
-def _count_full_solution(bundle: dict | FullSolutionBundle | None) -> tuple[int | None, int | None]:
-    if bundle is None:
-        return None, None
-
-    try:
-        full = bundle if isinstance(bundle, FullSolutionBundle) else FullSolutionBundle.model_validate(bundle)
-        q_count = len(full.questions)
-        part_count = sum(len(q.parts or []) for q in full.questions)
-        return q_count, part_count
-    except Exception:
-        return None, None
 
 
 def _gradeable_status_from_bundle(bundle: dict | FullSolutionBundle | None) -> str:
@@ -346,6 +348,59 @@ def _practice_counts_from_bundle(bundle: dict | FullSolutionBundle | None) -> tu
     return q_count, part_count
 
 
+def _validation_for_saved_bundle(uploads: Path, content_type: str) -> tuple[dict | None, str | None, Path | None]:
+    """
+    Return the validation report that should drive teacher-facing status.
+
+    Once a full solution exists, that JSON is the important reference because
+    grading now uses full_solution_bundle.json as the source of truth. When the
+    full solution is not available yet, validate the current upload's bundle so
+    the teacher still sees useful warnings for questions-only / answers-only
+    intermediate uploads.
+    """
+    candidates: list[tuple[str, Path]] = []
+
+    full_path = uploads / "full_solution_bundle.json"
+    if full_path.exists():
+        candidates.append(("full_solution", full_path))
+    elif content_type == "questions_only":
+        candidates.append(("questions_only", uploads / "questions_only_bundle.json"))
+    elif content_type == "answers_only":
+        candidates.append(("answers_only", uploads / "answers_only_bundle.json"))
+    elif content_type == "questions_answers":
+        candidates.append(("questions_answers", uploads / "questions_answers_bundle.json"))
+
+    for kind, path in candidates:
+        data = read_json_file(path)
+        if data is None:
+            continue
+        return validate_bundle_snapshot(data, bundle_kind=kind), kind, path
+
+    return None, None, None
+
+
+def _validation_status_for_upload(
+    *,
+    report: dict | None,
+    gradeable_status: str,
+    full_solution_available: bool,
+) -> str:
+    """Collapse bundle validation + gradeable status into ok/warning/error."""
+    if report and report.get("status") == "error":
+        return "error"
+
+    if report and report.get("status") == "warning":
+        return "warning"
+
+    # A missing full solution is expected after a questions-only upload, so it
+    # should not automatically look like a failed run. But when a full solution
+    # exists and it is still draft/not gradeable, make that visible.
+    if full_solution_available and gradeable_status != "clean":
+        return "warning"
+
+    return "ok"
+
+
 def _build_and_save_full_solution_if_possible(
     *,
     uploads: Path,
@@ -357,6 +412,7 @@ def _build_and_save_full_solution_if_possible(
     answer_fallback_provider: str = "",
     answer_fallback_model: str = "",
     answer_fallback_raw_text: str = "",
+    trace=None,
 ) -> tuple[dict | None, str, dict | None]:
     """
     Try to build final full solution from existing questions_only + answers_only.
@@ -367,8 +423,8 @@ def _build_and_save_full_solution_if_possible(
     questions_path = uploads / "questions_only_bundle.json"
     answers_path = uploads / "answers_only_bundle.json"
 
-    questions_dict = _read_json_if_exists(questions_path)
-    answers_dict = _read_json_if_exists(answers_path)
+    questions_dict = read_json_file(questions_path)
+    answers_dict = read_json_file(answers_path)
 
     if not questions_dict or not answers_dict:
         return None, "", None
@@ -403,6 +459,14 @@ def _build_and_save_full_solution_if_possible(
     tex_path = uploads / "reference_current.tex"
     tex_path.write_text(canonical_tex, encoding="utf-8")
 
+    if trace is not None:
+        report = validate_bundle_snapshot(full_dict, bundle_kind="full_solution")
+        trace.save_json("full_solution_bundle.json", full_dict, stage="full_solution")
+        trace.save_json("full_solution_validation.json", report, stage="full_solution")
+        trace.save_json("exam_structure.json", structure, stage="full_solution")
+        trace.save_text("reference_current.tex", canonical_tex, stage="full_solution")
+        trace.log("full_solution", "built", status=report.get("status", "ok"), validation=report)
+
     try:
         write_reference_summary(exam_id, tex_path=tex_path)
     except Exception:
@@ -420,6 +484,8 @@ async def _bank_upload_to_tex(
     content_type: str,
     ocr_provider: str = "mathpix",
     ocr_model: str = "",
+    document_type: str = "printed",
+    trace=None,
 ) -> tuple[bytes, dict]:
     """
     Convert either a TeX upload or an OCR-able upload into temporary TeX bytes.
@@ -432,8 +498,12 @@ async def _bank_upload_to_tex(
     original_name = upload.filename or "upload.bin"
     safe_original_name = _safe_bank_upload_filename(original_name)
     suffix = Path(safe_original_name).suffix.lower()
+    document_type = _canonical_bank_document_type(document_type)
 
     raw = await upload.read()
+    if trace is not None:
+        trace.save_bytes(f"input/{safe_original_name}", raw, stage="upload")
+        trace.log("upload", "received", filename=safe_original_name, suffix=suffix, bytes=len(raw), document_type=document_type)
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
 
@@ -451,6 +521,8 @@ async def _bank_upload_to_tex(
     # ------------------------------------------------------------
     if suffix in TEX_SUFFIXES:
         text = raw.decode("utf-8", errors="replace")
+        if trace is not None:
+            trace.save_text("input_tex_or_text.txt", text, stage="upload")
 
         ocr_response = OcrResponse(
             provider="tex",
@@ -465,6 +537,9 @@ async def _bank_upload_to_tex(
         return raw, {
             "source_kind": "tex",
             "original_filename": safe_original_name,
+            "document_type": document_type,
+            "ocr_path": "tex_text_direct",
+            "ocr_route_reason": "TeX/TXT upload; OCR skipped.",
             "ocr_used": False,
             "pdf_text_layer_used": False,
             "ocr_provider": "tex",
@@ -501,28 +576,90 @@ async def _bank_upload_to_tex(
     original_path = originals_dir / safe_original_name
     original_path.write_bytes(raw)
 
-    try:
-        ocr_response = await run_in_threadpool(
-            run_ocr,
-            file_path=original_path,
-            provider=ocr_provider,
-            model=ocr_model or None,
-            options=OcrOptions(
-                temperature=0.0,
-                max_output_tokens=12000,
-                timeout_s=300,
-                language_hint="hebrew",
-                preserve_math=True,
-                preserve_layout=True,
-                include_line_data=True,
-            ),
+    route_decision = decide_bank_ocr_path(original_path, requested_mode=document_type)
+    route_decision_payload = {
+        "requested_mode": route_decision.requested_mode,
+        "document_type": route_decision.document_type,
+        "ocr_path": route_decision.ocr_path,
+        "reason": route_decision.reason,
+        "native_text_char_count": route_decision.native_text_char_count,
+        "text_layer_pages": route_decision.text_layer_pages,
+    }
+    if trace is not None:
+        trace.save_json("ocr_route_decision.json", route_decision_payload, stage="ocr_route")
+        trace.log("ocr_route", "selected", **route_decision_payload)
+
+    if route_decision.ocr_path == "native_pdf_text_layer" and route_decision.native_text.strip():
+        ocr_text = route_decision.native_text.strip()
+        ocr_response = OcrResponse(
+            provider="tex",
+            model=None,
+            input_kind="pdf",
+            source_filename=safe_original_name,
+            source_path=str(original_path),
+            text=ocr_text,
+            pages=[],
+            provider_mode="native_pdf_text_layer",
+            is_handwritten=False,
         )
-    except OcrClientError as e:
-        raise HTTPException(status_code=502, detail=f"OCR failed: {e}") from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
+        if trace is not None:
+            trace.save_json("ocr_response.json", ocr_response.model_dump(), stage="ocr")
+            trace.save_text("ocr_primary_text.txt", ocr_text, stage="ocr")
+            trace.log("ocr", "completed", provider="native_pdf_text_layer", model=None, confidence=None, is_handwritten=False)
+    else:
+        try:
+            if trace is not None:
+                trace.log(
+                    "ocr",
+                    "started",
+                    provider=ocr_provider,
+                    model=ocr_model or None,
+                    source=str(original_path),
+                    document_type=document_type,
+                    ocr_path=route_decision.ocr_path,
+                )
+            ocr_response = await run_in_threadpool(
+                run_ocr,
+                file_path=original_path,
+                provider=ocr_provider,
+                model=ocr_model or None,
+                options=OcrOptions(
+                    temperature=0.0,
+                    max_output_tokens=12000,
+                    timeout_s=300,
+                    language_hint="hebrew",
+                    preserve_math=True,
+                    preserve_layout=True,
+                    include_line_data=True,
+                    extra={
+                        "document_type": document_type,
+                        "ocr_path": route_decision.ocr_path,
+                        "upload_role": content_type,
+                        "task_context": "teacher_solution_bank_upload",
+                    },
+                ),
+            )
+        except OcrClientError as e:
+            if trace is not None:
+                trace.error("ocr", e)
+            raise HTTPException(status_code=502, detail=f"OCR failed: {e}") from e
+        except Exception as e:
+            if trace is not None:
+                trace.error("ocr", e)
+            raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
 
     ocr_text = ocr_response.primary_text()
+    if trace is not None:
+        trace.save_json("ocr_response.json", ocr_response.model_dump(), stage="ocr")
+        trace.save_text("ocr_primary_text.txt", ocr_text, stage="ocr")
+        trace.log(
+            "ocr",
+            "completed",
+            provider=ocr_response.provider,
+            model=ocr_response.model,
+            confidence=ocr_response.confidence,
+            is_handwritten=ocr_response.is_handwritten,
+        )
 
     provider = str(ocr_response.provider or ocr_provider)
     provider_label = provider.replace("/", "_")
@@ -563,10 +700,21 @@ async def _bank_upload_to_tex(
         ]
     )
 
+    if trace is not None:
+        trace.save_text("ocr_wrapped_as_tex.tex", tex, stage="ocr")
+
+    ocr_was_used = route_decision.ocr_path != "native_pdf_text_layer"
+
     return tex.encode("utf-8"), {
-        "source_kind": provider,
+        "source_kind": provider if ocr_was_used else "native_pdf_text_layer",
         "original_filename": safe_original_name,
-        "ocr_used": True,
+        "document_type": document_type,
+        "detected_document_type": route_decision.document_type,
+        "ocr_path": route_decision.ocr_path,
+        "ocr_route_reason": route_decision.reason,
+        "native_text_char_count": route_decision.native_text_char_count,
+        "pdf_text_layer_used": route_decision.ocr_path == "native_pdf_text_layer",
+        "ocr_used": ocr_was_used,
         "ocr_provider": provider,
         "ocr_model": ocr_response.model,
         "ocr_response": ocr_response,
@@ -677,6 +825,7 @@ async def upload_to_bank(
     job_id: Optional[str] = Form(None),
     ocr_provider: str = Form("mathpix"),
     ocr_model: str = Form(""),
+    document_type: str = Form("printed"),
     _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher file into the solution bank.
@@ -688,6 +837,7 @@ async def upload_to_bank(
     """
     exam_id = require_safe_exam_id(exam_id)
     content_type = _canonical_content_type(content_type)
+    document_type = _canonical_bank_document_type(document_type)
 
     if content_type not in {"questions_only", "answers_only", "questions_answers"}:
         raise HTTPException(
@@ -695,13 +845,26 @@ async def upload_to_bank(
             detail="content_type must be questions_only, answers_only, or questions_answers",
         )
 
+    trace = create_debug_trace(
+        "bank_upload",
+        exam_id=exam_id,
+        content_type=content_type,
+        provider=ocr_provider,
+        model=ocr_model or None,
+        document_type=document_type,
+        source_name=tex_file.filename,
+        job_id=job_id,
+    )
+
     # Attribute every OCR/AI usage record produced during this upload to this
     # exam + content_type, so data/ai_usage_logs can be aggregated per solution.
     bind_usage_context(
         exam_id=exam_id,
         content_type=content_type,
         bank_source=tex_file.filename,
+        debug_run_id=trace.run_id,
     )
+    trace.log("bank_upload", "started", exam_id=exam_id, content_type=content_type, document_type=document_type, source_name=tex_file.filename)
 
     if job_id:
         init_job(job_id)
@@ -720,13 +883,19 @@ async def upload_to_bank(
 
     _progress(job_id, f"Extracting file with {ocr_provider} if OCR is needed...")
 
-    raw, extra_meta = await _bank_upload_to_tex(
-        upload=tex_file,
-        exam_id=exam_id,
-        content_type=content_type,
-        ocr_provider=ocr_provider,
-        ocr_model=ocr_model,
-    )
+    try:
+        raw, extra_meta = await _bank_upload_to_tex(
+            upload=tex_file,
+            exam_id=exam_id,
+            content_type=content_type,
+            ocr_provider=ocr_provider,
+            ocr_model=ocr_model,
+            document_type=document_type,
+            trace=trace,
+        )
+    except Exception as e:
+        trace.error("extract", e)
+        raise
 
     _progress(
         job_id,
@@ -734,7 +903,7 @@ async def upload_to_bank(
             f"Extraction complete. Source: {extra_meta.get('source_kind')}, "
             f"provider: {extra_meta.get('ocr_provider') or 'none'}, "
             f"model: {extra_meta.get('ocr_model') or extra_meta.get('openai_model') or 'tex'}, "
-            f"mode: {extra_meta.get('mathpix_mode') or 'standard'}"
+            f"mode: {extra_meta.get('mathpix_mode') or extra_meta.get('ocr_path') or 'standard'}"
         ),
     )
 
@@ -781,14 +950,20 @@ async def upload_to_bank(
 
             bundle_path = uploads / "questions_only_bundle.json"
             _write_json(bundle_path, questions_bundle)
+            report = validate_bundle_snapshot(questions_bundle, bundle_kind="questions_only")
+            trace.save_json("questions_only_bundle.json", questions_bundle, stage="questions_only")
+            trace.save_json("questions_only_validation.json", report, stage="questions_only")
+            trace.log("questions_only", "built", status=report.get("status", "ok"), validation=report)
 
             _progress(job_id, "Saved questions_only_bundle.json")
 
             structure = questions_result.exam_structure
             structure_path = uploads / "exam_structure.json"
             _write_json(structure_path, structure)
+            trace.save_json("exam_structure.json", structure, stage="questions_only")
 
             raw = questions_result.canonical_tex.encode("utf-8")
+            trace.save_text("questions_only_current.tex", questions_result.canonical_tex, stage="questions_only")
 
             _progress(job_id, "Generated canonical questions_only_current.tex")
 
@@ -803,12 +978,14 @@ async def upload_to_bank(
                 answer_fallback_provider=ocr_provider,
                 answer_fallback_model=ocr_model or str(extra_meta.get("ocr_model") or ""),
                 answer_fallback_raw_text=extra_meta.get("ocr_text") or "",
+                trace=trace,
             )
 
             if full_solution_bundle and full_tex:
                 final_reference_tex_generated = True
 
         except Exception as e:
+            trace.error("questions_only", e)
             structure = None
             structure_path = None
 
@@ -834,7 +1011,7 @@ async def upload_to_bank(
 
             _progress(job_id, "AI is organizing the official answers into answers-only JSON...")
 
-            existing_questions_bundle = _read_json_if_exists(uploads / "questions_only_bundle.json")
+            existing_questions_bundle = read_json_file(uploads / "questions_only_bundle.json")
 
             answers_result = build_answers_ocr_result(
                 ocr=ocr_response,
@@ -849,6 +1026,10 @@ async def upload_to_bank(
 
             answers_bundle_path = uploads / "answers_only_bundle.json"
             _write_json(answers_bundle_path, answers_bundle)
+            report = validate_bundle_snapshot(answers_bundle, bundle_kind="answers_only")
+            trace.save_json("answers_only_bundle.json", answers_bundle, stage="answers_only")
+            trace.save_json("answers_only_validation.json", report, stage="answers_only")
+            trace.log("answers_only", "built", status=report.get("status", "ok"), validation=report)
 
             _progress(job_id, "Saved answers_only_bundle.json")
 
@@ -865,6 +1046,7 @@ async def upload_to_bank(
                 answer_fallback_provider=ocr_provider,
                 answer_fallback_model=ocr_model or str(extra_meta.get("ocr_model") or ""),
                 answer_fallback_raw_text=extra_meta.get("ocr_text") or "",
+                trace=trace,
             )
 
             if full_solution_bundle and full_tex:
@@ -873,6 +1055,7 @@ async def upload_to_bank(
                 structure_path = uploads / "exam_structure.json"
 
         except Exception as e:
+            trace.error("answers_only", e)
             fail_path = uploads / "answers_only_ai_builder_error.txt"
             fail_path.write_text(str(e), encoding="utf-8")
             fail(job_id, f"Answers-only AI builder failed: {e}") if job_id else None
@@ -893,7 +1076,7 @@ async def upload_to_bank(
                     text=extra_meta.get("ocr_text") or extra_meta.get("mathpix_text") or tex_text_for_structure,
                 )
 
-            existing_questions_bundle = _read_json_if_exists(uploads / "questions_only_bundle.json")
+            existing_questions_bundle = read_json_file(uploads / "questions_only_bundle.json")
 
             if existing_questions_bundle:
                 _progress(
@@ -912,6 +1095,10 @@ async def upload_to_bank(
 
                 answers_bundle = answers_result.answers_bundle.model_dump()
                 _write_json(uploads / "answers_only_bundle.json", answers_bundle)
+                report = validate_bundle_snapshot(answers_bundle, bundle_kind="answers_only")
+                trace.save_json("locked_questions_answers_only_bundle.json", answers_bundle, stage="questions_answers")
+                trace.save_json("locked_questions_answers_only_validation.json", report, stage="questions_answers")
+                trace.log("questions_answers", "answers_built_against_locked_questions", status=report.get("status", "ok"), validation=report)
 
                 full_solution_bundle, full_tex, full_solution_structure = _build_and_save_full_solution_if_possible(
                     uploads=uploads,
@@ -923,6 +1110,7 @@ async def upload_to_bank(
                     answer_fallback_provider=ocr_provider,
                     answer_fallback_model=ocr_model or str(extra_meta.get("ocr_model") or ""),
                     answer_fallback_raw_text=extra_meta.get("ocr_text") or "",
+                    trace=trace,
                 )
 
                 if not full_solution_bundle or not full_tex:
@@ -976,6 +1164,10 @@ async def upload_to_bank(
                 qa_bundle = qa_result.questions_answers_bundle.model_dump()
 
                 _write_json(uploads / "questions_answers_bundle.json", qa_bundle)
+                report = validate_bundle_snapshot(qa_bundle, bundle_kind="questions_answers")
+                trace.save_json("questions_answers_bundle.json", qa_bundle, stage="questions_answers")
+                trace.save_json("questions_answers_validation.json", report, stage="questions_answers")
+                trace.log("questions_answers", "built", status=report.get("status", "ok"), validation=report)
 
                 if not qa_result.full_solution_bundle:
                     raise RuntimeError("questions_answers upload did not produce a full_solution_bundle")
@@ -983,6 +1175,10 @@ async def upload_to_bank(
                 full_solution_bundle = qa_result.full_solution_bundle.model_dump()
 
                 _write_json(uploads / "full_solution_bundle.json", full_solution_bundle)
+                full_report = validate_bundle_snapshot(full_solution_bundle, bundle_kind="full_solution")
+                trace.save_json("full_solution_bundle.json", full_solution_bundle, stage="full_solution")
+                trace.save_json("full_solution_validation.json", full_report, stage="full_solution")
+                trace.log("full_solution", "promoted_from_questions_answers", status=full_report.get("status", "ok"), validation=full_report)
 
                 # Compatibility with existing grading/reference pipeline.
 
@@ -993,13 +1189,16 @@ async def upload_to_bank(
                 structure_path = uploads / "exam_structure.json"
 
                 _write_json(structure_path, structure)
+                trace.save_json("exam_structure.json", structure, stage="full_solution")
 
                 raw = qa_result.canonical_tex.encode("utf-8")
+                trace.save_text("reference_current.tex", qa_result.canonical_tex, stage="full_solution")
 
                 final_reference_tex_generated = True
 
                 _progress(job_id, "Generated full_solution_bundle.json and canonical reference_current.tex")
         except Exception as e:
+            trace.error("questions_answers", e)
             fail_path = uploads / "questions_answers_ai_builder_error.txt"
             fail_path.write_text(str(e), encoding="utf-8")
             fail(job_id, f"Questions+answers AI builder failed: {e}") if job_id else None
@@ -1011,6 +1210,7 @@ async def upload_to_bank(
 
     tex_path.write_bytes(raw)
     tex_text_for_structure = raw.decode("utf-8", errors="replace")
+    trace.save_file(tex_path, f"saved_bank_file/{tex_path.name}", stage="persist")
 
     # If this upload produced a final full solution, also write/refresh reference_current.tex.
     if content_type == "questions_answers" and final_reference_tex_generated:
@@ -1029,9 +1229,10 @@ async def upload_to_bank(
     reference_tex_path = uploads / "reference_current.tex"
     if reference_tex_path.exists():
         try:
-            write_reference_summary(exam_id, tex_path=reference_tex_path)
-        except Exception:
-            pass
+            summary_path = write_reference_summary(exam_id, tex_path=reference_tex_path)
+            trace.save_file(summary_path, "reference_summary.json", stage="summary")
+        except Exception as e:
+            trace.error("summary", e)
 
     # Parse for metadata
     # Preview / metadata
@@ -1101,6 +1302,26 @@ async def upload_to_bank(
     except Exception:
         gradeable_status = "not_gradeable"
 
+    validation_report, validation_bundle_kind, validation_bundle_path = _validation_for_saved_bundle(
+        uploads,
+        content_type,
+    )
+
+    if validation_report:
+        # Prefer structured JSON counts over TeX parsing counts. This is
+        # especially important for answers-only uploads, where the preview TeX
+        # can be raw OCR but the generated full_solution_bundle.json is the
+        # actual grading source.
+        q_count = validation_report.get("question_count") if validation_report.get("question_count") is not None else q_count
+        part_count = validation_report.get("part_count") if validation_report.get("part_count") is not None else part_count
+
+    full_solution_available = (uploads / "full_solution_bundle.json").exists()
+    upload_validation_status = _validation_status_for_upload(
+        report=validation_report,
+        gradeable_status=gradeable_status,
+        full_solution_available=full_solution_available,
+    )
+
     # Live token feedback for this upload: OCR tokens (when an AI OCR provider
     # was used) + the AI structuring/fallback tokens accumulated on the
     # solution_ai_client. The authoritative per-call record is written to
@@ -1157,9 +1378,17 @@ async def upload_to_bank(
 
     meta = {
         "exam_id": exam_id,
+        "debug_trace_id": trace.run_id,
+        "debug_trace_dir": str(trace.path) if trace.enabled else None,
         "filename": filename,
         "original_filename": extra_meta.get("original_filename") or tex_file.filename,
         "content_type": content_type,
+        "document_type": extra_meta.get("document_type") or document_type,
+        "detected_document_type": extra_meta.get("detected_document_type"),
+        "ocr_path": extra_meta.get("ocr_path"),
+        "ocr_route_reason": extra_meta.get("ocr_route_reason"),
+        "pdf_text_layer_used": bool(extra_meta.get("pdf_text_layer_used")),
+        "native_text_char_count": extra_meta.get("native_text_char_count"),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "q_count": q_count,
         "part_count": part_count,
@@ -1194,9 +1423,23 @@ async def upload_to_bank(
             if content_type == "questions_answers"
             else None
         ),
-        "full_solution_available": (uploads / "full_solution_bundle.json").exists(),
+        "full_solution_available": full_solution_available,
         "reference_tex_available": (uploads / "reference_current.tex").exists(),
         "gradeable_status": gradeable_status,
+        "validation_status": upload_validation_status,
+        "validation_bundle_kind": validation_bundle_kind,
+        "validation_bundle_path": str(validation_bundle_path) if validation_bundle_path else None,
+        "validation_warnings": (validation_report or {}).get("warnings", []),
+        "duplicate_key_count": (validation_report or {}).get("duplicate_key_count", 0),
+        "empty_question_text_count": (validation_report or {}).get("empty_question_text_count", 0),
+        "empty_solution_count": (validation_report or {}).get("empty_solution_count", 0),
+        "review_item_count": (validation_report or {}).get("review_item_count", 0),
+        "bundle_warning_count": (validation_report or {}).get("bundle_warning_count", 0),
+        "structure_correction_count": (validation_report or {}).get("structure_correction_count", 0),
+        "duplicate_keys": (validation_report or {}).get("duplicate_keys", []),
+        "empty_question_text_keys": (validation_report or {}).get("empty_question_text_keys", []),
+        "empty_solution_keys": (validation_report or {}).get("empty_solution_keys", []),
+        "review_item_keys": (validation_report or {}).get("review_item_keys", []),
         "practice_question_count": practice_question_count,
         "practice_part_count": practice_part_count,
         "bundle_warnings": bundle_warnings,
@@ -1205,12 +1448,131 @@ async def upload_to_bank(
 
     meta_path = uploads / (filename + ".meta.json")
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    trace.save_json("upload_meta.json", meta, stage="meta")
+    if validation_report:
+        trace.save_json("final_validation_summary.json", validation_report, stage="meta")
+    trace.log(
+        "bank_upload",
+        "finished",
+        status=upload_validation_status,
+        exam_id=exam_id,
+        content_type=content_type,
+        document_type=document_type,
+        q_count=q_count,
+        part_count=part_count,
+        gradeable_status=gradeable_status,
+        validation_bundle_kind=validation_bundle_kind,
+        validation=validation_report,
+    )
     _progress(job_id, f"Saved metadata: {meta_path.name}")
-    _progress(job_id, f"Done. Parsed questions: {q_count}, parts: {part_count}")
+
+    if upload_validation_status == "ok":
+        _progress(job_id, f"Done. Parsed questions: {q_count}, parts: {part_count}")
+    else:
+        missing = (validation_report or {}).get("empty_solution_keys") or []
+        review_items = (validation_report or {}).get("review_item_keys") or []
+        warning_parts = [
+            f"Done with warnings. Parsed questions: {q_count}, parts: {part_count}"
+        ]
+        if missing:
+            warning_parts.append(f"missing solutions: {', '.join(missing[:8])}")
+        if review_items:
+            warning_parts.append(f"review items: {len(review_items)}")
+        _progress(job_id, "; ".join(warning_parts))
 
     if job_id:
         done(job_id)
     return meta
+
+
+@router.post("/upload_pair")
+async def upload_questions_and_answers_pair_to_bank(
+    exam_id: str = Form(...),
+    questions_file: UploadFile = File(...),
+    answers_file: UploadFile = File(...),
+    job_id: Optional[str] = Form(None),
+    ocr_provider: str = Form("mathpix"),
+    ocr_model: str = Form(""),
+    questions_document_type: str = Form("printed"),
+    answers_document_type: str = Form("printed"),
+    _session: dict = Depends(require_teacher),
+):
+    """Upload separate questions and answers files as one teacher-facing job.
+
+    Internally this reuses the existing single-file builders:
+      1. questions_file -> questions_only_bundle.json
+      2. answers_file   -> answers_only_bundle.json
+      3. existing merge step -> full_solution_bundle.json
+
+    This keeps the old pipeline stable while giving the UI a simpler
+    one-button workflow for the common Q/A-in-separate-files case.
+    """
+    exam_id = require_safe_exam_id(exam_id)
+    questions_document_type = _canonical_bank_document_type(questions_document_type)
+    answers_document_type = _canonical_bank_document_type(answers_document_type)
+
+    if job_id:
+        init_job(job_id)
+
+    q_name = questions_file.filename or "questions_upload"
+    a_name = answers_file.filename or "answers_upload"
+
+    try:
+        _progress(job_id, f"Starting one-job solution build for {exam_id}.")
+        _progress(job_id, f"Step 1/2: processing questions file: {q_name}")
+
+        questions_meta = await upload_to_bank(
+            exam_id=exam_id,
+            content_type="questions_only",
+            tex_file=questions_file,
+            job_id=None,
+            ocr_provider=ocr_provider,
+            ocr_model=ocr_model,
+            document_type=questions_document_type,
+            _session=_session,
+        )
+
+        _progress(job_id, "Questions structure saved. Step 2/2: processing answers file.")
+
+        answers_meta = await upload_to_bank(
+            exam_id=exam_id,
+            content_type="answers_only",
+            tex_file=answers_file,
+            job_id=None,
+            ocr_provider=ocr_provider,
+            ocr_model=ocr_model,
+            document_type=answers_document_type,
+            _session=_session,
+        )
+
+        uploads = uploads_dir(exam_id)
+        full_path = uploads / "full_solution_bundle.json"
+        status = str(answers_meta.get("validation_status") or questions_meta.get("validation_status") or "ok")
+
+        if full_path.exists():
+            _progress(job_id, "Generated full_solution_bundle.json from questions + answers ✅")
+        else:
+            status = "warning"
+            _progress(job_id, "Questions and answers were uploaded, but full_solution_bundle.json was not generated.")
+
+        if job_id:
+            done(job_id)
+
+        return {
+            "ok": True,
+            "exam_id": exam_id,
+            "content_type": "questions_answers_separate",
+            "questions_meta": questions_meta,
+            "answers_meta": answers_meta,
+            "full_solution_available": full_path.exists(),
+            "validation_status": status,
+        }
+
+    except Exception as e:
+        if job_id:
+            fail(job_id, f"Separate Q/A upload failed: {e}")
+        raise
+
 
 @router.get("/list")
 def list_exam_files(
@@ -1237,6 +1599,11 @@ def list_exam_files(
             "q_count": meta.get("q_count"),
             "part_count": meta.get("part_count"),
             "source_kind": meta.get("source_kind"),
+            "document_type": meta.get("document_type"),
+            "detected_document_type": meta.get("detected_document_type"),
+            "ocr_path": meta.get("ocr_path"),
+            "ocr_route_reason": meta.get("ocr_route_reason"),
+            "pdf_text_layer_used": meta.get("pdf_text_layer_used", False),
             "ocr_used": meta.get("ocr_used", False),
             "ocr_provider": meta.get("ocr_provider"),
             "ocr_model": meta.get("ocr_model"),
@@ -1247,6 +1614,17 @@ def list_exam_files(
             "full_solution_available": meta.get("full_solution_available"),
             "reference_tex_available": meta.get("reference_tex_available"),
             "gradeable_status": meta.get("gradeable_status"),
+            "validation_status": meta.get("validation_status"),
+            "validation_bundle_kind": meta.get("validation_bundle_kind"),
+            "validation_warnings": meta.get("validation_warnings", []),
+            "duplicate_key_count": meta.get("duplicate_key_count", 0),
+            "empty_question_text_count": meta.get("empty_question_text_count", 0),
+            "empty_solution_count": meta.get("empty_solution_count", 0),
+            "review_item_count": meta.get("review_item_count", 0),
+            "bundle_warning_count": meta.get("bundle_warning_count", 0),
+            "structure_correction_count": meta.get("structure_correction_count", 0),
+            "empty_solution_keys": meta.get("empty_solution_keys", []),
+            "review_item_keys": meta.get("review_item_keys", []),
             "practice_question_count": meta.get("practice_question_count"),
             "practice_part_count": meta.get("practice_part_count"),
         })
@@ -1348,6 +1726,11 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "filename": filename,
             "content_type": meta.get("content_type"),
             "source_kind": meta.get("source_kind"),
+            "document_type": meta.get("document_type"),
+            "detected_document_type": meta.get("detected_document_type"),
+            "ocr_path": meta.get("ocr_path"),
+            "ocr_route_reason": meta.get("ocr_route_reason"),
+            "pdf_text_layer_used": meta.get("pdf_text_layer_used", False),
             "ocr_provider": meta.get("ocr_provider"),
             "ocr_model": meta.get("ocr_model"),
             "ocr_response_path": meta.get("ocr_response_path"),
@@ -1363,6 +1746,17 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
             "full_solution_available": meta.get("full_solution_available"),
             "reference_tex_available": meta.get("reference_tex_available"),
             "gradeable_status": meta.get("gradeable_status"),
+            "validation_status": meta.get("validation_status"),
+            "validation_bundle_kind": meta.get("validation_bundle_kind"),
+            "validation_warnings": meta.get("validation_warnings", []),
+            "duplicate_key_count": meta.get("duplicate_key_count", 0),
+            "empty_question_text_count": meta.get("empty_question_text_count", 0),
+            "empty_solution_count": meta.get("empty_solution_count", 0),
+            "review_item_count": meta.get("review_item_count", 0),
+            "bundle_warning_count": meta.get("bundle_warning_count", 0),
+            "structure_correction_count": meta.get("structure_correction_count", 0),
+            "empty_solution_keys": meta.get("empty_solution_keys", []),
+            "review_item_keys": meta.get("review_item_keys", []),
             "practice_question_count": meta.get("practice_question_count"),
             "practice_part_count": meta.get("practice_part_count"),
             "bundle_json_path": meta.get("bundle_json_path"),
