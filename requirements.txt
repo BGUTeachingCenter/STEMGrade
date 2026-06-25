@@ -2,7 +2,7 @@ starlette
 pydantic
 openpyxl
 python-dotenv
-pypdf
+pymupdf
 openai
 # MathGrade dependencies
 fastapi>=0.110
