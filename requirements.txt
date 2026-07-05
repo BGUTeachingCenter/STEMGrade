@@ -4,7 +4,6 @@ openpyxl
 python-dotenv
 pymupdf
 openai
-# MathGrade dependencies
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9

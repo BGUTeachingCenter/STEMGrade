@@ -8,6 +8,66 @@ http://localhost:5173/
 
 ---
 
+## Run locally
+
+### 1 Create and activate a virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS/Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2 Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Current dependencies:
+
+```txt
+starlette
+pydantic
+openpyxl
+python-dotenv
+pymupdf
+openai
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+requests>=2.31
+reportlab>=4.0
+Jinja2>=3.1
+```
+
+Notes:
+
+- `pymupdf` provides the `fitz` import used for PDF extraction.
+- Avoid installing the unrelated `fitz` package.
+
+### 3 Start the app
+
+The current entrypoint is `app.py`, so run:
+
+```bash
+uvicorn app:app --reload
+```
+
+Then open:
+
+```txt
+http://127.0.0.1:8000
+```
+
 ## What the system is trying to do
 
 Instead of asking the model to “read” math from a rendered PDF (which often destroys structure), the system grades from **structured source content**:
