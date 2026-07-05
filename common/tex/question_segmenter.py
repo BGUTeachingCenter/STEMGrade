@@ -135,12 +135,10 @@ def _choose_question_detector(text: str) -> list[re.Match[str]]:
 # Part-header detection
 # ---------------------------------------------------------------------
 
+# Inline (non-LaTeX) part detectors, used only when a block has no
+# \subsection*{...} headers. LaTeX subsections are parsed separately with
+# balanced braces so nested math braces do not truncate the title.
 _PART_DETECTORS: list[re.Pattern[str]] = [
-    # \subsection*{(א) ...} / \subsection*{(a) ...} / \subsection*{א}
-    re.compile(
-        r"(?m)^[ \t]*\\(?:sub)*section\*?\s*\{\s*\(?\s*"
-        r"(?P<label>[א-יa-zA-Z])\s*\)?[^}]*\}",
-    ),
     # Line-leading parenthesised label: (א) / (a)
     re.compile(r"(?m)^[ \t]*\(\s*(?P<label>[א-יa-z])\s*\)"),
     # Line-leading label with delimiter: א) / א. / a) / a.
@@ -148,6 +146,45 @@ _PART_DETECTORS: list[re.Pattern[str]] = [
     # "סעיף א" / "part a"
     re.compile(r"(?m)^[ \t]*(?:סעיף|part)\s*(?P<label>[א-יa-z])\b", re.IGNORECASE),
 ]
+
+
+def _iter_braced_commands(text: str, commands: tuple[str, ...]) -> list[tuple[int, int, str]]:
+    """Find LaTeX ``\\cmd*{...}`` headers with **balanced** braces.
+
+    Returns a list of ``(header_start, header_end, title)`` where ``title`` is the
+    full brace content (which may itself contain ``{...}`` groups, e.g. math like
+    ``\\frac{a}{b}``) and ``header_end`` is the index just past the closing brace.
+    """
+    cmd_alt = "|".join(commands)
+    opener = re.compile(r"\\(?:" + cmd_alt + r")\*?\s*\{")
+    results: list[tuple[int, int, str]] = []
+
+    for m in opener.finditer(text):
+        i = m.end()  # first char inside the opening brace
+        depth = 1
+        while i < len(text) and depth > 0:
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        title = text[m.end():i]
+        header_end = i + 1  # past the closing brace
+        results.append((m.start(), header_end, title))
+
+    return results
+
+
+def _split_label_and_prompt(title: str) -> tuple[str, str]:
+    """Split a subsection title like ``(א) |x-2|\\le 5`` into (label, prompt)."""
+    t = title.strip()
+    m = re.match(r"^\(?\s*(?P<label>[א-יa-zA-Z])\s*\)?\s*[.:)]?\s*(?P<rest>.*)$", t, re.DOTALL)
+    if m:
+        return m.group("label"), m.group("rest").strip()
+    return "", t
 
 
 def _label_ordinal(label: str) -> int | None:
@@ -193,19 +230,59 @@ def _choose_part_detector(block: str) -> list[re.Match[str]]:
 # Content slicing
 # ---------------------------------------------------------------------
 
-def _split_solution(body: str) -> tuple[str, str]:
-    """Split a part/question body into (prompt_text, solution_text).
+_PARA_SOLUTION_RE = re.compile(
+    r"\\paragraph\*?\s*\{[^}]*(?:official\s+solution|solution|פתרון|הוכחה)[^}]*\}",
+    re.IGNORECASE,
+)
+_PARA_ANSWER_RE = re.compile(
+    r"\\paragraph\*?\s*\{[^}]*(?:expected\s+answer|answer|תשובה)[^}]*\}",
+    re.IGNORECASE,
+)
+_PARA_REQUIRED_RE = re.compile(
+    r"\\paragraph\*?\s*\{[^}]*(?:required\s+action|נדרש|הנדרש)[^}]*\}",
+    re.IGNORECASE,
+)
 
-    Uses the first solution marker (\\solution, פתרון, ...) as the boundary.
-    If no marker is present, the whole body is treated as solution content and
-    the prompt is left empty (the caller may still have a stem).
+
+def _split_part_body(body: str) -> tuple[str, str, str]:
+    """Split a part body into (prompt_text, solution_text, expected_answer).
+
+    Handles two common layouts:
+
+      1. Generated files using ``\\paragraph{Official solution}`` /
+         ``\\paragraph{Expected answer}`` sections.
+      2. Teacher files using a ``\\solution`` / ``פתרון`` / ``הוכחה`` marker.
+
+    When neither is present the whole body is treated as solution content.
     """
+    para_sol = _PARA_SOLUTION_RE.search(body)
+    para_ans = _PARA_ANSWER_RE.search(body)
+    para_req = _PARA_REQUIRED_RE.search(body)
+
+    if para_sol or para_ans:
+        boundaries = [m.start() for m in (para_sol, para_ans, para_req) if m]
+        prompt = body[: min(boundaries)].strip() if boundaries else ""
+
+        solution = ""
+        if para_sol:
+            sol_end = len(body)
+            for m in (para_ans, para_req):
+                if m and m.start() > para_sol.start():
+                    sol_end = min(sol_end, m.start())
+            solution = body[para_sol.end():sol_end].strip()
+
+        expected = ""
+        if para_ans:
+            expected = body[para_ans.end():].strip()
+            # Expected answer is short: keep up to the next paragraph/blank block.
+            expected = re.split(r"\n\s*\n|\\paragraph", expected)[0].strip()
+
+        return prompt, solution, expected
+
     m = _SOLUTION_MARKER_RE.search(body)
     if not m:
-        return "", body.strip()
-    prompt = body[: m.start()].strip()
-    solution = body[m.end():].strip()
-    return prompt, solution
+        return "", body.strip(), ""
+    return body[: m.start()].strip(), body[m.end():].strip(), ""
 
 
 def _extract_expected_answer(text: str) -> str:
@@ -236,8 +313,11 @@ def _extract_expected_answer(text: str) -> str:
 
 
 def _clean_fragment(text: str) -> str:
-    """Trim common LaTeX section/subsection headers left at the edges."""
-    text = re.sub(r"^\s*\\(?:sub)*section\*?\s*\{[^}]*\}", "", text, count=1)
+    """Trim a leading LaTeX section/subsection header (balanced braces)."""
+    text = text.lstrip()
+    headers = _iter_braced_commands(text, ("section", "subsection", "subsubsection"))
+    if headers and headers[0][0] == 0:
+        text = text[headers[0][1]:]
     return text.strip()
 
 
@@ -254,6 +334,11 @@ def segment_document(text: str) -> list[SegQuestion]:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     if not text.strip():
         return []
+
+    # Drop anything past \end{document} so it can't leak into the last part.
+    end_doc = text.find(r"\end{document}")
+    if end_doc != -1:
+        text = text[:end_doc]
 
     q_matches = _choose_question_detector(text)
     if not q_matches:
@@ -300,59 +385,71 @@ def segment_document(text: str) -> list[SegQuestion]:
     return questions
 
 
+def _make_part(*, label: str, index: int, stem: str, title_prompt: str, body: str) -> SegPart:
+    prompt, solution, expected = _split_part_body(body)
+    if not expected:
+        expected = _extract_expected_answer(body)
+
+    # Compose the part's question text: shared stem + part-title prompt +
+    # any prompt text that preceded the solution in the body.
+    question_text = "\n\n".join(
+        t for t in (stem, title_prompt, prompt) if t
+    ).strip()
+
+    part_key = normalize_part(label)
+    if not part_key and index < len(_LAT_LETTERS):
+        part_key = _LAT_LETTERS[index]
+
+    return SegPart(
+        label=label,
+        part_key=part_key,
+        question_text=question_text,
+        official_solution=solution,
+        expected_answer=expected,
+    )
+
+
 def _segment_parts(block: str) -> list[SegPart]:
     """Segment one question block into parts, guaranteeing at least one part."""
-    p_matches = _choose_part_detector(block)
-
-    # Text before the first part header is the shared stem.
-    if p_matches:
-        stem = _clean_fragment(block[: p_matches[0].start()])
-    else:
-        stem = _clean_fragment(block)
-
-    parts: list[SegPart] = []
-
-    if not p_matches:
-        # Single implicit part carrying the whole question body.
-        prompt, solution = _split_solution(stem)
-        question_text = prompt or stem
-        parts.append(
-            SegPart(
-                label="",
-                part_key="a",
-                question_text=question_text.strip(),
-                official_solution=solution,
-                expected_answer=_extract_expected_answer(block),
+    # 1. LaTeX subsections, parsed with balanced braces so nested math braces in
+    #    the title (\\frac{a}{b}, \\binom{n}{k}, ...) do not truncate it.
+    sub_headers = _iter_braced_commands(block, ("subsection", "subsubsection"))
+    if sub_headers:
+        stem = _clean_fragment(block[: sub_headers[0][0]])
+        parts: list[SegPart] = []
+        for j, (h_start, h_end, title) in enumerate(sub_headers):
+            body_end = sub_headers[j + 1][0] if j + 1 < len(sub_headers) else len(block)
+            body = block[h_end:body_end].strip()
+            label, title_prompt = _split_label_and_prompt(title)
+            parts.append(
+                _make_part(label=label, index=j, stem=stem, title_prompt=title_prompt, body=body)
             )
-        )
         return parts
 
-    for j, pm in enumerate(p_matches):
-        p_start = pm.end()
-        p_end = p_matches[j + 1].start() if j + 1 < len(p_matches) else len(block)
-        body = block[p_start:p_end].strip()
-
-        label = pm.group("label")
-        prompt, solution = _split_solution(body)
-
-        # Compose the part's question text: shared stem + this part's prompt.
-        question_text_parts = [t for t in (stem, prompt) if t]
-        question_text = "\n\n".join(question_text_parts).strip()
-
-        # Canonical key from the label; fall back to positional a,b,c if the
-        # label doesn't normalize to a clean letter.
-        part_key = normalize_part(label)
-        if not part_key and j < len(_LAT_LETTERS):
-            part_key = _LAT_LETTERS[j]
-
-        parts.append(
-            SegPart(
-                label=label,
-                part_key=part_key,
-                question_text=question_text,
-                official_solution=solution,
-                expected_answer=_extract_expected_answer(body),
+    # 2. Inline (non-LaTeX) part labels.
+    p_matches = _choose_part_detector(block)
+    if p_matches:
+        stem = _clean_fragment(block[: p_matches[0].start()])
+        parts = []
+        for j, pm in enumerate(p_matches):
+            p_end = p_matches[j + 1].start() if j + 1 < len(p_matches) else len(block)
+            body = block[pm.end():p_end].strip()
+            parts.append(
+                _make_part(label=pm.group("label"), index=j, stem=stem, title_prompt="", body=body)
             )
-        )
+        return parts
 
-    return parts
+    # 3. Single implicit part carrying the whole question body.
+    stem = _clean_fragment(block)
+    prompt, solution, expected = _split_part_body(stem)
+    if not expected:
+        expected = _extract_expected_answer(block)
+    return [
+        SegPart(
+            label="",
+            part_key="a",
+            question_text=(prompt or stem).strip(),
+            official_solution=solution,
+            expected_answer=expected,
+        )
+    ]
