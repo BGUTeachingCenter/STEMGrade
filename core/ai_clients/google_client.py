@@ -31,11 +31,47 @@ def _safe_json_loads(s: str) -> dict:
     return json.loads(candidate)
 
 
+def _resolve_refs(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Inline all local ``$ref`` pointers so Gemini never sees ``$ref``/``$defs``.
+
+    Pydantic v2 ``model_json_schema()`` emits nested models as ``$ref`` pointers
+    into a ``$defs`` (or ``definitions``) section. Gemini's responseSchema does
+    not support either, so we replace every ``#/$defs/Name`` reference with a
+    copy of the referenced definition (recursively). Self-referential models are
+    guarded against by tracking the refs currently being expanded.
+    """
+    defs: Dict[str, Any] = {}
+    if isinstance(schema, dict):
+        defs = {**(schema.get("definitions") or {}), **(schema.get("$defs") or {})}
+
+    def resolve(node: Any, seen: frozenset[str]) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str):
+                name = ref.split("/")[-1]
+                if name in defs and name not in seen:
+                    resolved = resolve(defs[name], seen | {name})
+                    # Merge any sibling keys of $ref (e.g. description) onto the
+                    # resolved definition, without letting $ref itself survive.
+                    extra = {k: resolve(v, seen) for k, v in node.items() if k != "$ref"}
+                    if isinstance(resolved, dict):
+                        return {**resolved, **extra}
+                    return resolved
+                # Unknown/circular ref: drop it, leaving a permissive object.
+                return {"type": "object"}
+            return {k: resolve(v, seen) for k, v in node.items()}
+        if isinstance(node, list):
+            return [resolve(i, seen) for i in node]
+        return node
+
+    return resolve(schema, frozenset())
+
+
 def _sanitize_schema_for_gemini(schema: Dict[str, Any]) -> Dict[str, Any]:
     # Gemini responseSchema is a restricted subset. Remove keys it rejects.
     DROP_KEYS = {
         "additionalProperties",
-        "$schema", "$id", "definitions", "$defs",
+        "$schema", "$id", "$ref", "definitions", "$defs",
         "patternProperties", "propertyNames",
         "dependencies", "dependentSchemas", "dependentRequired",
         "allOf", "anyOf", "oneOf", "not", "if", "then", "else",
@@ -43,14 +79,37 @@ def _sanitize_schema_for_gemini(schema: Dict[str, Any]) -> Dict[str, Any]:
         "readOnly", "writeOnly", "nullable",
     }
 
+    def _collapse_union(members: Any) -> Dict[str, Any] | None:
+        # Pydantic renders `X | None` as anyOf/oneOf with a {"type": "null"}
+        # branch. Gemini has no such union, so collapse to the first concrete
+        # (non-null) branch instead of dropping the whole property.
+        if not isinstance(members, list):
+            return None
+        for member in members:
+            if isinstance(member, dict) and member.get("type") != "null":
+                return member
+        return None
+
+    # Inline $ref/$defs before stripping so we don't leave dangling references.
+    resolved = _resolve_refs(schema or {})
+
     def rec(x: Any) -> Any:
         if isinstance(x, dict):
+            union = _collapse_union(x.get("anyOf") or x.get("oneOf"))
+            if union is not None:
+                # Merge sibling keys (title, description, ...) onto the chosen
+                # branch, then recurse so it gets cleaned like any other node.
+                siblings = {
+                    k: v for k, v in x.items()
+                    if k not in {"anyOf", "oneOf"} and k not in DROP_KEYS
+                }
+                return rec({**siblings, **union})
             return {k: rec(v) for k, v in x.items() if k not in DROP_KEYS}
         if isinstance(x, list):
             return [rec(i) for i in x]
         return x
 
-    cleaned = rec(schema or {})
+    cleaned = rec(resolved)
     if isinstance(cleaned, dict) and "type" not in cleaned:
         cleaned["type"] = "object"
     return cleaned
