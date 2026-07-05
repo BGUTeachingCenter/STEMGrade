@@ -41,6 +41,7 @@ from services.solution_bank.full_solution_service import (
 from services.solution_bank.questions_answers_ocr import build_questions_answers_ocr_result
 from services.solution_bank.questions_ocr import build_questions_ocr_result
 from services.ocr_routing import decide_bank_ocr_path
+from services.teacher_profiles import get_teacher, normalize_subject
 from common.exam_summary import read_json_file
 
 from routes.progress import init_job, push, done, fail
@@ -243,6 +244,34 @@ def _write_json(path: Path, data: dict) -> None:
     )
 
 
+def _teacher_defaults_from_session(session: dict | None) -> tuple[str, str]:
+    teacher_id = (session or {}).get("teacher_id") or ((session or {}).get("sub") if (session or {}).get("role") == "teacher" else "")
+    profile = get_teacher(teacher_id) if teacher_id else None
+    if not profile:
+        return "math", ""
+    return normalize_subject(profile.get("subject")), str(profile.get("grading_prompt_extra") or "")
+
+
+def _solution_metadata_from_request(
+    *,
+    session: dict | None,
+    subject: str | None,
+    grading_prompt_extra: str | None,
+) -> tuple[str, str]:
+    default_subject, default_prompt = _teacher_defaults_from_session(session)
+    final_subject = normalize_subject(subject or default_subject)
+    final_prompt = (grading_prompt_extra or "").strip() or default_prompt
+    return final_subject, final_prompt
+
+
+def _apply_solution_metadata(bundle: dict | None, *, subject: str, grading_prompt_extra: str) -> dict | None:
+    if not isinstance(bundle, dict):
+        return bundle
+    bundle["subject"] = normalize_subject(subject)
+    bundle["grading_prompt_extra"] = (grading_prompt_extra or "").strip()
+    return bundle
+
+
 def _gradeable_status_from_bundle(bundle: dict | FullSolutionBundle | None) -> str:
     """
     Coarse quality status for teacher/UI.
@@ -413,6 +442,8 @@ def _build_and_save_full_solution_if_possible(
     answer_fallback_model: str = "",
     answer_fallback_raw_text: str = "",
     trace=None,
+    subject: str = "math",
+    grading_prompt_extra: str = "",
 ) -> tuple[dict | None, str, dict | None]:
     """
     Try to build final full solution from existing questions_only + answers_only.
@@ -445,6 +476,7 @@ def _build_and_save_full_solution_if_possible(
     )
 
     full_dict = full_result.full_solution_bundle.model_dump()
+    _apply_solution_metadata(full_dict, subject=subject, grading_prompt_extra=grading_prompt_extra)
     canonical_tex = full_result.canonical_tex
     structure = full_solution_to_exam_structure(full_result.full_solution_bundle)
 
@@ -832,6 +864,8 @@ async def upload_to_bank(
     ocr_provider: str = Form("mathpix"),
     ocr_model: str = Form(""),
     document_type: str = Form("printed"),
+    subject: str = Form(""),
+    grading_prompt_extra: str = Form(""),
     _session: dict = Depends(require_teacher),
 ):
     """Upload a teacher file into the solution bank.
@@ -844,6 +878,11 @@ async def upload_to_bank(
     exam_id = require_safe_exam_id(exam_id)
     content_type = _canonical_content_type(content_type)
     document_type = _canonical_bank_document_type(document_type)
+    subject, grading_prompt_extra = _solution_metadata_from_request(
+        session=_session,
+        subject=subject,
+        grading_prompt_extra=grading_prompt_extra,
+    )
 
     if content_type not in {"questions_only", "answers_only", "questions_answers"}:
         raise HTTPException(
@@ -858,6 +897,7 @@ async def upload_to_bank(
         provider=ocr_provider,
         model=ocr_model or None,
         document_type=document_type,
+        subject=subject,
         source_name=tex_file.filename,
         job_id=job_id,
     )
@@ -870,7 +910,7 @@ async def upload_to_bank(
         bank_source=tex_file.filename,
         debug_run_id=trace.run_id,
     )
-    trace.log("bank_upload", "started", exam_id=exam_id, content_type=content_type, document_type=document_type, source_name=tex_file.filename)
+    trace.log("bank_upload", "started", exam_id=exam_id, content_type=content_type, document_type=document_type, subject=subject, source_name=tex_file.filename)
 
     if job_id:
         init_job(job_id)
@@ -953,6 +993,7 @@ async def upload_to_bank(
             )
 
             questions_bundle = questions_result.questions_bundle.model_dump()
+            _apply_solution_metadata(questions_bundle, subject=subject, grading_prompt_extra=grading_prompt_extra)
 
             bundle_path = uploads / "questions_only_bundle.json"
             _write_json(bundle_path, questions_bundle)
@@ -985,6 +1026,8 @@ async def upload_to_bank(
                 answer_fallback_model=ocr_model or str(extra_meta.get("ocr_model") or ""),
                 answer_fallback_raw_text=extra_meta.get("ocr_text") or "",
                 trace=trace,
+                subject=subject,
+                grading_prompt_extra=grading_prompt_extra,
             )
 
             if full_solution_bundle and full_tex:
@@ -1029,6 +1072,7 @@ async def upload_to_bank(
             )
 
             answers_bundle = answers_result.answers_bundle.model_dump()
+            _apply_solution_metadata(answers_bundle, subject=subject, grading_prompt_extra=grading_prompt_extra)
 
             answers_bundle_path = uploads / "answers_only_bundle.json"
             _write_json(answers_bundle_path, answers_bundle)
@@ -1053,6 +1097,8 @@ async def upload_to_bank(
                 answer_fallback_model=ocr_model or str(extra_meta.get("ocr_model") or ""),
                 answer_fallback_raw_text=extra_meta.get("ocr_text") or "",
                 trace=trace,
+                subject=subject,
+                grading_prompt_extra=grading_prompt_extra,
             )
 
             if full_solution_bundle and full_tex:
@@ -1100,6 +1146,7 @@ async def upload_to_bank(
                 )
 
                 answers_bundle = answers_result.answers_bundle.model_dump()
+                _apply_solution_metadata(answers_bundle, subject=subject, grading_prompt_extra=grading_prompt_extra)
                 _write_json(uploads / "answers_only_bundle.json", answers_bundle)
                 report = validate_bundle_snapshot(answers_bundle, bundle_kind="answers_only")
                 trace.save_json("locked_questions_answers_only_bundle.json", answers_bundle, stage="questions_answers")
@@ -1117,6 +1164,8 @@ async def upload_to_bank(
                     answer_fallback_model=ocr_model or str(extra_meta.get("ocr_model") or ""),
                     answer_fallback_raw_text=extra_meta.get("ocr_text") or "",
                     trace=trace,
+                    subject=subject,
+                    grading_prompt_extra=grading_prompt_extra,
                 )
 
                 if not full_solution_bundle or not full_tex:
@@ -1168,6 +1217,7 @@ async def upload_to_bank(
                 )
 
                 qa_bundle = qa_result.questions_answers_bundle.model_dump()
+                _apply_solution_metadata(qa_bundle, subject=subject, grading_prompt_extra=grading_prompt_extra)
 
                 _write_json(uploads / "questions_answers_bundle.json", qa_bundle)
                 report = validate_bundle_snapshot(qa_bundle, bundle_kind="questions_answers")
@@ -1179,6 +1229,7 @@ async def upload_to_bank(
                     raise RuntimeError("questions_answers upload did not produce a full_solution_bundle")
 
                 full_solution_bundle = qa_result.full_solution_bundle.model_dump()
+                _apply_solution_metadata(full_solution_bundle, subject=subject, grading_prompt_extra=grading_prompt_extra)
 
                 _write_json(uploads / "full_solution_bundle.json", full_solution_bundle)
 
@@ -1396,6 +1447,8 @@ async def upload_to_bank(
         "filename": filename,
         "original_filename": extra_meta.get("original_filename") or tex_file.filename,
         "content_type": content_type,
+        "subject": subject,
+        "grading_prompt_extra": grading_prompt_extra,
         "document_type": extra_meta.get("document_type") or document_type,
         "detected_document_type": extra_meta.get("detected_document_type"),
         "ocr_path": extra_meta.get("ocr_path"),
@@ -1508,6 +1561,8 @@ async def upload_questions_and_answers_pair_to_bank(
     ocr_model: str = Form(""),
     questions_document_type: str = Form("printed"),
     answers_document_type: str = Form("printed"),
+    subject: str = Form(""),
+    grading_prompt_extra: str = Form(""),
     _session: dict = Depends(require_teacher),
 ):
     """Upload separate questions and answers files as one teacher-facing job.
@@ -1523,6 +1578,11 @@ async def upload_questions_and_answers_pair_to_bank(
     exam_id = require_safe_exam_id(exam_id)
     questions_document_type = _canonical_bank_document_type(questions_document_type)
     answers_document_type = _canonical_bank_document_type(answers_document_type)
+    subject, grading_prompt_extra = _solution_metadata_from_request(
+        session=_session,
+        subject=subject,
+        grading_prompt_extra=grading_prompt_extra,
+    )
 
     if job_id:
         init_job(job_id)
@@ -1542,6 +1602,8 @@ async def upload_questions_and_answers_pair_to_bank(
             ocr_provider=ocr_provider,
             ocr_model=ocr_model,
             document_type=questions_document_type,
+            subject=subject,
+            grading_prompt_extra=grading_prompt_extra,
             _session=_session,
         )
 
@@ -1555,6 +1617,8 @@ async def upload_questions_and_answers_pair_to_bank(
             ocr_provider=ocr_provider,
             ocr_model=ocr_model,
             document_type=answers_document_type,
+            subject=subject,
+            grading_prompt_extra=grading_prompt_extra,
             _session=_session,
         )
 
@@ -1608,6 +1672,8 @@ def list_exam_files(
         items.append({
             "filename": tex_path.name,
             "content_type": meta.get("content_type"),
+            "subject": meta.get("subject"),
+            "grading_prompt_extra": meta.get("grading_prompt_extra", ""),
             "created_at": meta.get("created_at"),
             "q_count": meta.get("q_count"),
             "part_count": meta.get("part_count"),
@@ -1738,6 +1804,8 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
         return {
             "filename": filename,
             "content_type": meta.get("content_type"),
+            "subject": meta.get("subject"),
+            "grading_prompt_extra": meta.get("grading_prompt_extra", ""),
             "source_kind": meta.get("source_kind"),
             "document_type": meta.get("document_type"),
             "detected_document_type": meta.get("detected_document_type"),

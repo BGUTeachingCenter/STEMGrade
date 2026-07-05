@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Student Login · MathGrade{% endblock %}
-{% block header_title %}MathGrade{% endblock %}
+{% block title %}Student Login · {{ app_name }}{% endblock %}
+{% block header_title %}{{ app_name }}{% endblock %}
 {% block header_subtitle %}Student submission and feedback portal{% endblock %}
 {% block header_actions %}
   <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
@@ -48,7 +48,7 @@
       </div>
 
       <div class="mg-agent-login-copy">
-        <div class="badge">MathGrade</div>
+        <div class="badge">{{ app_name }}</div>
         <h1>Student Login</h1>
         <p class="lead">
           Use your personal student code to open the feedback and submission page.

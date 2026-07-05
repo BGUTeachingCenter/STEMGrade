@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}Teacher Login · MathGrade{% endblock %}
+{% block title %}Teacher Login · {{ app_name }}{% endblock %}
 {% block header_title %}Teacher Portal{% endblock %}
-{% block header_subtitle %}Sign in to manage the solution bank and usage dashboard{% endblock %}
+{% block header_subtitle %}Sign in to manage your {{ reference_bank_label }} and grading settings{% endblock %}
 {% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-register">Create profile</a>
+  <a class="secondary-btn small" href="/admin-login">Admin</a>
   <a class="secondary-btn small" href="/">Back to grader</a>
 {% endblock %}
 
@@ -15,24 +17,20 @@
         <div class="mg-agent-orb mg-agent-orb-two"></div>
 
         <div class="mg-agent-phone">
-          <div class="mg-agent-phone-top">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
+          <div class="mg-agent-phone-top"><span></span><span></span><span></span></div>
 
           <div class="mg-agent-message-row bot">
-            <div class="mg-agent-avatar">∑</div>
+            <div class="mg-agent-avatar">{{ app_logo_mark }}</div>
             <div class="mg-agent-message">
-              <strong>Teacher portal</strong>
-              <span>Enter your admin code.</span>
+              <strong>Teacher profile</strong>
+              <span>Sign in with email/ID and password.</span>
             </div>
           </div>
 
           <div class="mg-agent-message-row user">
             <div class="mg-agent-message">
               <strong>Manage grading</strong>
-              <span>Review submissions, exams, and system usage.</span>
+              <span>Subject prompts, references, and comments.</span>
             </div>
             <div class="mg-agent-avatar">🧑‍🏫</div>
           </div>
@@ -48,25 +46,23 @@
       </div>
 
       <div class="mg-agent-login-copy">
-        <div class="badge">MathGrade</div>
+        <div class="badge">{{ app_name }}</div>
         <h1>Teacher Login</h1>
         <p class="lead">
-          Use the admin code to open the Teacher Portal and manage MathGrade.
+          Use your teacher email or teacher ID and password. New teachers should create a profile with an admin voucher first.
         </p>
 
         <div id="teacherLoginNotice" class="alert error" style="display:none;"></div>
 
         <form id="teacherLoginForm" class="bot-form mg-agent-login-form" autocomplete="off">
           <label>
-            <span>Admin code</span>
-            <input
-              id="teacherCodeInput"
-              type="password"
-              name="admin_code"
-              placeholder="Enter admin code…"
-              required
-              autocomplete="off"
-            />
+            <span>Email or teacher ID</span>
+            <input id="teacherIdentifierInput" type="text" placeholder="teacher@example.edu" required dir="auto" autocomplete="username" />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input id="teacherPasswordInput" type="password" placeholder="Enter password…" required autocomplete="current-password" />
           </label>
 
           <button id="teacherLoginBtn" type="submit" class="primary-btn mg-agent-login-submit">
@@ -76,103 +72,85 @@
         </form>
 
         <div class="mg-agent-login-footer">
-          <span>Student?</span>
-          <a href="/student-login" class="secondary-btn small">Open Student Login</a>
+          <a href="/teacher-register" class="secondary-btn small">Create profile with voucher</a>
+          <a href="/student-login" class="secondary-btn small">Student Login</a>
         </div>
+
+        <details class="mg-legacy-login-box">
+          <summary>Use legacy single-code teacher login</summary>
+          <p class="small">This is only for old local deployments that still use TEACHER_PASSWORD.</p>
+          <form id="legacyTeacherLoginForm" class="bot-form mg-agent-login-form" autocomplete="off">
+            <label>
+              <span>Legacy teacher code</span>
+              <input id="legacyTeacherCodeInput" type="password" autocomplete="off" />
+            </label>
+            <button id="legacyTeacherLoginBtn" type="submit" class="secondary-btn">Open with legacy code</button>
+          </form>
+        </details>
       </div>
     </section>
   </main>
 {% endblock %}
 
 {% block scripts %}
-  <script>
-    const teacherLoginForm = document.getElementById("teacherLoginForm");
-    const teacherCodeInput = document.getElementById("teacherCodeInput");
-    const teacherLoginBtn = document.getElementById("teacherLoginBtn");
-    const teacherNotice = document.getElementById("teacherLoginNotice");
+<script>
+const teacherLoginForm = document.getElementById("teacherLoginForm");
+const teacherIdentifierInput = document.getElementById("teacherIdentifierInput");
+const teacherPasswordInput = document.getElementById("teacherPasswordInput");
+const teacherLoginBtn = document.getElementById("teacherLoginBtn");
+const teacherNotice = document.getElementById("teacherLoginNotice");
+const legacyForm = document.getElementById("legacyTeacherLoginForm");
+const legacyCodeInput = document.getElementById("legacyTeacherCodeInput");
 
-    function showTeacherNotice(message) {
-      if (!teacherNotice) return;
-      teacherNotice.textContent = message || "Login failed.";
-      teacherNotice.style.display = "block";
-    }
-
-    function hideTeacherNotice() {
-      if (!teacherNotice) return;
-      teacherNotice.textContent = "";
-      teacherNotice.style.display = "none";
-    }
-
-    async function checkExistingTeacherSession() {
-      try {
-        const res = await fetch("/routes/me", {
-          credentials: "same-origin",
-          cache: "no-store"
-        });
-
-        const data = await res.json();
-
-        if (data && data.ok && data.role === "teacher") {
-          window.location.replace("/teacher");
-        }
-      } catch (_) {}
-    }
-
-    async function doTeacherLogin(event) {
-      event.preventDefault();
-      hideTeacherNotice();
-
-      const code = (teacherCodeInput.value || "").trim();
-
-      if (!code) {
-        showTeacherNotice("Please enter the admin code.");
-        return;
-      }
-
-      teacherLoginBtn.disabled = true;
-      teacherLoginBtn.innerHTML = "Checking code…";
-
-      try {
-        const res = await fetch("/routes/login", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ code })
-        });
-
-        let data = null;
-        try {
-          data = await res.json();
-        } catch (_) {}
-
-        if (!res.ok || !data || !data.ok) {
-          const detail = data && data.detail ? data.detail : "Invalid admin code.";
-          showTeacherNotice("Login failed: " + detail);
-          return;
-        }
-
-        teacherCodeInput.value = "";
-
-        if (data.role === "teacher") {
-          window.location.href = "/teacher";
-          return;
-        }
-
-        if (data.role === "student") {
-          showTeacherNotice("This is a student code. Please use the Student Login page.");
-          return;
-        }
-
-        showTeacherNotice("This login is not a teacher account.");
-      } catch (err) {
-        showTeacherNotice("Login error: " + (err && err.message ? err.message : String(err)));
-      } finally {
-        teacherLoginBtn.disabled = false;
-        teacherLoginBtn.innerHTML = '<span>Open Teacher Portal</span><span class="mg-btn-arrow">→</span>';
-      }
-    }
-
-    teacherLoginForm.addEventListener("submit", doTeacherLogin);
-    checkExistingTeacherSession();
-  </script>
+function showTeacherNotice(message) {
+  teacherNotice.textContent = message || "Login failed.";
+  teacherNotice.style.display = "block";
+}
+function hideTeacherNotice() {
+  teacherNotice.textContent = "";
+  teacherNotice.style.display = "none";
+}
+async function checkExistingTeacherSession() {
+  try {
+    const res = await fetch("/routes/me", { credentials: "same-origin", cache: "no-store" });
+    const data = await res.json();
+    if (data && data.ok && data.role === "teacher") window.location.replace("/teacher");
+    if (data && data.ok && data.role === "admin") window.location.replace("/admin");
+  } catch (_) {}
+}
+async function doTeacherLogin(event) {
+  event.preventDefault(); hideTeacherNotice();
+  const identifier = (teacherIdentifierInput.value || "").trim();
+  const password = teacherPasswordInput.value || "";
+  if (!identifier || !password) { showTeacherNotice("Please enter both email/ID and password."); return; }
+  teacherLoginBtn.disabled = true; teacherLoginBtn.innerHTML = "Checking…";
+  try {
+    const res = await fetch("/routes/teacher/login", {
+      method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ identifier, password })
+    });
+    const data = await res.json().catch(()=>null);
+    if (!res.ok || !data || !data.ok) { showTeacherNotice((data && data.detail) || "Invalid teacher email/ID or password."); return; }
+    teacherPasswordInput.value = ""; window.location.href = "/teacher";
+  } catch (err) { showTeacherNotice("Login error: " + (err && err.message ? err.message : String(err))); }
+  finally { teacherLoginBtn.disabled = false; teacherLoginBtn.innerHTML = '<span>Open Teacher Portal</span><span class="mg-btn-arrow">→</span>'; }
+}
+async function doLegacyLogin(event) {
+  event.preventDefault(); hideTeacherNotice();
+  const code = (legacyCodeInput.value || "").trim();
+  if (!code) { showTeacherNotice("Please enter the legacy teacher code."); return; }
+  try {
+    const res = await fetch("/routes/login", {
+      method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json().catch(()=>null);
+    if (!res.ok || !data || !data.ok || data.role !== "teacher") { showTeacherNotice((data && data.detail) || "Invalid legacy teacher code."); return; }
+    legacyCodeInput.value = ""; window.location.href = "/teacher";
+  } catch (err) { showTeacherNotice("Login error: " + (err && err.message ? err.message : String(err))); }
+}
+teacherLoginForm.addEventListener("submit", doTeacherLogin);
+legacyForm.addEventListener("submit", doLegacyLogin);
+checkExistingTeacherSession();
+</script>
 {% endblock %}

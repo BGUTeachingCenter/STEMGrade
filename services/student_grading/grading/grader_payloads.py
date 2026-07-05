@@ -165,7 +165,9 @@ def grade_payload_manifest(
 
     client = _make_client(provider=model)
     schema = grading_response_schema()
-    system = load_grading_prompt()
+    subject = str(manifest.get("subject") or "math")
+    grading_prompt_extra = str(manifest.get("grading_prompt_extra") or "")
+    system = load_grading_prompt(subject=subject, extra_instructions=grading_prompt_extra)
 
     provider = (model or "ollama").strip().lower()
     if provider in ("google", "gemini", "google_ai_studio", "aistudio"):

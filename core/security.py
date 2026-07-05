@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import HTTPException, Request, Response
 
 from .config import (
+    ADMIN_PASSWORD,
     COOKIE_SAMESITE,
     COOKIE_SECURE,
     SESSION_SECRET,
@@ -20,6 +21,8 @@ from .config import (
 )
 
 COOKIE_NAME = "mathgrade_session"
+PASSWORD_HASH_SCHEME = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 260_000
 
 # If SESSION_SECRET is not configured, fall back to an ephemeral per-process
 # secret so the app still works in dev — but sessions won't survive restarts
@@ -74,13 +77,40 @@ def decode_session(token: Optional[str]) -> Optional[dict]:
         return None
     if int(data.get("exp", 0)) < int(time.time()):
         return None
-    if data.get("role") not in ("teacher", "student"):
+    if data.get("role") not in ("admin", "teacher", "student"):
         return None
     return data
 
 
 def set_session_cookie(response: Response, role: str, sub: str) -> None:
     token = encode_session(role, sub)
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+    )
+
+
+
+
+def set_profile_session_cookie(response: Response, *, role: str, sub: str, teacher_id: str = "") -> None:
+    """Set a signed session cookie with optional teacher profile metadata."""
+    ttl = SESSION_TTL_SECONDS
+    payload = {
+        "role": role,
+        "sub": sub,
+        "exp": int(time.time()) + int(ttl),
+        "iat": int(time.time()),
+    }
+    if teacher_id:
+        payload["teacher_id"] = teacher_id
+
+    payload_b64 = _b64u_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    token = f"{payload_b64}.{_sign(payload_b64)}"
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -107,6 +137,13 @@ def require_session(request: Request) -> dict:
     return s
 
 
+def require_admin(request: Request) -> dict:
+    s = require_session(request)
+    if s.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return s
+
+
 def require_teacher(request: Request) -> dict:
     s = require_session(request)
     if s.get("role") != "teacher":
@@ -119,8 +156,49 @@ def require_student_or_teacher(request: Request) -> dict:
     return require_session(request)
 
 
+def hash_password(password: str) -> str:
+    """Return a salted PBKDF2 password hash safe to store on disk."""
+    password = password or ""
+    salt = secrets.token_urlsafe(24)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    )
+    return f"{PASSWORD_HASH_SCHEME}${PASSWORD_HASH_ITERATIONS}${salt}${_b64u_encode(digest)}"
+
+
+def verify_password_hash(password: Optional[str], stored_hash: Optional[str]) -> bool:
+    """Constant-time PBKDF2 password-hash verification."""
+    if not password or not stored_hash:
+        return False
+    try:
+        scheme, iterations_s, salt, digest_b64 = stored_hash.split("$", 3)
+        if scheme != PASSWORD_HASH_SCHEME:
+            return False
+        iterations = int(iterations_s)
+        expected = _b64u_decode(digest_b64)
+        actual = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt.encode("utf-8"),
+            iterations,
+        )
+        return hmac.compare_digest(actual, expected)
+    except Exception:
+        return False
+
+
+def verify_admin_password(pw: Optional[str]) -> bool:
+    """Constant-time check of the app admin password against env."""
+    if not ADMIN_PASSWORD or not pw:
+        return False
+    return hmac.compare_digest(pw.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8"))
+
+
 def verify_teacher_password(pw: Optional[str]) -> bool:
-    """Constant-time check of the teacher password against env."""
+    """Backward-compatible legacy teacher-code check against env."""
     if not TEACHER_PASSWORD or not pw:
         return False
     return hmac.compare_digest(pw.encode("utf-8"), TEACHER_PASSWORD.encode("utf-8"))

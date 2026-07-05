@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ status_code }} · {{ title }}{% endblock %}
-{% block header_title %}MathGrade{% endblock %}
+{% block header_title %}{{ app_name }}{% endblock %}
 {% block header_subtitle %}{{ subtitle|default("Something needs attention") }}{% endblock %}
 {% block header_actions %}
   <a class="secondary-btn small" href="/">Home</a>

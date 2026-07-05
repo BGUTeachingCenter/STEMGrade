@@ -6,7 +6,7 @@ from collections import deque
 from threading import Lock
 from typing import Deque, Dict, Set
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from core.config import RUNS_ROOT
@@ -14,7 +14,17 @@ from core.security import (
     clear_session_cookie,
     get_session,
     set_session_cookie,
+    set_profile_session_cookie,
     verify_teacher_password,
+    require_teacher,
+)
+from services.teacher_profiles import (
+    authenticate_teacher,
+    change_teacher_password,
+    get_teacher,
+    register_teacher_from_voucher,
+    subject_options,
+    update_teacher_profile,
 )
 
 from openpyxl import Workbook, load_workbook
@@ -78,6 +88,33 @@ def _record_successful_attempt(ip: str) -> None:
 
 class LoginRequest(BaseModel):
     code: str
+
+
+class TeacherLoginRequest(BaseModel):
+    identifier: str
+    password: str
+
+
+class TeacherRegisterRequest(BaseModel):
+    voucher_code: str
+    teacher_name: str
+    teacher_email: str
+    subject: str = "math"
+    password: str
+    password_confirm: str
+    grading_prompt_extra: str = ""
+
+
+class UpdateTeacherProfileRequest(BaseModel):
+    subject: str | None = None
+    grading_prompt_extra: str | None = None
+    name: str | None = None
+
+
+class ChangeTeacherPasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+    new_password_confirm: str
 
 
 def _normalize_code(code: str) -> str:
@@ -148,6 +185,102 @@ def login(req: LoginRequest, request: Request, response: Response):
     return {"ok": True, "role": "student"}
 
 
+@router.get("/teacher/subjects")
+def teacher_subject_options():
+    return {"ok": True, "subjects": subject_options()}
+
+
+@router.post("/teacher/register")
+def teacher_register(req: TeacherRegisterRequest, request: Request, response: Response):
+    ip = _client_ip(request)
+    _check_rate_limit(ip)
+    profile = register_teacher_from_voucher(
+        voucher_code=req.voucher_code,
+        teacher_name=req.teacher_name,
+        teacher_email=req.teacher_email,
+        subject=req.subject,
+        password=req.password,
+        password_confirm=req.password_confirm,
+        grading_prompt_extra=req.grading_prompt_extra,
+    )
+    set_profile_session_cookie(
+        response,
+        role="teacher",
+        sub=profile["teacher_id"],
+        teacher_id=profile["teacher_id"],
+    )
+    _record_successful_attempt(ip)
+    return {"ok": True, "role": "teacher", "teacher": profile}
+
+
+@router.post("/teacher/login")
+def teacher_profile_login(req: TeacherLoginRequest, request: Request, response: Response):
+    ip = _client_ip(request)
+    _check_rate_limit(ip)
+    profile = authenticate_teacher(req.identifier, req.password)
+    if not profile:
+        _record_failed_attempt(ip)
+        raise HTTPException(status_code=401, detail="Invalid teacher email/ID or password")
+    set_profile_session_cookie(
+        response,
+        role="teacher",
+        sub=profile["teacher_id"],
+        teacher_id=profile["teacher_id"],
+    )
+    _record_successful_attempt(ip)
+    return {"ok": True, "role": "teacher", "teacher": profile}
+
+
+@router.get("/teacher/profile")
+def teacher_profile(_session: dict = Depends(require_teacher)):
+    teacher_id = _session.get("teacher_id") or _session.get("sub")
+    profile = get_teacher(teacher_id)
+    if not profile:
+        # Legacy env-code teacher. Keep the portal usable, but make it explicit.
+        return {
+            "ok": True,
+            "legacy": True,
+            "teacher": {
+                "teacher_id": "legacy_teacher",
+                "name": "Legacy teacher",
+                "email": "",
+                "subject": "math",
+                "subject_label": "Math",
+                "grading_prompt_extra": "",
+            },
+            "subjects": subject_options(),
+        }
+    return {"ok": True, "legacy": False, "teacher": profile, "subjects": subject_options()}
+
+
+@router.post("/teacher/profile")
+def teacher_profile_update(req: UpdateTeacherProfileRequest, _session: dict = Depends(require_teacher)):
+    teacher_id = _session.get("teacher_id") or _session.get("sub")
+    if not teacher_id or teacher_id == "teacher":
+        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot edit a saved profile.")
+    profile = update_teacher_profile(
+        teacher_id=teacher_id,
+        subject=req.subject,
+        grading_prompt_extra=req.grading_prompt_extra,
+        name=req.name,
+    )
+    return {"ok": True, "teacher": profile}
+
+
+@router.post("/teacher/change_password")
+def teacher_change_password(req: ChangeTeacherPasswordRequest, _session: dict = Depends(require_teacher)):
+    teacher_id = _session.get("teacher_id") or _session.get("sub")
+    if not teacher_id or teacher_id == "teacher":
+        raise HTTPException(status_code=400, detail="Legacy teacher sessions do not have a saved profile password.")
+    change_teacher_password(
+        teacher_id=teacher_id,
+        old_password=req.old_password,
+        new_password=req.new_password,
+        new_password_confirm=req.new_password_confirm,
+    )
+    return {"ok": True}
+
+
 @router.post("/logout")
 def logout(response: Response):
     clear_session_cookie(response)
@@ -161,4 +294,5 @@ def me(request: Request):
         return {"ok": False, "role": None}
     # Never leak the student code back to the client; the cookie itself is
     # the source of truth.
-    return {"ok": True, "role": s.get("role")}
+    teacher_id = s.get("teacher_id") or (s.get("sub") if s.get("role") == "teacher" else "")
+    return {"ok": True, "role": s.get("role"), "teacher_id": teacher_id}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Student Feedback · MathGrade{% endblock %}
-{% block header_title %}MathGrade{% endblock %}
+{% block title %}Student Feedback · {{ app_name }}{% endblock %}
+{% block header_title %}{{ app_name }}{% endblock %}
 {% block header_subtitle %}Upload your work and receive feedback{% endblock %}
 {% block header_actions %}
   <a
@@ -42,7 +42,7 @@
               <div>
                 <div class="mg-busy-title">Working on your file…</div>
                 <div class="mg-busy-text" id="busyOverlayText">
-                  Please wait while MathGrade processes your submission.
+                  Please wait while {{ app_name }} processes your submission.
                 </div>
               </div>
             </div>
@@ -369,7 +369,7 @@
 
     function showBusy(message) {
       if (busyOverlayText) {
-        busyOverlayText.textContent = message || "Please wait while MathGrade processes your submission.";
+        busyOverlayText.textContent = message || "Please wait while {{ app_name }} processes your submission.";
       }
 
       if (busyOverlay) {

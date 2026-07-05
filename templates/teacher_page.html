@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Teacher Portal · MathGrade{% endblock %}
+{% block title %}Teacher Portal · {{ app_name }}{% endblock %}
 {% block header_title %}Teacher Page{% endblock %}
 {% block header_subtitle %}Browse exams, upload references, and review student usage statistics{% endblock %}
 {% block header_actions %}
@@ -28,9 +28,58 @@
 
     <nav class="mg-teacher-tabs" aria-label="Teacher portal sections">
       <a href="#teacherStats">Overview</a>
-      <a href="#teacherBank">Solution Bank</a>
+      <a href="#teacherProfile">Profile & prompts</a>
+      <a href="#teacherBank">{{ reference_bank_label }}</a>
       <a href="#uploadReference">Upload to Bank</a>
     </nav>
+
+
+
+<section class="mg-teacher-section mg-teacher-profile-section" id="teacherProfile">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Profile & grading prompt</h2>
+      <p>Set the default subject and base grading instructions for new reference uploads.</p>
+    </div>
+  </div>
+
+  <div class="card mg-bank-big-card">
+    <div class="cardInner">
+      <div class="mg-upload-reference-grid">
+        <div>
+          <label for="profileName">Teacher name</label>
+          <input id="profileName" type="text" placeholder="Teacher name" />
+          <div class="small mg-field-help" id="profileIdentity">Loading teacher profile…</div>
+        </div>
+        <div>
+          <label for="profileSubject">Default subject</label>
+          <select id="profileSubject"></select>
+          <div class="small mg-field-help">Used as the default for new references.</div>
+        </div>
+      </div>
+
+      <label for="profilePromptExtra">Base grading prompt</label>
+      <textarea id="profilePromptExtra" rows="5" placeholder="Subject-specific grading priorities…"></textarea>
+      <div class="small mg-field-help">This is appended to the subject prompt during grading.</div>
+
+      <div class="mg-upload-reference-actions">
+        <button id="saveProfileBtn" type="button">Save profile prompt</button>
+      </div>
+      <div id="profileStatus" class="statusBox">Loading profile…</div>
+
+      <details class="mg-password-details">
+        <summary>Change teacher password</summary>
+        <div class="mg-upload-reference-grid">
+          <div><label for="oldTeacherPassword">Current password</label><input id="oldTeacherPassword" type="password" autocomplete="current-password" /></div>
+          <div><label for="newTeacherPassword">New password</label><input id="newTeacherPassword" type="password" autocomplete="new-password" /></div>
+          <div><label for="newTeacherPasswordConfirm">Confirm new password</label><input id="newTeacherPasswordConfirm" type="password" autocomplete="new-password" /></div>
+        </div>
+        <div class="mg-upload-reference-actions"><button id="changeTeacherPasswordBtn" class="secondary-btn" type="button">Change password</button></div>
+        <div id="passwordStatus" class="statusBox">Password must be at least 10 characters and include uppercase, lowercase, and a digit.</div>
+      </details>
+    </div>
+  </div>
+</section>
 
   <!-- STATS ROW -->
   <section class="mg-teacher-section" id="teacherStats">
@@ -71,7 +120,7 @@
   <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
   <div class="mg-teacher-section-head">
     <div>
-      <h2>Solution Bank</h2>
+      <h2>{{ reference_bank_label }}</h2>
       <p>All saved reference solutions in one place. Preview, download, replace, or delete them.</p>
     </div>
 
@@ -103,7 +152,7 @@
 <section class="mg-teacher-section mg-upload-reference-section" id="uploadReference">
   <div class="mg-teacher-section-head">
     <div>
-      <h2>Upload to Solution Bank</h2>
+      <h2>Upload to {{ reference_bank_label }}</h2>
         <p>Add questions, answers, or a combined questions+answers solution file. You can upload TeX, PDF, or image files.</p>
     </div>
   </div>
@@ -116,7 +165,7 @@
             <div class="mg-spinner"></div>
             <div>
               <div class="mg-busy-title" id="uploadBusyTitle">Uploading…</div>
-              <div class="mg-busy-text" id="uploadBusyText">Please wait while MathGrade processes your file.</div>
+              <div class="mg-busy-text" id="uploadBusyText">Please wait while {{ app_name }} processes your file.</div>
             </div>
           </div>
         </div>
@@ -152,7 +201,17 @@
             Used only for PDF/image uploads. TeX/TXT uploads skip OCR.
           </div>
         </div>
+
+        <div>
+          <label for="uploadSubject">Subject for this reference</label>
+          <select id="uploadSubject"></select>
+          <div class="small mg-field-help">Saved into the reference JSON and used to choose the grading prompt.</div>
+        </div>
       </div>
+
+      <label for="solutionPromptComment">Extra grading comment for this reference</label>
+      <textarea id="solutionPromptComment" rows="4" placeholder="Optional: grading priorities or special instructions for this assessment…"></textarea>
+      <div class="small mg-field-help">This is added to the AI grading prompt only for this reference.</div>
 
       <div id="singleUploadBox">
         <div class="mg-doc-type-row">
@@ -207,7 +266,7 @@
       </div>
 
       <div class="mg-upload-reference-actions">
-        <button id="uploadBtn" type="button">Upload to Solution Bank</button>
+        <button id="uploadBtn" type="button">Upload to {{ reference_bank_label }}</button>
       </div>
       </div><!-- end mg-upload-busy-wrap -->
 
@@ -223,6 +282,7 @@
   // Same-origin: the FastAPI server serves this page, so relative URLs
   // keep the auth cookie first-party.
   const API_BASE = "";
+  const APP_NAME = {{ app_name|tojson }};
   const $ = (id)=>document.getElementById(id);
 
   const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
@@ -249,7 +309,7 @@
   function showBusy(title, text) {
     const overlay = $("uploadBusyOverlay");
     if ($("uploadBusyTitle")) $("uploadBusyTitle").textContent = title || "Uploading…";
-    if ($("uploadBusyText")) $("uploadBusyText").textContent = text || "Please wait while MathGrade processes your file.";
+    if ($("uploadBusyText")) $("uploadBusyText").textContent = text || "Please wait while {{ app_name }} processes your file.";
     if (overlay) { overlay.classList.add("show"); overlay.setAttribute("aria-hidden", "false"); }
   }
 
@@ -361,6 +421,100 @@
     }
   }
   getHealth();
+
+  let CURRENT_TEACHER_PROFILE = null;
+  let SUBJECTS = [];
+
+  function renderSubjectSelect(selectId, selected) {
+    const sel = $(selectId);
+    if (!sel) return;
+    sel.innerHTML = SUBJECTS.map(s => `<option value="${s.value}">${s.label}</option>`).join("");
+    if (selected) sel.value = selected;
+  }
+
+  function setProfileStatus(msg, kind) {
+    const el = $("profileStatus");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove("ok", "err", "work");
+    if (kind) el.classList.add(kind);
+  }
+
+  async function loadTeacherProfile() {
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/profile", { cache: "no-store" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.detail || "Could not load teacher profile.");
+      CURRENT_TEACHER_PROFILE = j.teacher || {};
+      SUBJECTS = j.subjects || [];
+      renderSubjectSelect("profileSubject", CURRENT_TEACHER_PROFILE.subject || "math");
+      renderSubjectSelect("uploadSubject", CURRENT_TEACHER_PROFILE.subject || "math");
+      if ($("profileName")) $("profileName").value = CURRENT_TEACHER_PROFILE.name || "";
+      if ($("profilePromptExtra")) $("profilePromptExtra").value = CURRENT_TEACHER_PROFILE.grading_prompt_extra || "";
+      if ($("solutionPromptComment") && !$("solutionPromptComment").value.trim()) {
+        $("solutionPromptComment").value = CURRENT_TEACHER_PROFILE.grading_prompt_extra || "";
+      }
+      if ($("profileIdentity")) {
+        $("profileIdentity").textContent = j.legacy
+          ? "Legacy teacher session — create a profile to save prompt/password settings."
+          : `Teacher ID: ${CURRENT_TEACHER_PROFILE.teacher_id || ""} · ${CURRENT_TEACHER_PROFILE.email || ""}`;
+      }
+      setProfileStatus(j.legacy ? "Legacy session loaded. Profile editing is disabled until you register with a voucher." : "Profile loaded.", j.legacy ? "work" : "ok");
+      if (j.legacy && $("saveProfileBtn")) $("saveProfileBtn").disabled = true;
+    } catch (e) {
+      setProfileStatus("Profile load failed: " + (e && e.message ? e.message : String(e)), "err");
+    }
+  }
+
+  async function saveTeacherProfile() {
+    const payload = {
+      name: $("profileName") ? $("profileName").value.trim() : "",
+      subject: $("profileSubject") ? $("profileSubject").value : "math",
+      grading_prompt_extra: $("profilePromptExtra") ? $("profilePromptExtra").value.trim() : ""
+    };
+    setProfileStatus("Saving profile…", "work");
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/profile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json().catch(()=>null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not save profile.");
+      CURRENT_TEACHER_PROFILE = j.teacher;
+      renderSubjectSelect("uploadSubject", CURRENT_TEACHER_PROFILE.subject || "math");
+      setProfileStatus("Profile saved.", "ok");
+    } catch(e) {
+      setProfileStatus("Save failed: " + (e && e.message ? e.message : String(e)), "err");
+    }
+  }
+
+  async function changeTeacherPassword() {
+    const payload = {
+      old_password: $("oldTeacherPassword") ? $("oldTeacherPassword").value : "",
+      new_password: $("newTeacherPassword") ? $("newTeacherPassword").value : "",
+      new_password_confirm: $("newTeacherPasswordConfirm") ? $("newTeacherPasswordConfirm").value : ""
+    };
+    const el = $("passwordStatus");
+    if (el) { el.textContent = "Changing password…"; el.classList.remove("ok", "err", "work"); el.classList.add("work"); }
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/change_password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json().catch(()=>null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not change password.");
+      ["oldTeacherPassword", "newTeacherPassword", "newTeacherPasswordConfirm"].forEach(id => { if ($(id)) $(id).value = ""; });
+      if (el) { el.textContent = "Password changed."; el.classList.remove("work", "err"); el.classList.add("ok"); }
+    } catch(e) {
+      if (el) { el.textContent = "Password change failed: " + (e && e.message ? e.message : String(e)); el.classList.remove("work", "ok"); el.classList.add("err"); }
+    }
+  }
+
+  if ($("saveProfileBtn")) $("saveProfileBtn").addEventListener("click", saveTeacherProfile);
+  if ($("changeTeacherPasswordBtn")) $("changeTeacherPasswordBtn").addEventListener("click", changeTeacherPassword);
+  loadTeacherProfile();
 
 
   function setExamStatus(msg){ $("examStatus").textContent = msg; }
@@ -553,7 +707,7 @@
           "Use this when one file contains both the exam questions and the official solutions. This creates full_solution_bundle.json in one upload.";
       } else if (type === "questions_answers_separate") {
         help.textContent =
-          "Use this when questions and official answers are in two files. MathGrade runs one job: questions first, answers second, then generates the full solution JSON.";
+          "Use this when questions and official answers are in two files. {{ app_name }} runs one job: questions first, answers second, then generates the full solution JSON.";
       } else {
         help.textContent = "";
       }
@@ -699,6 +853,8 @@ function groupSolutionItemsByExam(items) {
         items: [],
         byRole: {},
         latestCreatedAt: "",
+        subject: "",
+        grading_prompt_extra: "",
         full_solution_available: false,
         reference_tex_available: false,
         q_count: null,
@@ -719,6 +875,8 @@ function groupSolutionItemsByExam(items) {
 
     const group = groups.get(exam);
     const role = solutionFileRole(item);
+    if (item.subject && !group.subject) group.subject = item.subject;
+    if (item.grading_prompt_extra && !group.grading_prompt_extra) group.grading_prompt_extra = item.grading_prompt_extra;
 
     group.items.push({ ...item, role });
 
@@ -790,12 +948,14 @@ function startEditReference(item) {
 
   if ($("contentType") && item && item.content_type) {
     $("contentType").value = item.content_type;
+    if ($("uploadSubject") && item.subject) $("uploadSubject").value = item.subject;
+    if ($("solutionPromptComment")) $("solutionPromptComment").value = item.grading_prompt_extra || "";
   }
 
   setUploadStatus(
     `Editing / replacing: ${item.filename}\n` +
     `Exam: ${id}\n\n` +
-    `Choose the correct upload type, select an updated file below, and click “Upload to Solution Bank”.`
+    `Choose the correct upload type, select an updated file below, and click “Upload to {{ reference_bank_label }}”.`
   );
 
   document.getElementById("uploadReference")?.scrollIntoView({
@@ -935,6 +1095,7 @@ function renderSolutionList(items) {
     const missingPreview = group.empty_solution_keys.slice(0, 6).join(", ");
 
     const statusTags = [
+      group.subject ? `<span class="tag">Subject: ${escapeHtml(group.subject)}</span>` : "",
       group.full_solution_available ? `<span class="tag ok">Grading JSON ready</span>` : `<span class="tag warn">Waiting for full-solution JSON</span>`,
       group.reference_tex_available ? `<span class="tag">Display TeX ready</span>` : "",
       group.gradeable_status === "clean" ? `<span class="tag ok">Clean reference</span>` : "",
@@ -963,6 +1124,7 @@ function renderSolutionList(items) {
           </div>
           <div class="mg-solution-meta">
             Updated: ${escapeHtml(group.latestCreatedAt || primary.created_at || "unknown date")}
+            ${group.grading_prompt_extra ? `<br>Prompt comment: ${escapeHtml(group.grading_prompt_extra).slice(0, 160)}${group.grading_prompt_extra.length > 160 ? "…" : ""}` : ""}
           </div>
           <div class="mg-solution-tokens">
             ${formatTokenLine(group.exam_id)}
@@ -1052,6 +1214,7 @@ function renderSolutionList(items) {
         j2.pdf_text_layer_used ? "PDF text layer" : "",
         j2.ocr_used ? "OCR" : "",
         j2.ocr_path ? String(j2.ocr_path) : "",
+        j2.subject ? `Subject: ${j2.subject}` : "",
         j2.source_kind ? String(j2.source_kind) : "",
         j2.full_solution_available ? "Full solution ready" : "",
         j2.reference_tex_available ? "Display TeX ready" : "",
@@ -1190,7 +1353,7 @@ async function refreshFiles() {
     showBusy(
       hasOcrFile ? "Processing OCR…" : "Uploading…",
       isSeparate
-        ? `MathGrade is running one job: questions first, answers second, then full_solution_bundle.json.`
+        ? `${APP_NAME} is running one job: questions first, answers second, then full_solution_bundle.json.`
         : (hasOcrFile ? `OCR via ${ocrLabel} is running. This may take a few minutes.` : `Uploading ${f.name}…`)
     );
 
@@ -1204,6 +1367,8 @@ async function refreshFiles() {
       fd.append("exam_id", id);
       fd.append("job_id", jobId);
       fd.append("ocr_provider", ocrProvider);
+      fd.append("subject", $("uploadSubject") ? $("uploadSubject").value : (CURRENT_TEACHER_PROFILE && CURRENT_TEACHER_PROFILE.subject) || "math");
+      fd.append("grading_prompt_extra", $("solutionPromptComment") ? $("solutionPromptComment").value.trim() : "");
 
       let endpoint = API_BASE + "/routes/bank/upload";
 

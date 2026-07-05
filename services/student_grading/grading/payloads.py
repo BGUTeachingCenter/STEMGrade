@@ -374,6 +374,8 @@ def _combine_labeled_sections(sections: list[tuple[str, str]]) -> str:
 def _build_reference_parts_from_full_solution_json(reference_json: Path, default_max_points: float) -> dict[Key, dict[str, Any]]:
     """Convert FullSolutionBundle JSON into keyed reference parts for grading."""
     raw = json.loads(reference_json.read_text(encoding="utf-8"))
+    subject = _to_clean_text(raw.get("subject") or "math")
+    grading_prompt_extra = _to_clean_text(raw.get("grading_prompt_extra"))
     questions = raw.get("questions") or []
     if not isinstance(questions, list):
         raise RuntimeError(f"Invalid full solution bundle: 'questions' is not a list ({reference_json})")
@@ -459,6 +461,8 @@ def _build_reference_parts_from_full_solution_json(reference_json: Path, default
                     "schema_version": _to_clean_text(raw.get("schema_version")),
                     "exam_id": _to_clean_text(raw.get("exam_id")),
                     "exam_title": _to_clean_text(raw.get("exam_title")),
+                    "subject": subject,
+                    "grading_prompt_extra": grading_prompt_extra,
                     "part": _to_clean_text(p.get("part")),
                     "part_key": _to_clean_text(p.get("part_key")),
                     "review_status": _to_clean_text(p.get("review_status")),
@@ -590,6 +594,8 @@ def _build_payloads_from_full_solution_json(
         "reference_json": reference_json.name,
         "student_source": student_source,
         "student_file": student_tex.name,
+        "subject": next((str((ref_parts.get(k) or {}).get("metadata", {}).get("subject") or "math") for k in ref_parts.keys()), "math"),
+        "grading_prompt_extra": next((str((ref_parts.get(k) or {}).get("metadata", {}).get("grading_prompt_extra") or "") for k in ref_parts.keys()), ""),
         "count": len(items),
         "items": [
             {"qid": item.qid, "payload_file": item.payload_path.name}
@@ -710,6 +716,8 @@ def _build_payloads_from_reference_pdf(
         "reference_pdf": reference_pdf.name,
         "student_source": student_source,
         "student_file": student_tex.name,
+        "subject": "math",
+        "grading_prompt_extra": "",
         "count": len(items),
         "items": [
             {"qid": item.qid, "payload_file": item.payload_path.name}
@@ -827,6 +835,8 @@ def _build_payloads_from_reference_tex(
         "reference_tex": reference_tex.name,
         "student_source": student_source,
         "student_file": student_tex.name,
+        "subject": "math",
+        "grading_prompt_extra": "",
         "count": len(items),
         "items": [
             {"qid": item.qid, "payload_file": item.payload_path.name}

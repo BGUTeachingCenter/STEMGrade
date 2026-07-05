@@ -108,6 +108,8 @@ class QuestionsOnlyBundle(BaseModel):
 
     exam_id: str = ""
     exam_title: str = ""
+    subject: str = "math"
+    grading_prompt_extra: str = ""
 
     questions: list[QuestionsOnlyQuestion] = Field(default_factory=list)
 
@@ -194,6 +196,8 @@ class AnswersOnlyBundle(BaseModel):
 
     exam_id: str = ""
     exam_title: str = ""
+    subject: str = "math"
+    grading_prompt_extra: str = ""
 
     questions: list[AnswersOnlyQuestion] = Field(default_factory=list)
 
@@ -271,6 +275,8 @@ class QuestionsAnswersBundle(BaseModel):
 
     exam_id: str = ""
     exam_title: str = ""
+    subject: str = "math"
+    grading_prompt_extra: str = ""
 
     questions: list[QuestionsAnswersQuestion] = Field(default_factory=list)
 
@@ -353,6 +359,8 @@ class FullSolutionBundle(BaseModel):
 
     exam_id: str = ""
     exam_title: str = ""
+    subject: str = "math"
+    grading_prompt_extra: str = ""
 
     questions: list[FullSolutionQuestion] = Field(default_factory=list)
 
@@ -415,6 +423,8 @@ class ReferenceBundle(BaseModel):
 
     exam_id: str = ""
     exam_title: str = ""
+    subject: str = "math"
+    grading_prompt_extra: str = ""
 
     questions: list[ReferenceQuestion] = Field(default_factory=list)
 
