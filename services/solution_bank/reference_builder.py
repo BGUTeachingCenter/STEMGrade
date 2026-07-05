@@ -8,6 +8,7 @@ from typing import Any
 
 from core.ai_clients.gpt_client import GptClient
 from common.tex.part_normalize import normalize_part
+from common.tex.question_segmenter import segment_document
 
 from schemas.reference_bundle import (
     AnswersOnlyBundle,
@@ -1354,6 +1355,153 @@ def _merge_questions_answers_results(
     return _as_questions_answers_bundle(merged, exam_id=exam_id).model_dump()
 
 
+def _exam_title_from_text(text: str) -> str:
+    """Best-effort exam title from a LaTeX title command near the document top.
+
+    Skips the preamble (``\\newcommand`` definitions often contain \\textbf) by
+    searching after ``\\begin{document}`` when present.
+    """
+    text = text or ""
+    begin = text.find(r"\begin{document}")
+    head = text[begin : begin + 2500] if begin != -1 else text[:2500]
+
+    for pat in (
+        r"\\title\*?\s*\{([^}]{3,120})\}",
+        r"\\(?:Large|LARGE|huge|Huge)\s*\\textbf\{([^}]{3,120})\}",
+        r"\\textbf\{([^}]{3,120})\}",
+    ):
+        m = re.search(pat, head)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def build_questions_answers_bundle_from_segments(
+    *,
+    ocr_text: str,
+    source_name: str,
+    exam_id: str,
+) -> dict[str, Any] | None:
+    """
+    Deterministically build a QuestionsAnswersBundle from a structured teacher
+    document, without calling an LLM.
+
+    Returns None when the document has no detectable question structure, so the
+    caller can fall back to the LLM-based builder.
+    """
+    segments = segment_document(ocr_text)
+    if not segments:
+        return None
+
+    exam_title = _exam_title_from_text(ocr_text)
+
+    questions: list[dict[str, Any]] = []
+    for seg in segments:
+        usage = "gradeable" if seg.is_gradeable else "practice_feedback_only"
+        parts: list[dict[str, Any]] = []
+        for p in seg.parts:
+            parts.append(
+                {
+                    "part": p.label or p.part_key,
+                    "part_key": p.part_key,
+                    "question_text": p.question_text,
+                    "required_action": "",
+                    "official_solution": p.official_solution,
+                    "expected_answer": p.expected_answer,
+                    "grading_instructions": "",
+                    "max_points": None,
+                    "is_gradeable": seg.is_gradeable,
+                    "usage": usage,
+                    "section_label": seg.section_label,
+                    "review_status": "ok",
+                    "confidence": None,
+                    "warnings": [],
+                }
+            )
+
+        questions.append(
+            {
+                "question_id": seg.question_id,
+                "is_gradeable": seg.is_gradeable,
+                "usage": usage,
+                "section_label": seg.section_label,
+                "parts": parts,
+            }
+        )
+
+    bundle = {
+        "schema_version": "questions_answers_bundle_v1",
+        "exam_id": exam_id,
+        "exam_title": exam_title,
+        "questions": questions,
+        "warnings": [
+            "Structure detected deterministically from the uploaded document "
+            "(question/part segmentation), not by the language model."
+        ],
+        "structure_corrections": [],
+        "source_names": [source_name] if source_name else [],
+    }
+
+    return _as_questions_answers_bundle(bundle, exam_id=exam_id).model_dump()
+
+
+def _normalize_qa_bundle_dict(bundle: dict[str, Any], *, exam_id: str) -> dict[str, Any]:
+    """
+    Repair a model-produced QuestionsAnswersBundle so it is structurally sane:
+
+      * collapse duplicate question_ids, merging their parts;
+      * for a question that has content but an empty parts list, synthesise a
+        single part so the question is never partless.
+
+    This defends against models that emit one object per part (repeating the
+    question_id with empty parts) or otherwise mangle the structure.
+    """
+    raw_questions = bundle.get("questions") or []
+    merged: dict[Any, dict[str, Any]] = {}
+    order: list[Any] = []
+
+    for q in raw_questions:
+        if not isinstance(q, dict):
+            continue
+        qid = q.get("question_id")
+        parts = [p for p in (q.get("parts") or []) if isinstance(p, dict)]
+
+        # A partless question that still carries text at the question level:
+        # lift that text into a single implicit part so it is not lost.
+        if not parts:
+            question_level_text = " ".join(
+                str(q.get(k) or "")
+                for k in ("question_text", "official_solution", "expected_answer")
+            ).strip()
+            if question_level_text:
+                parts = [
+                    {
+                        "part": q.get("part") or "",
+                        "part_key": normalize_part(str(q.get("part") or "")) or "a",
+                        "question_text": q.get("question_text") or "",
+                        "official_solution": q.get("official_solution") or "",
+                        "expected_answer": q.get("expected_answer") or "",
+                    }
+                ]
+
+        if qid in merged:
+            existing_keys = {
+                (p.get("part_key") or p.get("part") or "") for p in merged[qid]["parts"]
+            }
+            for p in parts:
+                key = p.get("part_key") or p.get("part") or ""
+                if key and key in existing_keys:
+                    continue
+                merged[qid]["parts"].append(p)
+                existing_keys.add(key)
+        else:
+            merged[qid] = {**q, "parts": list(parts)}
+            order.append(qid)
+
+    bundle = {**bundle, "questions": [merged[qid] for qid in order]}
+    return _as_questions_answers_bundle(bundle, exam_id=exam_id).model_dump()
+
+
 def build_questions_answers_bundle_from_ocr(
     *,
     ocr_text: str,
@@ -1369,12 +1517,30 @@ def build_questions_answers_bundle_from_ocr(
       QuestionsAnswersBundle as dict.
 
     Behavior:
-      A full solution file can produce a very large JSON bundle. Emitting it in
-      one request risks hitting the model's output-token limit (truncation) and
-      makes some models loop/over-generate. So when the text splits cleanly into
-      per-question blocks, we process a few questions per request and merge the
-      results. Otherwise we fall back to a single request.
+      1. First try deterministic segmentation of the document into questions and
+         parts. This is robust across many teacher formats (LaTeX section/
+         subsection, Hebrew/English headers, bare numbering) and does not depend
+         on the language model getting the structure right. Set
+         MATHGRADE_QA_DISABLE_SEGMENTER=1 to skip it.
+      2. If the document has no detectable structure, fall back to the LLM
+         builder. A full solution file can produce a very large JSON bundle;
+         emitting it in one request risks the model's output-token limit and
+         makes some models loop. So when the text splits into per-question
+         blocks we process a few questions per request and merge; otherwise we
+         issue a single request. Model output is normalised to collapse
+         duplicate question_ids and guarantee non-empty parts.
     """
+    segmenter_disabled = os.getenv("MATHGRADE_QA_DISABLE_SEGMENTER", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+    if not segmenter_disabled:
+        deterministic = build_questions_answers_bundle_from_segments(
+            ocr_text=ocr_text,
+            source_name=source_name,
+            exam_id=exam_id,
+        )
+        if deterministic is not None:
+            return deterministic
+
     client = client or GptClient()
 
     timeout_s = int(os.getenv("MATHGRADE_QA_BUILDER_TIMEOUT_S", "240"))
@@ -1393,7 +1559,7 @@ def build_questions_answers_bundle_from_ocr(
             exam_id=exam_id,
             timeout_s=timeout_s,
         )
-        return _as_questions_answers_bundle(result, exam_id=exam_id).model_dump()
+        return _normalize_qa_bundle_dict(result, exam_id=exam_id)
 
     results: list[dict[str, Any]] = []
     for idx, group in enumerate(groups, start=1):
@@ -1414,11 +1580,12 @@ def build_questions_answers_bundle_from_ocr(
             )
         )
 
-    return _merge_questions_answers_results(
+    merged = _merge_questions_answers_results(
         results,
         exam_id=exam_id,
         source_name=source_name,
     )
+    return _normalize_qa_bundle_dict(merged, exam_id=exam_id)
 
 
 def build_questions_answers_bundle_from_questions_only(
