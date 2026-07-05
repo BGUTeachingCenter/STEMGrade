@@ -5,18 +5,41 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from core.config import PROJECT_ROOT
+from core.config import (
+    PROJECT_ROOT,
+    APP_NAME,
+    APP_LOGO_MARK,
+    APP_DOMAIN_LABEL,
+    APP_HOME_SUBTITLE,
+    APP_SUBTITLE,
+    REFERENCE_BANK_LABEL,
+    ASSESSMENT_LABEL,
+)
 from core.security import get_session
 
 router = APIRouter(tags=["templates"])
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 
+def _brand_context() -> dict:
+    return {
+        "app_name": APP_NAME,
+        "app_logo_mark": APP_LOGO_MARK,
+        "app_domain_label": APP_DOMAIN_LABEL,
+        "app_home_subtitle": APP_HOME_SUBTITLE,
+        "app_subtitle": APP_SUBTITLE,
+        "reference_bank_label": REFERENCE_BANK_LABEL,
+        "assessment_label": ASSESSMENT_LABEL,
+    }
+
+
 def _render(request: Request, name: str, context: dict | None = None, status_code: int = 200):
+    merged_context = _brand_context()
+    merged_context.update(context or {})
     return templates.TemplateResponse(
         request=request,
         name=name,
-        context=context or {},
+        context=merged_context,
         status_code=status_code,
     )
 

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
-{% block title %}MathGrade{% endblock %}
-{% block header_title %}MathGrade{% endblock %}
-{% block header_subtitle %}AI-assisted math grading and feedback{% endblock %}
+{% block title %}{{ app_name }}{% endblock %}
+{% block header_title %}{{ app_name }}{% endblock %}
+{% block header_subtitle %}{{ app_home_subtitle }}{% endblock %}
 {% block header_actions %}
   <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
 {% endblock %}
@@ -11,8 +11,8 @@
   <main class="mg-public-shell">
     <section class="mg-public-hero-card">
       <div class="mg-public-copy">
-        <div class="badge">MathGrade</div>
-        <h1>Submit your math work and get feedback</h1>
+        <div class="badge">{{ app_name }}</div>
+        <h1>Submit your {{ app_domain_label }} work and get feedback</h1>
         <p class="lead">
           Use your student code to open the submission page, upload your answers,
           and receive feedback from the grading system.

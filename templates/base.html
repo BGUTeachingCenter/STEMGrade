@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{% block title %}MathGrade{% endblock %}</title>
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="stylesheet" href="/static/styles.css" />
   {% block extra_head %}{% endblock %}
 </head>
@@ -11,14 +11,14 @@
   {% block shell %}
   <header class="brandbar">
     <div class="brandbar-inner mathgrade-brandbar-inner">
-      <a href="/" class="app-logo-link mathgrade-logo-link" aria-label="MathGrade home">
-        <span class="mathgrade-logo-mark">∑</span>
-        <span class="mathgrade-logo-text">MathGrade</span>
+      <a href="/" class="app-logo-link mathgrade-logo-link" aria-label="{{ app_name }} home">
+        <span class="mathgrade-logo-mark">{{ app_logo_mark }}</span>
+        <span class="mathgrade-logo-text">{{ app_name }}</span>
       </a>
 
       <div class="portal-header-copy">
-        <div class="portal-header-title">{% block header_title %}MathGrade{% endblock %}</div>
-        <div class="portal-header-subtitle">{% block header_subtitle %}AI-assisted math grading and solution-bank management{% endblock %}</div>
+        <div class="portal-header-title">{% block header_title %}{{ app_name }}{% endblock %}</div>
+        <div class="portal-header-subtitle">{% block header_subtitle %}{{ app_subtitle }}{% endblock %}</div>
       </div>
 
       <div class="portal-header-actions">

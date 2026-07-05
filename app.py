@@ -15,12 +15,12 @@ from routes.solution_bank_routes import router as bank_router
 from routes.progress import router as progress_router
 from routes.stats import router as stats_router
 from routes.ocr_routes import router as ocr_router
-from core.config import ALLOWED_ORIGINS, PRODUCTION, PROJECT_ROOT
+from core.config import ALLOWED_ORIGINS, PRODUCTION, PROJECT_ROOT, APP_NAME
 from core.security import SESSION_SECRET_CONFIGURED
 
 logger = logging.getLogger("mathgrade")
 
-app = FastAPI(title="MathGrade Bundle Generator", version="1.0")
+app = FastAPI(title=f"{APP_NAME} Bundle Generator", version="1.0")
 register_error_handlers(app)
 
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")

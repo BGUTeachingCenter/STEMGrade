@@ -17,6 +17,23 @@ def env_str(name: str, default: str = "") -> str:
 
 
 # ---------------------------------------------------------------------
+# App branding / teacher-facing vocabulary
+# ---------------------------------------------------------------------
+# Keep these as display settings first. Do not mass-rename internal folders,
+# routes, env vars, or JSON files until the STEM generalization is stable.
+APP_NAME = env_str("APP_NAME", "STEMGrade")
+APP_LOGO_MARK = env_str("APP_LOGO_MARK", "⚛")
+APP_DOMAIN_LABEL = env_str("APP_DOMAIN_LABEL", "STEM")
+APP_HOME_SUBTITLE = env_str("APP_HOME_SUBTITLE", "AI-assisted STEM grading and feedback")
+APP_SUBTITLE = env_str(
+    "APP_SUBTITLE",
+    "AI-assisted STEM grading and reference-bank management",
+)
+REFERENCE_BANK_LABEL = env_str("REFERENCE_BANK_LABEL", "Reference Bank")
+ASSESSMENT_LABEL = env_str("ASSESSMENT_LABEL", "Assessment")
+DEFAULT_SUBJECT = env_str("DEFAULT_SUBJECT", "math")
+
+# ---------------------------------------------------------------------
 # Project-level AI model defaults
 # ---------------------------------------------------------------------
 # These are the defaults MathGrade will use when the values are not present
