@@ -115,6 +115,27 @@ def _sanitize_schema_for_gemini(schema: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
+def _chat_json_max_output_tokens() -> int:
+    """Output-token budget for chat_json.
+
+    Gemini's default output cap is small enough to truncate a full structured
+    bundle (Hebrew text + LaTeX is token-heavy). Default high; override with
+    GEMINI_CHAT_MAX_OUTPUT_TOKENS / GOOGLE_CHAT_MAX_OUTPUT_TOKENS.
+    """
+    raw = (
+        os.getenv("GEMINI_CHAT_MAX_OUTPUT_TOKENS")
+        or os.getenv("GOOGLE_CHAT_MAX_OUTPUT_TOKENS")
+        or ""
+    ).strip()
+    try:
+        value = int(raw)
+        if value > 0:
+            return value
+    except (TypeError, ValueError):
+        pass
+    return 32768
+
+
 def _guess_mime(path: Path) -> str:
     suffix = path.suffix.lower()
 
@@ -350,14 +371,20 @@ class GoogleClient:
 
         safe_schema = _sanitize_schema_for_gemini(schema)
 
+        generation_config: dict[str, Any] = {
+            "temperature": float(temperature),
+            "responseMimeType": "application/json",
+            "responseSchema": safe_schema,
+            # Without an explicit cap Gemini uses a small default output budget,
+            # which truncates long JSON (e.g. a full Hebrew exam bundle) mid-token
+            # and yields unparseable output. Give it plenty of room.
+            "maxOutputTokens": _chat_json_max_output_tokens(),
+        }
+
         payload = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {
-                "temperature": float(temperature),
-                "responseMimeType": "application/json",
-                "responseSchema": safe_schema,
-            },
+            "generationConfig": generation_config,
         }
 
         r = requests.post(url, params=params, json=payload, timeout=timeout_s)
@@ -372,16 +399,24 @@ class GoogleClient:
             task="chat_json",
         )
 
-        text = (
-                   data.get("candidates", [{}])[0]
-                   .get("content", {})
-                   .get("parts", [{}])[0]
-                   .get("text", "")
-               ) or ""
+        candidate = (data.get("candidates") or [{}])[0]
+        finish_reason = str(candidate.get("finishReason") or "").upper()
+
+        text = _extract_gemini_text(data)
+
+        if finish_reason == "MAX_TOKENS":
+            usage = data.get("usageMetadata") or {}
+            raise RuntimeError(
+                "Gemini response was truncated (finishReason=MAX_TOKENS). "
+                f"Output token budget was {generation_config['maxOutputTokens']} "
+                f"(candidatesTokenCount={usage.get('candidatesTokenCount')}). "
+                "Increase GEMINI_CHAT_MAX_OUTPUT_TOKENS or split the input."
+            )
 
         if not text:
             raise RuntimeError(
-                "Gemini returned empty text. First 800 chars of response:\n"
+                f"Gemini returned empty text (finishReason={finish_reason or 'unknown'}). "
+                "First 800 chars of response:\n"
                 + json.dumps(data, ensure_ascii=False)[:800]
             )
 
@@ -389,7 +424,8 @@ class GoogleClient:
             return _safe_json_loads(text)
         except Exception as e:
             raise RuntimeError(
-                f"Gemini returned non-JSON content. First 500 chars:\n{text[:500]}"
+                f"Gemini returned non-JSON content (finishReason={finish_reason or 'unknown'}). "
+                f"First 500 chars:\n{text[:500]}"
             ) from e
 
 
