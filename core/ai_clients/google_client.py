@@ -133,7 +133,10 @@ def _chat_json_max_output_tokens() -> int:
             return value
     except (TypeError, ValueError):
         pass
-    return 32768
+    # 65536 is the max output for the Gemini 2.5 family; a full solution bundle
+    # (many questions, each echoing question text + solution as JSON) can need
+    # far more than 32k output tokens.
+    return 65536
 
 
 def _guess_mime(path: Path) -> str:
@@ -406,11 +409,20 @@ class GoogleClient:
 
         if finish_reason == "MAX_TOKENS":
             usage = data.get("usageMetadata") or {}
+            thoughts = usage.get("thoughtsTokenCount")
+            thoughts_note = (
+                f", thoughtsTokenCount={thoughts} (thinking also consumes the budget)"
+                if thoughts
+                else ""
+            )
             raise RuntimeError(
-                "Gemini response was truncated (finishReason=MAX_TOKENS). "
-                f"Output token budget was {generation_config['maxOutputTokens']} "
-                f"(candidatesTokenCount={usage.get('candidatesTokenCount')}). "
-                "Increase GEMINI_CHAT_MAX_OUTPUT_TOKENS or split the input."
+                "Gemini response was truncated (finishReason=MAX_TOKENS): the model "
+                "hit its output-token limit before finishing the JSON. "
+                f"Budget was {generation_config['maxOutputTokens']} output tokens; "
+                f"promptTokenCount={usage.get('promptTokenCount')}, "
+                f"candidatesTokenCount={usage.get('candidatesTokenCount')}{thoughts_note}. "
+                "Raise GEMINI_CHAT_MAX_OUTPUT_TOKENS (max 65536 for Gemini 2.5), or "
+                "split the input into fewer questions per request."
             )
 
         if not text:
