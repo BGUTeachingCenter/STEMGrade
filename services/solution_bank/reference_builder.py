@@ -1217,6 +1217,143 @@ def build_answers_only_bundle_from_ocr(
     return _as_answers_only_bundle(result, exam_id=exam_id).model_dump()
 
 
+def _split_into_question_blocks(text: str) -> tuple[str, list[str]]:
+    """
+    Split combined questions+answers text into a shared preamble and a list of
+    per-question blocks, using LaTeX ``\\section*{...}`` headers as boundaries.
+
+    Returns (preamble, blocks). ``blocks`` is empty when fewer than two section
+    headers are found, signalling the caller to fall back to a single request.
+    """
+    matches = list(re.finditer(r"(?m)^[ \t]*\\section\*?\s*\{", text))
+    if len(matches) < 2:
+        return text, []
+
+    preamble = text[: matches[0].start()].strip()
+
+    blocks: list[str] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        block = text[m.start() : end].strip()
+        if block:
+            blocks.append(block)
+
+    return preamble, blocks
+
+
+def _group_blocks(blocks: list[str], per_chunk: int) -> list[list[str]]:
+    """Group question blocks into chunks of at most ``per_chunk`` questions.
+
+    Very short "divider" blocks (a bare section header with no body, e.g.
+    "שאלות שאינן להגשה") are attached to the following block so their context is
+    not stranded in a separate request.
+    """
+    groups: list[list[str]] = []
+    current: list[str] = []
+    pending_divider: list[str] = []
+
+    for block in blocks:
+        # A divider has a header but essentially no question body.
+        body = re.sub(r"(?m)^[ \t]*\\section\*?\s*\{[^}]*\}", "", block, count=1).strip()
+        if not body:
+            pending_divider.append(block)
+            continue
+
+        if pending_divider:
+            block = "\n\n".join([*pending_divider, block])
+            pending_divider = []
+
+        current.append(block)
+        if len(current) >= per_chunk:
+            groups.append(current)
+            current = []
+
+    # Any trailing divider with no following question is appended so it is not lost.
+    if pending_divider:
+        current.extend(pending_divider)
+
+    if current:
+        groups.append(current)
+
+    return groups
+
+
+def _qa_request_one(
+    *,
+    client: GptClient,
+    ocr_text: str,
+    source_name: str,
+    exam_id: str,
+    timeout_s: int,
+    chunk_note: str = "",
+) -> dict[str, Any]:
+    """Run a single questions+answers extraction request and return the raw dict."""
+    user_prompt = f"""
+exam_id: {exam_id}
+source_name: {source_name}
+{chunk_note}
+OCR source:
+-----------
+{ocr_text}
+"""
+
+    return client.chat_json(
+        system=QUESTIONS_ANSWERS_SYSTEM_PROMPT,
+        user=user_prompt,
+        schema=questions_answers_bundle_schema(),
+        schema_name="mathgrade_questions_answers_bundle",
+        strict=False,
+        timeout_s=timeout_s,
+    )
+
+
+def _merge_questions_answers_results(
+    results: list[dict[str, Any]],
+    *,
+    exam_id: str,
+    source_name: str,
+) -> dict[str, Any]:
+    """Merge per-chunk QuestionsAnswersBundle dicts into one, deduping by question_id."""
+    merged_questions: list[dict[str, Any]] = []
+    seen_qids: set[Any] = set()
+    warnings: list[str] = []
+    corrections: list[Any] = []
+    source_names: list[str] = []
+    exam_title = ""
+
+    for res in results:
+        if not isinstance(res, dict):
+            continue
+        exam_title = exam_title or str(res.get("exam_title") or "")
+
+        for q in res.get("questions") or []:
+            qid = q.get("question_id") if isinstance(q, dict) else None
+            if qid is not None and qid in seen_qids:
+                warnings.append(
+                    f"Duplicate question_id {qid} returned across chunks; kept the first occurrence."
+                )
+                continue
+            if qid is not None:
+                seen_qids.add(qid)
+            merged_questions.append(q)
+
+        warnings.extend(str(w) for w in (res.get("warnings") or []))
+        corrections.extend(res.get("structure_corrections") or [])
+        source_names.extend(str(s) for s in (res.get("source_names") or []))
+
+    merged = {
+        "schema_version": "questions_answers_bundle_v1",
+        "exam_id": exam_id,
+        "exam_title": exam_title,
+        "questions": merged_questions,
+        "warnings": list(dict.fromkeys(warnings)),
+        "structure_corrections": corrections,
+        "source_names": list(dict.fromkeys([*source_names, source_name])),
+    }
+
+    return _as_questions_answers_bundle(merged, exam_id=exam_id).model_dump()
+
+
 def build_questions_answers_bundle_from_ocr(
     *,
     ocr_text: str,
@@ -1230,30 +1367,58 @@ def build_questions_answers_bundle_from_ocr(
 
     Output:
       QuestionsAnswersBundle as dict.
+
+    Behavior:
+      A full solution file can produce a very large JSON bundle. Emitting it in
+      one request risks hitting the model's output-token limit (truncation) and
+      makes some models loop/over-generate. So when the text splits cleanly into
+      per-question blocks, we process a few questions per request and merge the
+      results. Otherwise we fall back to a single request.
     """
     client = client or GptClient()
 
-    user_prompt = f"""
-exam_id: {exam_id}
-source_name: {source_name}
-
-OCR source:
------------
-{ocr_text}
-"""
-
     timeout_s = int(os.getenv("MATHGRADE_QA_BUILDER_TIMEOUT_S", "240"))
+    per_chunk = max(1, int(os.getenv("MATHGRADE_QA_CHUNK_SIZE", "3")))
+    chunking_disabled = os.getenv("MATHGRADE_QA_CHUNK_DISABLE", "0").strip().lower() in {"1", "true", "yes", "on"}
 
-    result = client.chat_json(
-        system=QUESTIONS_ANSWERS_SYSTEM_PROMPT,
-        user=user_prompt,
-        schema=questions_answers_bundle_schema(),
-        schema_name="mathgrade_questions_answers_bundle",
-        strict=False,
-        timeout_s=timeout_s,
+    preamble, blocks = _split_into_question_blocks(ocr_text)
+    groups = [] if chunking_disabled else _group_blocks(blocks, per_chunk)
+
+    # Fall back to a single request when we cannot usefully chunk.
+    if len(groups) < 2:
+        result = _qa_request_one(
+            client=client,
+            ocr_text=ocr_text,
+            source_name=source_name,
+            exam_id=exam_id,
+            timeout_s=timeout_s,
+        )
+        return _as_questions_answers_bundle(result, exam_id=exam_id).model_dump()
+
+    results: list[dict[str, Any]] = []
+    for idx, group in enumerate(groups, start=1):
+        chunk_text = "\n\n".join([preamble, *group]).strip() if preamble else "\n\n".join(group)
+        chunk_note = (
+            f"This is part {idx} of {len(groups)} of one exam. Extract ONLY the "
+            f"questions present in the OCR source below; do not invent questions "
+            f"from other parts of the exam."
+        )
+        results.append(
+            _qa_request_one(
+                client=client,
+                ocr_text=chunk_text,
+                source_name=source_name,
+                exam_id=exam_id,
+                timeout_s=timeout_s,
+                chunk_note=chunk_note,
+            )
+        )
+
+    return _merge_questions_answers_results(
+        results,
+        exam_id=exam_id,
+        source_name=source_name,
     )
-
-    return _as_questions_answers_bundle(result, exam_id=exam_id).model_dump()
 
 
 def build_questions_answers_bundle_from_questions_only(
