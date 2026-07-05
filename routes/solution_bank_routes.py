@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 
 from core.security import require_teacher
-from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary
+from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary, write_question_reservoir
 from core.config import BANK_ROOT
 from common.tex.reference_tex import parse_reference_tex
 
@@ -449,6 +449,12 @@ def _build_and_save_full_solution_if_possible(
     structure = full_solution_to_exam_structure(full_result.full_solution_bundle)
 
     _write_json(uploads / "full_solution_bundle.json", full_dict)
+
+    # Save one JSON file per question (reservoir) for downstream per-question ops.
+    try:
+        write_question_reservoir(exam_id, full_dict)
+    except Exception:
+        pass
 
     # Compatibility: existing grading/reference code expects reference_bundle.json.
     _write_json(uploads / "reference_bundle.json", full_dict)
@@ -1175,6 +1181,13 @@ async def upload_to_bank(
                 full_solution_bundle = qa_result.full_solution_bundle.model_dump()
 
                 _write_json(uploads / "full_solution_bundle.json", full_solution_bundle)
+
+                # Save one JSON file per question (reservoir) for downstream ops.
+                try:
+                    write_question_reservoir(exam_id, full_solution_bundle)
+                except Exception:
+                    pass
+
                 full_report = validate_bundle_snapshot(full_solution_bundle, bundle_kind="full_solution")
                 trace.save_json("full_solution_bundle.json", full_solution_bundle, stage="full_solution")
                 trace.save_json("full_solution_validation.json", full_report, stage="full_solution")

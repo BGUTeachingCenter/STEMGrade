@@ -52,6 +52,146 @@ def uploads_dir(exam_id: str) -> Path:
 
 
 # -----------------------------
+# Per-question reservoir
+# -----------------------------
+# Alongside the complete full_solution_bundle.json we also save one JSON file
+# per question, so downstream operations (regrading a single question, reusing a
+# question, editing one solution) can read/write questions individually without
+# touching the whole bundle.
+
+def reservoir_dir(exam_id: str) -> Path:
+    d = uploads_dir(exam_id) / "questions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _question_filename(question_id: Any) -> str:
+    """Safe, stable filename for one question, e.g. q1.json."""
+    token = re.sub(r"[^A-Za-z0-9_\-]", "_", str(question_id)).strip("_") or "unknown"
+    return f"q{token}.json"
+
+
+def write_question_reservoir(exam_id: str, full_bundle: dict[str, Any]) -> list[Path]:
+    """
+    Write one JSON file per question from a full_solution_bundle dict, plus an
+    index.json, into solution_bank/<exam_id>/uploads/questions/.
+
+    Each per-question file is self-contained: it carries the exam context
+    (exam_id, exam_title, source_names) together with the single question, so it
+    can be consumed on its own.
+
+    Returns the list of per-question file paths written. Stale question files
+    from a previous upload are removed so the reservoir mirrors the current
+    bundle exactly.
+    """
+    exam_id = require_safe_exam_id(exam_id)
+    rdir = reservoir_dir(exam_id)
+
+    exam_title = str(full_bundle.get("exam_title") or "")
+    source_names = list(full_bundle.get("source_names") or [])
+    questions = full_bundle.get("questions") or []
+
+    written: list[Path] = []
+    index_entries: list[dict[str, Any]] = []
+    keep_names: set[str] = {"index.json"}
+
+    for question in questions:
+        if not isinstance(question, dict):
+            continue
+
+        question_id = question.get("question_id")
+        filename = _question_filename(question_id)
+
+        # Avoid clobbering when two questions share an id (keep first, suffix rest).
+        if filename in keep_names:
+            base = filename[:-5]
+            n = 2
+            while f"{base}__{n}.json" in keep_names:
+                n += 1
+            filename = f"{base}__{n}.json"
+
+        parts = question.get("parts") or []
+        payload = {
+            "schema_version": "reservoir_question_v1",
+            "exam_id": exam_id,
+            "exam_title": exam_title,
+            "question_id": question_id,
+            "parts": parts,
+            "source_names": source_names,
+        }
+
+        path = rdir / filename
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        written.append(path)
+        keep_names.add(filename)
+        index_entries.append(
+            {
+                "question_id": question_id,
+                "file": filename,
+                "part_count": len(parts),
+                "part_keys": [
+                    str(p.get("part_key") or p.get("part") or "")
+                    for p in parts
+                    if isinstance(p, dict)
+                ],
+            }
+        )
+
+    index = {
+        "schema_version": "reservoir_index_v1",
+        "exam_id": exam_id,
+        "exam_title": exam_title,
+        "question_count": len(index_entries),
+        "questions": index_entries,
+        "source_names": source_names,
+    }
+    (rdir / "index.json").write_text(
+        json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Remove stale question files that are no longer part of the bundle.
+    for existing in rdir.glob("q*.json"):
+        if existing.name not in keep_names:
+            try:
+                existing.unlink()
+            except OSError:
+                pass
+
+    return written
+
+
+def read_question_reservoir(exam_id: str) -> list[dict[str, Any]]:
+    """Read all per-question reservoir files for an exam, ordered by the index."""
+    exam_id = require_safe_exam_id(exam_id)
+    rdir = uploads_dir(exam_id) / "questions"
+    if not rdir.exists():
+        return []
+
+    index_path = rdir / "index.json"
+    order: list[str] = []
+    if index_path.exists():
+        try:
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            order = [e.get("file") for e in (index.get("questions") or []) if e.get("file")]
+        except Exception:
+            order = []
+
+    files = order or sorted(p.name for p in rdir.glob("q*.json"))
+
+    out: list[dict[str, Any]] = []
+    for name in files:
+        p = rdir / name
+        if not p.exists():
+            continue
+        try:
+            out.append(json.loads(p.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return out
+
+
+# -----------------------------
 # Reference summary support
 # -----------------------------
 
