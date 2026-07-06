@@ -1,6 +1,7 @@
 # core/storage.py
 from __future__ import annotations
 
+import contextvars
 import json
 import re
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from .config import BANK_ROOT
+from .config import BANK_ROOT, TEACHER_BANK_ROOT
 from common.exam_summary import (
     build_reference_summary_from_full_solution_json,
     build_reference_summary_from_tex,
@@ -18,6 +19,61 @@ from common.exam_summary import (
 # underscore and hyphen; it must start with a letter or number (no leading
 # space) and must not contain path separators or ".." (no path traversal).
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\- ]{0,80}$")
+
+
+_SAFE_TEACHER_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,80}$")
+
+_ACTIVE_BANK_ROOT: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "mathgrade_active_bank_root",
+    default=None,
+)
+
+
+def require_safe_teacher_id(teacher_id: str) -> str:
+    """Validate teacher_id before using it as a folder name."""
+    teacher_id = (teacher_id or "").strip()
+    if not _SAFE_TEACHER_ID_RE.match(teacher_id):
+        raise HTTPException(status_code=400, detail="Invalid teacher_id.")
+    return teacher_id
+
+
+def teacher_bank_root(teacher_id: str) -> Path:
+    """Return the isolated solution bank root for one teacher."""
+    teacher_id = require_safe_teacher_id(teacher_id)
+    d = TEACHER_BANK_ROOT / teacher_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def bind_bank_root(bank_root: Path | str | None) -> None:
+    """
+    Set the active bank root for the current request/task.
+
+    Existing call sites can keep using uploads_dir(exam_id), exam_dir(exam_id),
+    write_reference_summary(exam_id), etc.; they will resolve through this
+    active context.
+    """
+    if bank_root is None:
+        _ACTIVE_BANK_ROOT.set(None)
+        return
+    root = Path(bank_root)
+    root.mkdir(parents=True, exist_ok=True)
+    _ACTIVE_BANK_ROOT.set(root)
+
+
+def current_bank_root(bank_root: Path | str | None = None) -> Path:
+    if bank_root is not None:
+        root = Path(bank_root)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    root = _ACTIVE_BANK_ROOT.get()
+    if root is not None:
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    BANK_ROOT.mkdir(parents=True, exist_ok=True)
+    return BANK_ROOT
 
 
 def require_safe_exam_id(exam_id: str) -> str:
@@ -41,12 +97,12 @@ def require_safe_filename(name: str) -> str:
     return name
 
 
-def exam_dir(exam_id: str) -> Path:
-    return BANK_ROOT / exam_id
+def exam_dir(exam_id: str, *, bank_root: Path | str | None = None) -> Path:
+    return current_bank_root(bank_root) / exam_id
 
 
-def uploads_dir(exam_id: str) -> Path:
-    d = exam_dir(exam_id) / "uploads"
+def uploads_dir(exam_id: str, *, bank_root: Path | str | None = None) -> Path:
+    d = exam_dir(exam_id, bank_root=bank_root) / "uploads"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -59,8 +115,8 @@ def uploads_dir(exam_id: str) -> Path:
 # question, editing one solution) can read/write questions individually without
 # touching the whole bundle.
 
-def reservoir_dir(exam_id: str) -> Path:
-    d = uploads_dir(exam_id) / "questions"
+def reservoir_dir(exam_id: str, *, bank_root: Path | str | None = None) -> Path:
+    d = uploads_dir(exam_id, bank_root=bank_root) / "questions"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -195,27 +251,27 @@ def read_question_reservoir(exam_id: str) -> list[dict[str, Any]]:
 # Reference summary support
 # -----------------------------
 
-def reference_tex_path(exam_id: str) -> Path:
+def reference_tex_path(exam_id: str, *, bank_root: Path | str | None = None) -> Path:
     """
     Canonical display/export TeX for an exam_id.
 
     Grading should prefer full_solution_bundle.json. This TeX is kept for
     preview/PDF/export and legacy fallback only.
     """
-    return uploads_dir(exam_id) / "reference_current.tex"
+    return uploads_dir(exam_id, bank_root=bank_root) / "reference_current.tex"
 
 
-def reference_json_path(exam_id: str) -> Path:
+def reference_json_path(exam_id: str, *, bank_root: Path | str | None = None) -> Path:
     """Canonical structured grading reference for an exam_id."""
-    return uploads_dir(exam_id) / "full_solution_bundle.json"
+    return uploads_dir(exam_id, bank_root=bank_root) / "full_solution_bundle.json"
 
 
-def summary_path(exam_id: str) -> Path:
+def summary_path(exam_id: str, *, bank_root: Path | str | None = None) -> Path:
     """
     Canonical location of the precomputed summary JSON for an exam_id.
     Matching reads these instead of parsing reference files at runtime.
     """
-    return uploads_dir(exam_id) / "reference_summary.json"
+    return uploads_dir(exam_id, bank_root=bank_root) / "reference_summary.json"
 
 
 def write_reference_summary(
@@ -223,6 +279,7 @@ def write_reference_summary(
     *,
     tex_path: Path | None = None,
     json_path: Path | None = None,
+    bank_root: Path | str | None = None,
 ) -> Path:
     """
     Generate + write reference_summary.json for this exam_id.
@@ -238,9 +295,9 @@ def write_reference_summary(
     exam_id = require_safe_exam_id(exam_id)
 
     if json_path is None:
-        json_path = reference_json_path(exam_id)
+        json_path = reference_json_path(exam_id, bank_root=bank_root)
     if tex_path is None:
-        tex_path = reference_tex_path(exam_id)
+        tex_path = reference_tex_path(exam_id, bank_root=bank_root)
 
     if json_path.exists():
         payload = build_reference_summary_from_full_solution_json(json_path, exam_id=exam_id)
@@ -251,15 +308,15 @@ def write_reference_summary(
             f"No reference source found for {exam_id}. Expected {json_path} or {tex_path}"
         )
 
-    p = summary_path(exam_id)
+    p = summary_path(exam_id, bank_root=bank_root)
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return p
 
 
-def read_reference_summary(exam_id: str) -> dict[str, Any] | None:
+def read_reference_summary(exam_id: str, *, bank_root: Path | str | None = None) -> dict[str, Any] | None:
     """Read summary JSON if present, else None."""
     exam_id = require_safe_exam_id(exam_id)
-    p = summary_path(exam_id)
+    p = summary_path(exam_id, bank_root=bank_root)
     if not p.exists():
         return None
     try:
@@ -268,18 +325,21 @@ def read_reference_summary(exam_id: str) -> dict[str, Any] | None:
         return None
 
 
-def list_exam_summaries() -> list[dict[str, Any]]:
+def list_exam_summaries(*, bank_root: Path | str | None = None) -> list[dict[str, Any]]:
     """
     Return summaries for all exams that have reference_summary.json.
     Useful for fast matching (no TeX parsing).
     """
     out: list[dict[str, Any]] = []
-    if not BANK_ROOT.exists():
+    root = current_bank_root(bank_root)
+
+    if not root.exists():
         return out
 
-    for d in BANK_ROOT.iterdir():
+    for d in root.iterdir():
         if not d.is_dir():
             continue
+
         p = d / "uploads" / "reference_summary.json"
         if p.exists():
             try:
@@ -287,15 +347,13 @@ def list_exam_summaries() -> list[dict[str, Any]]:
                 if isinstance(data, dict):
                     out.append(data)
             except Exception:
-                # ignore broken summary files
                 pass
 
-    # stable ordering
     out.sort(key=lambda x: (x.get("exam_id") or ""))
     return out
 
 
-def ensure_reference_summary(exam_id: str) -> Path | None:
+def ensure_reference_summary(exam_id: str, *, bank_root: Path | str | None = None) -> Path | None:
     """
     Ensure summary exists for exam_id.
 
@@ -303,11 +361,11 @@ def ensure_reference_summary(exam_id: str) -> Path | None:
     for legacy exams.
     """
     exam_id = require_safe_exam_id(exam_id)
-    sp = summary_path(exam_id)
+    sp = summary_path(exam_id, bank_root=bank_root)
     if sp.exists():
         return sp
 
     try:
-        return write_reference_summary(exam_id)
+        return write_reference_summary(exam_id, bank_root=bank_root)
     except Exception:
         return None

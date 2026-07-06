@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 
-from core.storage import exam_dir  # add this import
+from core.storage import bind_bank_root, exam_dir, teacher_bank_root
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -52,6 +52,22 @@ router = APIRouter(prefix="/routes/bank", tags=["bank"])
 #-----------
 # Helpers
 #-----------
+
+
+def _teacher_id_from_session(session: dict | None) -> str:
+    return ((session or {}).get("teacher_id") or (session or {}).get("sub") or "").strip()
+
+
+def _bind_teacher_bank_from_session(session: dict | None) -> Path:
+    teacher_id = _teacher_id_from_session(session)
+    if not teacher_id or teacher_id == "teacher":
+        raise HTTPException(
+            status_code=400,
+            detail="Teacher profile is required for a private reference bank.",
+        )
+    root = teacher_bank_root(teacher_id)
+    bind_bank_root(root)
+    return root
 
 
 def _progress(job_id: str | None, msg: str) -> None:
@@ -875,6 +891,7 @@ async def upload_to_bank(
       - answers_only
       - questions_answers
     """
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(exam_id)
     content_type = _canonical_content_type(content_type)
     document_type = _canonical_bank_document_type(document_type)
@@ -1578,6 +1595,7 @@ async def upload_questions_and_answers_pair_to_bank(
     This keeps the old pipeline stable while giving the UI a simpler
     one-button workflow for the common Q/A-in-separate-files case.
     """
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(exam_id)
     questions_document_type = _canonical_bank_document_type(questions_document_type)
     answers_document_type = _canonical_bank_document_type(answers_document_type)
@@ -1659,6 +1677,7 @@ def list_exam_files(
     exam_id: str,
     _session: dict = Depends(require_teacher),
 ):
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(exam_id)
     uploads = uploads_dir(exam_id)
 
@@ -1726,6 +1745,8 @@ def bank_token_usage(_session: dict = Depends(require_teacher)):
     Returns per-exam totals plus an OCR vs AI (structuring) split, and a
     per-content_type breakdown for finer display.
     """
+    bank_root = _bind_teacher_bank_from_session(_session)
+    teacher_id = _teacher_id_from_session(_session)
     log_dir = usage_log_dir()
 
     by_exam: dict[str, dict] = {}
@@ -1744,6 +1765,9 @@ def bank_token_usage(_session: dict = Depends(require_teacher)):
             try:
                 rec = json.loads(line)
             except Exception:
+                continue
+
+            if str(rec.get("teacher_id") or "").strip() != teacher_id:
                 continue
 
             exam_id = (rec.get("exam_id") or "").strip()
@@ -1792,6 +1816,7 @@ def bank_token_usage(_session: dict = Depends(require_teacher)):
 
 @router.get("/preview")
 def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(exam_id)
     filename = require_safe_filename(filename)
 
@@ -1870,6 +1895,7 @@ def preview_file(exam_id: str, filename: str, _session: dict = Depends(require_t
 
 @router.get("/raw")
 def raw_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(exam_id)
     filename = require_safe_filename(filename)
 
@@ -1891,6 +1917,7 @@ def raw_file(exam_id: str, filename: str, _session: dict = Depends(require_teach
 
 @router.delete("/delete")
 def delete_file(exam_id: str, filename: str, _session: dict = Depends(require_teacher)):
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(exam_id)
     filename = require_safe_filename(filename)
 
@@ -1914,10 +1941,11 @@ def delete_file(exam_id: str, filename: str, _session: dict = Depends(require_te
 
 @router.get("/exams")
 def list_exams(_session: dict = Depends(require_teacher)):
-    BANK_ROOT.mkdir(parents=True, exist_ok=True)
+    bank_root = _bind_teacher_bank_from_session(_session)
+    bank_root.mkdir(parents=True, exist_ok=True)
 
     exam_ids = []
-    for p in sorted(BANK_ROOT.iterdir()):
+    for p in sorted(bank_root.iterdir()):
         if not p.is_dir():
             continue
 
@@ -1930,14 +1958,15 @@ def list_exams(_session: dict = Depends(require_teacher)):
 @router.post("/exam/delete")
 def delete_exam(req: ExamDeleteReq, _session: dict = Depends(require_teacher)):
     """Delete an entire exam_id folder (uploads + meta + files)."""
+    bank_root = _bind_teacher_bank_from_session(_session)
     exam_id = require_safe_exam_id(req.exam_id)
     d = exam_dir(exam_id)  # BANK_ROOT/exam_id
 
     if not d.exists():
         raise HTTPException(status_code=404, detail="exam_id not found")
 
-    # Safety: refuse deleting the bank root by mistake
-    if d.resolve() == BANK_ROOT.resolve():
+    # Safety: refuse deleting the active teacher bank root by mistake
+    if d.resolve() == bank_root.resolve():
         raise HTTPException(status_code=400, detail="Refusing to delete bank root")
 
     shutil.rmtree(d)
@@ -1949,6 +1978,7 @@ def delete_exam(req: ExamDeleteReq, _session: dict = Depends(require_teacher)):
 @router.post("/exam/rename")
 def rename_exam(req: ExamRenameReq, _session: dict = Depends(require_teacher)):
     """Rename an exam_id folder (and update meta exam_id fields)."""
+    bank_root = _bind_teacher_bank_from_session(_session)
     old_id = require_safe_exam_id(req.old_exam_id)
     new_id = require_safe_exam_id(req.new_exam_id)
 

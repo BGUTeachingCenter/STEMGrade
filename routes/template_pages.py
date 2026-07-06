@@ -60,12 +60,12 @@ def serve_feedback(request: Request):
 
     # Students and teachers may both use the feedback machine.
     # Teacher usage is test mode and should not be counted as student submissions.
-    p = PROJECT_ROOT / "templates" / "feedback.html"
+    p = PROJECT_ROOT / "templates" / "student_page.html"
     if not p.exists():
-        raise HTTPException(status_code=404, detail="templates/feedback.html not found")
+        raise HTTPException(status_code=404, detail="templates/student_page.html not found")
     return _render(
         request,
-        "feedback.html",
+        "student_page.html",
         context={
             "session_role": s.get("role"),
             "is_teacher_test": s.get("role") == "teacher",

@@ -42,7 +42,7 @@ def _collect_candidates_from_summaries(bank_dir: Path) -> List[CandidateRef]:
     """
     out: List[CandidateRef] = []
 
-    for s in list_exam_summaries():
+    for s in list_exam_summaries(bank_root=bank_dir):
         exam_id = (s.get("exam_id") or "").strip()
         if not exam_id:
             continue
@@ -63,7 +63,7 @@ def _collect_candidates_from_summaries(bank_dir: Path) -> List[CandidateRef]:
             # same JSON bundle that grading will use.
             if s.get("source") != "full_solution_bundle.json":
                 try:
-                    summary_path = write_reference_summary(exam_id)
+                    summary_path = write_reference_summary(exam_id, bank_root=bank_dir)
                     refreshed = json.loads(summary_path.read_text(encoding="utf-8"))
                     if isinstance(refreshed, dict):
                         s = refreshed

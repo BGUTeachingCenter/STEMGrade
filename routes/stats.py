@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from openpyxl import load_workbook
 
+from services.student_access import active_student_code_set_for_teacher
 from core.config import RUNS_ROOT
 from core.security import require_teacher
 
@@ -43,6 +44,15 @@ def _read_rows() -> list[dict[str, Any]]:
 @router.get("/teacher_dashboard")
 def teacher_dashboard(_session: dict = Depends(require_teacher)):
     rows = _read_rows()
+
+    teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+    teacher_codes = active_student_code_set_for_teacher(teacher_id)
+
+    # Only show submissions from students assigned to this teacher/course.
+    rows = [
+        r for r in rows
+        if (str(r.get("code") or "").strip() in teacher_codes)
+    ]
 
     # 1) usage per day (submissions/day)
     per_day = Counter()

@@ -17,6 +17,11 @@ from core.security import (
     set_profile_session_cookie,
     require_teacher,
 )
+from services.student_access import (
+    authenticate_student_code,
+    create_student_codes,
+    list_student_codes_for_teacher,
+)
 from services.teacher_profiles import (
     authenticate_teacher,
     change_teacher_password,
@@ -115,6 +120,12 @@ class ChangeTeacherPasswordRequest(BaseModel):
     new_password_confirm: str
 
 
+class CreateStudentCodesRequest(BaseModel):
+    count: int = 1
+    course_label: str = ""
+    note: str = ""
+
+
 def _normalize_code(code: str) -> str:
     return (code or "").strip()
 
@@ -163,13 +174,25 @@ def login(req: LoginRequest, request: Request, response: Response):
         _record_failed_attempt(ip)
         raise HTTPException(status_code=400, detail="Missing code")
 
-    if not is_allowed_student_code(code):
+    student_access = authenticate_student_code(code)
+    if not student_access:
         _record_failed_attempt(ip)
-        raise HTTPException(status_code=401, detail="Invalid code")
+        raise HTTPException(status_code=401, detail="Invalid student code")
 
-    set_session_cookie(response, role="student", sub=code)
+    set_profile_session_cookie(
+        response,
+        role="student",
+        sub=student_access["code"],
+        teacher_id=student_access["teacher_id"],
+    )
     _record_successful_attempt(ip)
-    return {"ok": True, "role": "student"}
+    return {
+        "ok": True,
+        "role": "student",
+        "teacher_id": student_access["teacher_id"],
+        "subject": student_access.get("subject", "math"),
+        "course_label": student_access.get("course_label", ""),
+    }
 
 
 @router.get("/teacher/subjects")
@@ -266,6 +289,33 @@ def teacher_change_password(req: ChangeTeacherPasswordRequest, _session: dict = 
         new_password_confirm=req.new_password_confirm,
     )
     return {"ok": True}
+
+
+@router.get("/teacher/student_codes")
+def teacher_student_codes(_session: dict = Depends(require_teacher)):
+    teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+    if not teacher_id or teacher_id == "teacher":
+        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot manage student codes.")
+    return {
+        "ok": True,
+        "teacher_id": teacher_id,
+        "codes": list_student_codes_for_teacher(teacher_id),
+    }
+
+
+@router.post("/teacher/student_codes")
+def teacher_create_student_codes(req: CreateStudentCodesRequest, _session: dict = Depends(require_teacher)):
+    teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+    if not teacher_id or teacher_id == "teacher":
+        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot create student codes.")
+
+    codes = create_student_codes(
+        teacher_id=teacher_id,
+        count=req.count,
+        course_label=req.course_label,
+        note=req.note,
+    )
+    return {"ok": True, "teacher_id": teacher_id, "codes": codes}
 
 
 @router.post("/logout")

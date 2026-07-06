@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from routes.progress import done, fail, init_job, push
 from routes.student_log_routes import log_student_submission
 from core.config import BANK_ROOT, FIXED_FONT, RUNS_ROOT
-from core.storage import require_safe_exam_id, write_reference_summary
+from core.storage import bind_bank_root, require_safe_exam_id, teacher_bank_root, write_reference_summary
 from core.debug import create_debug_trace, write_debug_log
 from core.security import require_session
 from services.student_grading.grading.grader_payloads import grade_payload_manifest
@@ -158,9 +158,20 @@ async def _grade_tex_flow(
         session_role=session.get("role") if session else None,
         student_code=student_code,
     )
-    teacher_id = ""
-    if session.get("role") == "teacher":
-        teacher_id = (session.get("teacher_id") or session.get("sub") or "").strip()
+    session_role = session.get("role")
+    teacher_id = (session.get("teacher_id") or "").strip()
+
+    if session_role == "teacher" and not teacher_id:
+        teacher_id = (session.get("sub") or "").strip()
+
+    if session_role == "student" and not teacher_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Student code is not assigned to a teacher/course.",
+        )
+
+    active_bank_root = teacher_bank_root(teacher_id) if teacher_id else BANK_ROOT
+    bind_bank_root(active_bank_root)
 
     bind_usage_context(
         debug_run_id=trace.run_id,
@@ -230,15 +241,15 @@ async def _grade_tex_flow(
         if job_id:
             push(job_id, "Fetching reference from solution bank…")
 
-        if not BANK_ROOT.exists():
-            raise RuntimeError(f"Solution bank folder does not exist: {BANK_ROOT}")
+        if not active_bank_root.exists():
+            raise RuntimeError(f"Solution bank folder does not exist: {active_bank_root}")
 
         t_ref = perf_counter()
         manual_exam_id = (selected_exam_id or "").strip() if session.get("role") == "teacher" else ""
 
         if manual_exam_id:
             exam_id = require_safe_exam_id(manual_exam_id)
-            uploads = BANK_ROOT / exam_id / "uploads"
+            uploads = active_bank_root / exam_id / "uploads"
             json_ref = uploads / "full_solution_bundle.json"
             tex_ref = uploads / "reference_current.tex"
             if json_ref.exists():
@@ -270,7 +281,7 @@ async def _grade_tex_flow(
         else:
             match = await run_in_threadpool(
                 pick_reference_with_match_info,
-                bank_dir=BANK_ROOT,
+                bank_dir=active_bank_root,
                 student_tex=tex_path,
                 prefer_heuristic=True,
                 llm_top_k=12,
@@ -319,7 +330,7 @@ async def _grade_tex_flow(
             if student_summary_path is None or not student_summary_path.exists():
                 student_summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
 
-            reference_summary_path = BANK_ROOT / str(exam_id) / "uploads" / "reference_summary.json"
+            reference_summary_path = active_bank_root / str(exam_id) / "uploads" / "reference_summary.json"
             student_summary = read_json_file(student_summary_path) or {}
             reference_summary = read_json_file(reference_summary_path) or {}
 

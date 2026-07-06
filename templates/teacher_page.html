@@ -29,6 +29,7 @@
     <nav class="mg-teacher-tabs" aria-label="Teacher portal sections">
       <a href="#teacherStats">Overview</a>
       <a href="#teacherProfile">Profile & prompts</a>
+      <a href="#studentCodes">Student codes</a>
       <a href="#teacherBank">{{ reference_bank_label }}</a>
       <a href="#uploadReference">Upload to Bank</a>
     </nav>
@@ -77,6 +78,42 @@
         <div class="mg-upload-reference-actions"><button id="changeTeacherPasswordBtn" class="secondary-btn" type="button">Change password</button></div>
         <div id="passwordStatus" class="statusBox">Password must be at least 10 characters and include uppercase, lowercase, and a digit.</div>
       </details>
+    </div>
+  </div>
+</section>
+
+<section class="mg-teacher-section mg-student-codes-section" id="studentCodes">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Student codes</h2>
+      <p>Create course/student access codes. Students who log in with these codes will use your reference bank.</p>
+    </div>
+  </div>
+
+  <div class="card mg-bank-big-card">
+    <div class="cardInner">
+      <div class="mg-upload-reference-grid">
+        <div>
+          <label for="studentCodeCount">Number of codes</label>
+          <input id="studentCodeCount" type="number" min="1" max="200" value="1" />
+        </div>
+        <div>
+          <label for="studentCourseLabel">Course / group label</label>
+          <input id="studentCourseLabel" type="text" placeholder="e.g. Linear Algebra 2026" />
+        </div>
+        <div>
+          <label for="studentCodeNote">Note</label>
+          <input id="studentCodeNote" type="text" placeholder="Optional note…" />
+        </div>
+      </div>
+
+      <div class="mg-upload-reference-actions">
+        <button id="createStudentCodesBtn" type="button">Create student codes</button>
+      </div>
+
+      <div id="newStudentCodesBox" class="statusBox" style="display:none;"></div>
+      <div id="studentCodesStatus" class="statusBox">Loading student codes…</div>
+      <div id="studentCodesList" class="list"></div>
     </div>
   </div>
 </section>
@@ -465,6 +502,110 @@
       setProfileStatus("Profile load failed: " + (e && e.message ? e.message : String(e)), "err");
     }
   }
+
+  function studentCodeCard(c) {
+    return `
+      <div class="mg-bank-item">
+        <div class="mg-bank-item-main">
+          <div class="mg-bank-item-title">
+            <code>${escapeHtml(c.code || "")}</code>
+          </div>
+          <div class="small"><strong>Course:</strong> ${escapeHtml(c.course_label || "—")}</div>
+          <div class="small"><strong>Subject:</strong> ${escapeHtml(c.subject_label || c.subject || "—")}</div>
+          <div class="small"><strong>Status:</strong> ${escapeHtml(c.status || "")}</div>
+          <div class="small"><strong>Uses:</strong> ${Number(c.uses || 0).toLocaleString()}</div>
+          <div class="small"><strong>Last used:</strong> ${escapeHtml(c.last_used_at || "—")}</div>
+          <div class="small"><strong>Created:</strong> ${escapeHtml(c.created_at || "")}</div>
+          ${c.note ? `<div class="small"><strong>Note:</strong> ${escapeHtml(c.note)}</div>` : ""}
+        </div>
+        <div class="mg-solution-actions">
+          <button type="button" class="secondary small mg-copy-student-code" data-code="${escapeHtml(c.code || "")}">
+            Copy
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function loadStudentCodes() {
+    const status = $("studentCodesStatus");
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/student_codes", { cache: "no-store" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not load student codes.");
+
+      const codes = j.codes || [];
+      if ($("studentCodesList")) {
+        $("studentCodesList").innerHTML = codes.length
+          ? codes.map(studentCodeCard).join("")
+          : `<div class="emptyState">No student codes yet.</div>`;
+      }
+
+      if (status) {
+        status.textContent = `${codes.length} student code${codes.length === 1 ? "" : "s"} for this teacher.`;
+        status.classList.remove("err", "work");
+        status.classList.add("ok");
+      }
+
+      document.querySelectorAll(".mg-copy-student-code").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.code || "");
+            btn.textContent = "Copied";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+          } catch (_) {
+            btn.textContent = "Copy failed";
+          }
+        });
+      });
+    } catch (e) {
+      if (status) {
+        status.textContent = "Student code load failed: " + (e && e.message ? e.message : String(e));
+        status.classList.remove("ok", "work");
+        status.classList.add("err");
+      }
+    }
+  }
+
+  async function createStudentCodes() {
+    const count = Number($("studentCodeCount") ? $("studentCodeCount").value : 1) || 1;
+    const course_label = $("studentCourseLabel") ? $("studentCourseLabel").value.trim() : "";
+    const note = $("studentCodeNote") ? $("studentCodeNote").value.trim() : "";
+
+    const box = $("newStudentCodesBox");
+    if (box) {
+      box.style.display = "block";
+      box.textContent = "Creating student codes…";
+    }
+
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/student_codes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ count, course_label, note }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not create student codes.");
+
+      const codes = j.codes || [];
+      if (box) {
+        box.innerHTML =
+          `<strong>New codes:</strong><br>` +
+          codes.map(c => `<code style="font-weight:800;">${escapeHtml(c.code)}</code>`).join("<br>");
+      }
+
+      await loadStudentCodes();
+    } catch (e) {
+      if (box) {
+        box.textContent = "Create failed: " + (e && e.message ? e.message : String(e));
+      }
+    }
+  }
+
+  if ($("createStudentCodesBtn")) {
+    $("createStudentCodesBtn").addEventListener("click", createStudentCodes);
+  }
+  loadStudentCodes();
 
   async function saveTeacherProfile() {
     const payload = {

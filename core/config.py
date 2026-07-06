@@ -97,6 +97,14 @@ PRODUCTION = env_bool("PRODUCTION", "0")
 BANK_ROOT = Path(os.getenv("MATHGRADE_SOLUTION_BANK_DIR", PROJECT_ROOT / "solution_bank"))
 BANK_ROOT.mkdir(parents=True, exist_ok=True)
 
+# Teacher-specific solution banks.
+# Each teacher profile gets a separate bank under:
+#   data/teacher_banks/<teacher_id>/
+TEACHER_BANK_ROOT = Path(
+    os.getenv("MATHGRADE_TEACHER_BANK_DIR", PROJECT_ROOT / "data" / "teacher_banks")
+)
+TEACHER_BANK_ROOT.mkdir(parents=True, exist_ok=True)
+
 # Teacher profiles/vouchers are intentionally stored outside the solution bank.
 # This keeps access control data separate from teacher-uploaded reference files.
 TEACHER_DATA_ROOT = Path(
