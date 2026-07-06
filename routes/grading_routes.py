@@ -158,11 +158,16 @@ async def _grade_tex_flow(
         session_role=session.get("role") if session else None,
         student_code=student_code,
     )
+    teacher_id = ""
+    if session.get("role") == "teacher":
+        teacher_id = (session.get("teacher_id") or session.get("sub") or "").strip()
+
     bind_usage_context(
         debug_run_id=trace.run_id,
         route="grade_tex",
         provider=normalized_provider,
         student_code=student_code,
+        teacher_id=teacher_id or None,
     )
     trace.log("grading", "started", provider=normalized_provider, student_filename=student_tex.filename, selected_exam_id=selected_exam_id if session.get("role") == "teacher" else None)
 

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Create Teacher Profile · {{ app_name }}{% endblock %}
+{% block header_title %}Create Teacher Profile{% endblock %}
+{% block header_subtitle %}Redeem a voucher, select a subject, and set your password{% endblock %}
+{% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
+  <a class="secondary-btn small" href="/">Home</a>
+{% endblock %}
+
+{% block content %}
+<main class="mg-agent-login-page mg-teacher-register-page">
+  <section class="mg-agent-login-card">
+    <div class="mg-agent-login-visual" aria-hidden="true">
+      <div class="mg-agent-orb mg-agent-orb-one"></div>
+      <div class="mg-agent-orb mg-agent-orb-two"></div>
+      <div class="mg-agent-phone">
+        <div class="mg-agent-phone-top"><span></span><span></span><span></span></div>
+        <div class="mg-agent-message-row bot"><div class="mg-agent-avatar">🎟️</div><div class="mg-agent-message"><strong>Voucher</strong><span>One-time access code.</span></div></div>
+        <div class="mg-agent-message-row user"><div class="mg-agent-message"><strong>Profile</strong><span>Subject, prompt, password.</span></div><div class="mg-agent-avatar">🧑‍🏫</div></div>
+      </div>
+    </div>
+
+    <div class="mg-agent-login-copy">
+      <div class="badge">{{ app_name }}</div>
+      <h1>Create Teacher Profile</h1>
+      <p class="lead">Use the voucher from the admin. Your password is hashed before it is stored.</p>
+      <div id="registerNotice" class="alert error" style="display:none;"></div>
+      <form id="registerForm" class="bot-form mg-agent-login-form" autocomplete="off">
+        <label><span>Voucher code</span><input id="voucherCode" type="text" required placeholder="STEM-…" dir="auto" /></label>
+        <label><span>Name</span><input id="teacherName" type="text" required placeholder="Teacher name" /></label>
+        <label><span>Email</span><input id="teacherEmail" type="email" required placeholder="teacher@example.edu" /></label>
+        <label><span>Subject</span><select id="teacherSubject"></select></label>
+        <label><span>Basic grading prompt</span><textarea id="gradingPromptExtra" rows="5" placeholder="Optional subject-specific grading priorities…"></textarea></label>
+        <label><span>Password</span><input id="teacherPassword" type="password" required autocomplete="new-password" placeholder="At least 10 chars, upper/lowercase and digit" /></label>
+        <label><span>Confirm password</span><input id="teacherPasswordConfirm" type="password" required autocomplete="new-password" /></label>
+        <button id="registerBtn" type="submit" class="primary-btn mg-agent-login-submit"><span>Create profile</span><span class="mg-btn-arrow">→</span></button>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const DEFAULT_PROMPTS = {
+  math: "Grade mathematical reasoning, notation, algebra/calculus steps, final answer, and justification. Do not give credit for an unsupported final answer when the method is required.",
+  physics: "Grade physical reasoning, formula selection, unit consistency, substitution, signs/directions, significant figures, and interpretation of the result.",
+  chemistry: "Grade chemical notation, balanced equations, units, stoichiometry, charges, states/phases when relevant, and conceptual explanation.",
+  biology: "Grade biological terminology, process accuracy, evidence, diagrams/labels when relevant, and whether the explanation answers the requested mechanism or comparison.",
+  cs: "Grade algorithmic reasoning, code correctness, edge cases, complexity, outputs, syntax/indentation when relevant, and whether the answer matches the required programming task.",
+  engineering: "Grade modeling assumptions, equations, units, constraints, calculations, safety factors, diagrams, and interpretation of engineering results.",
+  general_stem: "Grade the STEM reasoning, correct use of domain concepts, units/notation where relevant, evidence, and clarity of explanation."
+};
+const form = document.getElementById("registerForm");
+const notice = document.getElementById("registerNotice");
+const btn = document.getElementById("registerBtn");
+function showNotice(msg){ notice.textContent = msg || "Registration failed."; notice.style.display = "block"; }
+function hideNotice(){ notice.textContent = ""; notice.style.display = "none"; }
+async function loadSubjects(){
+  const res = await fetch("/routes/teacher/subjects", {cache:"no-store"});
+  const data = await res.json();
+  const subjects = data.subjects || [];
+  document.getElementById("teacherSubject").innerHTML = subjects.map(s => `<option value="${s.value}">${s.label}</option>`).join("");
+  document.getElementById("gradingPromptExtra").value = DEFAULT_PROMPTS[document.getElementById("teacherSubject").value] || "";
+}
+document.getElementById("teacherSubject").addEventListener("change", (ev) => {
+  const box = document.getElementById("gradingPromptExtra");
+  if (!box.value.trim() || Object.values(DEFAULT_PROMPTS).includes(box.value.trim())) {
+    box.value = DEFAULT_PROMPTS[ev.target.value] || "";
+  }
+});
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault(); hideNotice(); btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const payload = {
+      voucher_code: document.getElementById("voucherCode").value.trim(),
+      teacher_name: document.getElementById("teacherName").value.trim(),
+      teacher_email: document.getElementById("teacherEmail").value.trim(),
+      subject: document.getElementById("teacherSubject").value,
+      grading_prompt_extra: document.getElementById("gradingPromptExtra").value.trim(),
+      password: document.getElementById("teacherPassword").value,
+      password_confirm: document.getElementById("teacherPasswordConfirm").value
+    };
+    const res = await fetch("/routes/teacher/register", {method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"}, body: JSON.stringify(payload)});
+    const data = await res.json().catch(()=>null);
+    if (!res.ok || !data || !data.ok) { showNotice((data && data.detail) || "Could not create profile."); return; }
+    window.location.href = "/teacher";
+  } catch(err) { showNotice("Error: " + (err && err.message ? err.message : String(err))); }
+  finally { btn.disabled = false; btn.innerHTML = '<span>Create profile</span><span class="mg-btn-arrow">→</span>'; }
+});
+loadSubjects();
+</script>
+{% endblock %}

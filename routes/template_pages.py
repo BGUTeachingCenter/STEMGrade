@@ -119,6 +119,30 @@ def teacher_login(request: Request):
     return _render(request, "teacher_login.html")
 
 
+@router.get("/admin-login")
+def admin_login(request: Request):
+    s = get_session(request)
+    if s and s.get("role") == "admin":
+        return RedirectResponse(url="/admin", status_code=303)
+
+    p = PROJECT_ROOT / "templates" / "admin_login.html"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="templates/admin_login.html not found")
+    return _render(request, "admin_login.html")
+
+
+@router.get("/admin")
+def serve_admin(request: Request):
+    s = get_session(request)
+    if not s or s.get("role") != "admin":
+        return RedirectResponse(url="/admin-login", status_code=303)
+
+    p = PROJECT_ROOT / "templates" / "admin_page.html"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="templates/admin_page.html not found")
+    return _render(request, "admin_page.html")
+
+
 @router.get("/student-login")
 def student_login(request: Request):
     s = get_session(request)

@@ -44,10 +44,22 @@ async def ocr_handwritten(
         model=ocr_model or None,
         source_name=filename,
     )
+    session_role = _session.get("role")
+    teacher_id = ""
+    student_code = ""
+
+    if session_role == "teacher":
+        teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+    elif session_role == "student":
+        student_code = (_session.get("sub") or "").strip()
+
     bind_usage_context(
         debug_run_id=trace.run_id,
         route="ocr_handwritten",
         provider=ocr_provider,
+        session_role=session_role,
+        teacher_id=teacher_id or None,
+        student_code=student_code or None,
     )
     trace.log("ocr", "started", filename=filename, suffix=suffix, provider=ocr_provider, model=ocr_model or None)
 

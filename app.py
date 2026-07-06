@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routes.auth import router as auth_router
+from routes.admin_routes import router as admin_router
 from routes.error_handlers import register_error_handlers
 from routes.health import router as health_router
 from routes.template_pages import router as web_router
@@ -59,5 +60,6 @@ app.include_router(grading_router)
 app.include_router(bank_router)
 app.include_router(progress_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(stats_router)
 app.include_router(ocr_router)

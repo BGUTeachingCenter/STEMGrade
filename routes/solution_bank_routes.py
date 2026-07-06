@@ -904,11 +904,14 @@ async def upload_to_bank(
 
     # Attribute every OCR/AI usage record produced during this upload to this
     # exam + content_type, so data/ai_usage_logs can be aggregated per solution.
+    teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+
     bind_usage_context(
         exam_id=exam_id,
         content_type=content_type,
         bank_source=tex_file.filename,
         debug_run_id=trace.run_id,
+        teacher_id=teacher_id or None,
     )
     trace.log("bank_upload", "started", exam_id=exam_id, content_type=content_type, document_type=document_type, subject=subject, source_name=tex_file.filename)
 

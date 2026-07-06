@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Portal · {{ app_name }}{% endblock %}
+{% block header_title %}Admin Portal{% endblock %}
+{% block header_subtitle %}Create teacher vouchers and review access{% endblock %}
+{% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
+  <button id="adminLogoutBtn" class="secondary-btn small" type="button">Logout</button>
+{% endblock %}
+
+{% block content %}
+<div class="mg-teacher-page mg-admin-page">
+  <section class="mg-teacher-hero">
+    <div>
+      <div class="badge">Access management</div>
+      <h1>Admin Portal</h1>
+      <p class="lead">Create one-time vouchers. Teachers redeem a voucher, choose a subject, and set their own password.</p>
+    </div>
+    <div class="mg-teacher-hero-meta"><span class="pill">Admin</span></div>
+  </section>
+
+  <section class="mg-teacher-section">
+    <div class="mg-teacher-section-head">
+      <div><h2>Create teacher voucher</h2><p>The raw voucher is shown only once. Copy it and send it to the teacher.</p></div>
+    </div>
+    <div class="card mg-bank-big-card"><div class="cardInner">
+      <div class="mg-upload-reference-grid">
+        <div>
+          <label for="voucherSubject">Default subject</label>
+          <select id="voucherSubject"></select>
+        </div>
+        <div>
+          <label for="voucherNote">Admin note</label>
+          <input id="voucherNote" type="text" placeholder="Optional note, course, semester…" />
+        </div>
+      </div>
+      <div class="mg-upload-reference-actions">
+        <button id="createVoucherBtn" type="button">Create voucher</button>
+      </div>
+      <div id="newVoucherBox" class="statusBox" style="display:none;"></div>
+    </div></div>
+  </section>
+
+  <section class="mg-teacher-section">
+    <div class="mg-teacher-section-head"><div><h2>Teachers</h2><p>Registered teacher profiles.</p></div></div>
+    <div class="card mg-bank-big-card"><div class="cardInner"><div id="teachersList" class="list"></div></div></div>
+  </section>
+
+  <section class="mg-teacher-section">
+    <div class="mg-teacher-section-head">
+      <div>
+        <h2>Vouchers</h2>
+        <p>
+          Voucher status, assigned subject, reusable code, and token usage.
+          Older vouchers created before code retention may only show their stored hash.
+        </p>
+      </div>
+    </div>
+    <div class="card mg-bank-big-card"><div class="cardInner"><div id="vouchersList" class="list"></div></div></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = (id) => document.getElementById(id);
+let SUBJECTS = [];
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+async function authedFetch(url, options = {}) {
+  const res = await fetch(url, { credentials: "same-origin", ...options });
+  if (res.status === 401 || res.status === 403) {
+    window.location.href = "/admin-login";
+  }
+  return res;
+}
+
+function renderSubjects() {
+  const sel = $("voucherSubject");
+  if (!sel) return;
+
+  sel.innerHTML = SUBJECTS.map((s) => (
+    `<option value="${escapeHtml(s.value)}">${escapeHtml(s.label)}</option>`
+  )).join("");
+}
+
+function formatNumber(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n.toLocaleString() : "0";
+}
+
+function itemCard(title, rows, extra = "") {
+  return `
+    <div class="mg-bank-item">
+      <div class="mg-bank-item-main">
+        <div class="mg-bank-item-title">${title}</div>
+        ${rows.map((r) => `<div class="small">${r}</div>`).join("")}
+        ${extra}
+      </div>
+    </div>
+  `;
+}
+
+function usageRows(usage) {
+  const u = usage || {};
+  return [
+    `<strong>Total tokens:</strong> ${formatNumber(u.total_tokens)}`,
+    `<strong>Input tokens:</strong> ${formatNumber(u.input_tokens)}`,
+    `<strong>Output tokens:</strong> ${formatNumber(u.output_tokens)}`,
+    `<strong>Reasoning tokens:</strong> ${formatNumber(u.reasoning_tokens)}`,
+    `<strong>AI/OCR calls:</strong> ${formatNumber(u.calls)}`,
+  ];
+}
+
+function voucherCard(v) {
+  const isUsed = v.status === "used";
+  const status = isUsed ? "✅ Used voucher" : "🎟️ Unused voucher";
+  const subject = escapeHtml(v.subject_label || v.subject || "");
+  const usedBy = escapeHtml(v.used_by_email || v.used_by_teacher_id || "—");
+  const code = v.voucher_code || v.raw_code || "";
+
+  const codeHtml = code
+    ? `<code style="font-size:1rem; font-weight:800;">${escapeHtml(code)}</code>`
+    : `<span class="muted">Not available for older vouchers created before code retention.</span>`;
+
+  const copyButton = code
+    ? `<button type="button" class="secondary-btn small mg-copy-voucher-btn" data-code="${escapeHtml(code)}">Copy code</button>`
+    : "";
+
+  return itemCard(
+    `${status} · ${subject}`,
+    [
+      `<strong>Voucher code:</strong> ${codeHtml} ${copyButton}`,
+      `<strong>Assigned subject:</strong> ${subject || "—"}`,
+      `<strong>Status:</strong> ${escapeHtml(v.status || "")}`,
+      `<strong>Created:</strong> ${escapeHtml(v.created_at || "")}`,
+      `<strong>Note:</strong> ${escapeHtml(v.note || "—")}`,
+      `<strong>Used by:</strong> ${usedBy}`,
+      `<strong>Stored hash:</strong> <code>${escapeHtml(v.voucher_hash_short || v.voucher_hash || "")}</code>`,
+      ...usageRows(v.token_usage),
+    ]
+  );
+}
+
+function teacherCard(t) {
+  const usage = t.token_usage || {};
+  return itemCard(
+    `${escapeHtml(t.name || t.teacher_id)} · ${escapeHtml(t.subject_label || t.subject || "")}`,
+    [
+      `<strong>Email:</strong> ${escapeHtml(t.email || "")}`,
+      `<strong>Teacher ID:</strong> <code>${escapeHtml(t.teacher_id || "")}</code>`,
+      `<strong>Status:</strong> ${escapeHtml(t.status || "")}`,
+      `<strong>Created:</strong> ${escapeHtml(t.created_at || "")}`,
+      `<strong>Total tokens:</strong> ${formatNumber(usage.total_tokens)}`,
+      `<strong>AI/OCR calls:</strong> ${formatNumber(usage.calls)}`,
+    ]
+  );
+}
+
+async function loadAdminData() {
+  const vr = await authedFetch("/routes/admin/vouchers", { cache: "no-store" });
+  const vd = await vr.json();
+
+  SUBJECTS = vd.subjects || [];
+  renderSubjects();
+
+  const vouchers = vd.vouchers || [];
+  $("vouchersList").innerHTML = vouchers.length
+    ? vouchers.map(voucherCard).join("")
+    : `<div class="emptyState">No vouchers yet.</div>`;
+
+  const tr = await authedFetch("/routes/admin/teachers", { cache: "no-store" });
+  const td = await tr.json();
+
+  const teachers = td.teachers || [];
+  $("teachersList").innerHTML = teachers.length
+    ? teachers.map(teacherCard).join("")
+    : `<div class="emptyState">No teacher profiles yet.</div>`;
+
+  document.querySelectorAll(".mg-copy-voucher-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.code || "");
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = "Copy code"; }, 1200);
+      } catch (_) {
+        btn.textContent = "Copy failed";
+      }
+    });
+  });
+}
+
+function showNewVoucher(code) {
+  const safeCode = escapeHtml(code);
+
+  $("newVoucherBox").style.display = "block";
+  $("newVoucherBox").innerHTML = `
+    <div>
+      <div class="small"><strong>New voucher code</strong></div>
+      <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-top:0.5rem;">
+        <code id="latestVoucherCode" style="font-size:1.25rem; font-weight:800;">${safeCode}</code>
+        <button id="copyVoucherCodeBtn" type="button" class="secondary-btn small">Copy</button>
+      </div>
+      <div class="small" style="margin-top:0.5rem;">
+        This code is now also saved in the voucher history.
+      </div>
+    </div>
+  `;
+
+  $("copyVoucherCodeBtn")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      $("copyVoucherCodeBtn").textContent = "Copied";
+    } catch (_) {
+      $("copyVoucherCodeBtn").textContent = "Copy failed";
+    }
+  });
+}
+
+$("createVoucherBtn").addEventListener("click", async () => {
+  const subject = $("voucherSubject").value || "math";
+  const note = $("voucherNote").value || "";
+
+  $("createVoucherBtn").disabled = true;
+
+  try {
+    const res = await authedFetch("/routes/admin/vouchers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subject, note }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.detail || "Could not create voucher.");
+    }
+
+    const code = data.voucher.voucher_code;
+    showNewVoucher(code);
+
+    $("voucherNote").value = "";
+    await loadAdminData();
+  } catch (err) {
+    $("newVoucherBox").style.display = "block";
+    $("newVoucherBox").textContent = "Error: " + (err && err.message ? err.message : String(err));
+  } finally {
+    $("createVoucherBtn").disabled = false;
+  }
+});
+
+$("adminLogoutBtn").addEventListener("click", async () => {
+  await fetch("/routes/logout", { method: "POST", credentials: "same-origin" });
+  window.location.href = "/";
+});
+
+loadAdminData();
+</script>
+{% endblock %}

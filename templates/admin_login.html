@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login · {{ app_name }}{% endblock %}
+{% block header_title %}{{ app_name }} Admin{% endblock %}
+{% block header_subtitle %}Create teacher vouchers and manage teacher access{% endblock %}
+{% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
+  <a class="secondary-btn small" href="/">Home</a>
+{% endblock %}
+
+{% block content %}
+<main class="mg-agent-login-page mg-admin-login-page">
+  <section class="mg-agent-login-card">
+    <div class="mg-agent-login-visual" aria-hidden="true">
+      <div class="mg-agent-orb mg-agent-orb-one"></div>
+      <div class="mg-agent-orb mg-agent-orb-two"></div>
+      <div class="mg-agent-phone">
+        <div class="mg-agent-phone-top"><span></span><span></span><span></span></div>
+        <div class="mg-agent-message-row bot">
+          <div class="mg-agent-avatar">{{ app_logo_mark }}</div>
+          <div class="mg-agent-message"><strong>Admin access</strong><span>Create one-time teacher vouchers.</span></div>
+        </div>
+        <div class="mg-agent-message-row user">
+          <div class="mg-agent-message"><strong>Secure setup</strong><span>Teachers create their own password.</span></div>
+          <div class="mg-agent-avatar">🔐</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mg-agent-login-copy">
+      <div class="badge">{{ app_name }}</div>
+      <h1>Admin Login</h1>
+      <p class="lead">Use the app admin password to create teacher vouchers and review teacher profiles.</p>
+      <div id="adminNotice" class="alert error" style="display:none;"></div>
+      <form id="adminLoginForm" class="bot-form mg-agent-login-form" autocomplete="off">
+        <label>
+          <span>Admin password</span>
+          <input id="adminPasswordInput" type="password" placeholder="Enter admin password…" required autocomplete="off" />
+        </label>
+        <button id="adminLoginBtn" type="submit" class="primary-btn mg-agent-login-submit">
+          <span>Open Admin Portal</span><span class="mg-btn-arrow">→</span>
+        </button>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById("adminLoginForm");
+const input = document.getElementById("adminPasswordInput");
+const btn = document.getElementById("adminLoginBtn");
+const notice = document.getElementById("adminNotice");
+function showNotice(msg){ notice.textContent = msg || "Login failed."; notice.style.display = "block"; }
+function hideNotice(){ notice.textContent = ""; notice.style.display = "none"; }
+async function checkExisting(){
+  try {
+    const res = await fetch("/routes/me", {credentials:"same-origin", cache:"no-store"});
+    const data = await res.json();
+    if (data && data.ok && data.role === "admin") window.location.replace("/admin");
+  } catch(_){ }
+}
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault(); hideNotice();
+  const password = (input.value || "").trim();
+  if (!password) { showNotice("Please enter the admin password."); return; }
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const res = await fetch("/routes/admin/login", {
+      method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"},
+      body: JSON.stringify({password})
+    });
+    const data = await res.json().catch(()=>null);
+    if (!res.ok || !data || !data.ok) { showNotice((data && data.detail) || "Invalid admin password."); return; }
+    input.value = ""; window.location.href = "/admin";
+  } catch(err) { showNotice("Login error: " + (err && err.message ? err.message : String(err))); }
+  finally { btn.disabled = false; btn.innerHTML = '<span>Open Admin Portal</span><span class="mg-btn-arrow">→</span>'; }
+});
+checkExisting();
+</script>
+{% endblock %}
