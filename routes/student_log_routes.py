@@ -7,7 +7,6 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from core.config import RUNS_ROOT
-from routes.auth import is_teacher_code
 
 SUBMISSIONS_XLSX = RUNS_ROOT / "student_submissions.xlsx"
 SUBMISSIONS_SHEET = "submissions"
@@ -37,7 +36,7 @@ def log_student_submission(
     if role == "teacher":
         return
 
-    if not code or is_teacher_code(code):
+    if not code:
         return
 
     SUBMISSIONS_XLSX.parent.mkdir(parents=True, exist_ok=True)

@@ -15,7 +15,6 @@ from core.security import (
     get_session,
     set_session_cookie,
     set_profile_session_cookie,
-    verify_teacher_password,
     require_teacher,
 )
 from services.teacher_profiles import (
@@ -37,7 +36,6 @@ ALLOWLIST_SHEET = "allowlist"
 # --- Rate limiting -----------------------------------------------------------
 # Simple per-IP sliding window for the login endpoint. Not a substitute for a
 # real rate limiter, but enough to slow online brute force of student codes
-# and the teacher password.
 _RL_WINDOW_SECONDS = 60
 _RL_MAX_ATTEMPTS = 10
 _RL_LOCKOUT_SECONDS = 300
@@ -148,15 +146,9 @@ def _read_allowlist_codes() -> Set[str]:
     return codes
 
 
-def is_teacher_code(code: str) -> bool:
-    return verify_teacher_password(_normalize_code(code))
-
-
 def is_allowed_student_code(code: str) -> bool:
     code = _normalize_code(code)
     if not code:
-        return False
-    if is_teacher_code(code):
         return False
     return code in _read_allowlist_codes()
 
@@ -170,11 +162,6 @@ def login(req: LoginRequest, request: Request, response: Response):
     if not code:
         _record_failed_attempt(ip)
         raise HTTPException(status_code=400, detail="Missing code")
-
-    if is_teacher_code(code):
-        set_session_cookie(response, role="teacher", sub="teacher")
-        _record_successful_attempt(ip)
-        return {"ok": True, "role": "teacher"}
 
     if not is_allowed_student_code(code):
         _record_failed_attempt(ip)

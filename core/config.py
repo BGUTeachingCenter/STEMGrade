@@ -79,34 +79,6 @@ DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 # have not migrated to teacher profiles yet.
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
-# Teacher/admin auth
-TEACHER_PASSWORD = os.getenv("TEACHER_PASSWORD", "").strip()
-
-# Teacher profile storage
-TEACHER_DATA_ROOT = Path(os.getenv("MATHGRADE_TEACHER_DATA_DIR", RUNS_ROOT / "teacher_profiles"))
-TEACHER_DATA_ROOT.mkdir(parents=True, exist_ok=True)
-
-# STEM subject registry
-SUBJECT_OPTIONS = [
-    "math",
-    "physics",
-    "chemistry",
-    "biology",
-    "cs",
-    "engineering",
-    "general_stem",
-]
-
-SUBJECT_LABELS = {
-    "math": "Math",
-    "physics": "Physics",
-    "chemistry": "Chemistry",
-    "biology": "Biology",
-    "cs": "Computer Science",
-    "engineering": "Engineering",
-    "general_stem": "General STEM",
-}
-
 # Session auth
 SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))  # 8h
@@ -127,7 +99,9 @@ BANK_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Teacher profiles/vouchers are intentionally stored outside the solution bank.
 # This keeps access control data separate from teacher-uploaded reference files.
-TEACHER_DATA_ROOT = Path(os.getenv("MATHGRADE_TEACHER_DATA_DIR", RUNS_ROOT / "teacher_profiles"))
+TEACHER_DATA_ROOT = Path(
+    os.getenv("MATHGRADE_TEACHER_DATA_DIR", PROJECT_ROOT / "data" / "teacher_profiles")
+)
 TEACHER_DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
 SUBJECT_OPTIONS = [

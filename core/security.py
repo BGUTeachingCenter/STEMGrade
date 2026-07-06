@@ -17,7 +17,6 @@ from .config import (
     COOKIE_SECURE,
     SESSION_SECRET,
     SESSION_TTL_SECONDS,
-    TEACHER_PASSWORD,
 )
 
 COOKIE_NAME = "mathgrade_session"
@@ -195,10 +194,3 @@ def verify_admin_password(pw: Optional[str]) -> bool:
     if not ADMIN_PASSWORD or not pw:
         return False
     return hmac.compare_digest(pw.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8"))
-
-
-def verify_teacher_password(pw: Optional[str]) -> bool:
-    """Backward-compatible legacy teacher-code check against env."""
-    if not TEACHER_PASSWORD or not pw:
-        return False
-    return hmac.compare_digest(pw.encode("utf-8"), TEACHER_PASSWORD.encode("utf-8"))
