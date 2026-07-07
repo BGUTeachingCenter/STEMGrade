@@ -29,8 +29,9 @@
               <div class="mg-login-indicator" id="loginIndicator">Checking login…</div>
             </div>
           <h1>Upload your work</h1>
-          <p class="lead mg-compact-lead">
+           <p class="lead mg-compact-lead">
             Upload a LaTeX answer file for grading, or upload a handwritten page for OCR review.
+            OCR uploads are treated as handwritten work.
           </p>
         </div>
       </div>
@@ -115,18 +116,6 @@
           </select>
           <div class="small mg-field-help">
             Used only for OCR uploads. TeX/TXT uploads skip OCR.
-          </div>
-        </div>
-
-        <div style="margin-top:.5rem;">
-          <label for="ocrDocumentMode">OCR document type</label>
-          <select id="ocrDocumentMode">
-            <option value="auto">Auto detect</option>
-            <option value="handwritten">Handwritten scan</option>
-            <option value="printed">Printed / typed PDF</option>
-          </select>
-          <div class="small mg-field-help">
-            Auto should detect image-only handwritten PDFs. Override only while testing.
           </div>
         </div>
 
@@ -228,7 +217,6 @@
     const ocrBtn = document.getElementById("ocrBtn");
     const logoutBtnTop = document.getElementById("logoutBtnTop");
     const backToTeacherBtn = document.getElementById("backToTeacherBtn");
-    const ocrDocumentMode = document.getElementById("ocrDocumentMode");
     const teacherReferencePanel = document.getElementById("teacherReferencePanel");
     const teacherReferenceMode = document.getElementById("teacherReferenceMode");
     const teacherReferenceChooser = document.getElementById("teacherReferenceChooser");
@@ -673,7 +661,8 @@
         form.append("file", hw);
         const ocrProvider = document.getElementById("ocrProvider").value;
         form.append("ocr_provider", ocrProvider);
-        form.append("ocr_document_mode", ocrDocumentMode ? ocrDocumentMode.value : "auto");
+        // Student feedback assumes handwritten work. Keep backend explicit.
+        form.append("ocr_document_mode", "handwritten");
         const res = await authedFetch(ENDPOINT_OCR, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
         const data = contentType.includes("application/json") ? await res.json() : null;
