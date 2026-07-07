@@ -2798,3 +2798,101 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     width: 100%;
   }
 }
+
+/* Student saved OCR actions */
+.mg-student-result-actions {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.mg-student-result-actions .primary-btn.small,
+.mg-student-result-actions .secondary-btn.small {
+  min-height: 40px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .mg-student-result-actions {
+    justify-content: stretch;
+  }
+
+  .mg-student-result-actions .primary-btn.small,
+  .mg-student-result-actions .secondary-btn.small,
+  .mg-student-result-actions a {
+    width: 100%;
+  }
+}
+
+/* Student saved work cards: cleaner OCR/history layout */
+.mg-student-results-list {
+  max-height: 460px;
+  gap: 12px;
+}
+
+.mg-student-result-item {
+  grid-template-columns: 1fr !important;
+  align-items: stretch;
+  padding: 18px 20px;
+  gap: 14px;
+}
+
+.mg-student-result-main {
+  min-width: 0;
+}
+
+.mg-student-result-title {
+  font-size: 20px;
+  line-height: 1.1;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.mg-student-result-source {
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mg-student-result-file {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mg-student-result-actions {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.mg-student-result-actions .primary-btn.small,
+.mg-student-result-actions .secondary-btn.small,
+.mg-student-result-actions a.secondary-btn.small {
+  width: auto;
+  min-width: 132px;
+  flex: 0 0 auto;
+}
+
+.mg-student-result-item-ocr {
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.07), transparent 36%),
+    #fffdfa;
+}
+
+@media (max-width: 700px) {
+  .mg-student-result-actions .primary-btn.small,
+  .mg-student-result-actions .secondary-btn.small,
+  .mg-student-result-actions a.secondary-btn.small {
+    width: 100%;
+    min-width: 0;
+  }
+}

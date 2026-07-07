@@ -36,6 +36,7 @@ from services.teacher_profiles import (
     subject_options,
     update_teacher_profile,
 )
+from services.student_work_store import list_student_work_for_dashboard
 
 from openpyxl import Workbook, load_workbook
 
@@ -91,6 +92,11 @@ def _list_previous_student_results(student_code: str) -> list[dict]:
             continue
 
         if not isinstance(meta, dict):
+            continue
+
+        # If this result was produced from a saved OCR work item, the dashboard
+        # will show it inside that OCR work card instead of as a separate card.
+        if str(meta.get("source_work_id") or "").strip():
             continue
 
         final_file = str(meta.get("final_file") or "").strip()
@@ -466,7 +472,9 @@ def student_dashboard(_session: dict = Depends(require_session)):
             "subject_label": record.get("subject_label") or teacher.get("subject_label") or record.get("subject") or "Math",
             "note": record.get("note") or "",
         },
-        "previous_results": _list_previous_student_results(student_code),
+        # Canonical student-visible history now lives in:
+        # data/student_work/<teacher>/<voucher>/<student>/<work_id>/
+        "previous_results": list_student_work_for_dashboard(student_code)[:40],
     }
 
 

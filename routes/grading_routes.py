@@ -30,6 +30,10 @@ from services.student_grading.feedback_tex import build_feedback_tex
 from common.exam_summary import _safe_str, compare_summaries, read_json_file, write_student_summary as write_student_summary_file
 from services.student_grading.unified_tex import build_unified_tex
 from core.ai_clients.ai_usage_logger import bind_usage_context
+from services.student_work_store import (
+    attach_grading_feedback_to_student_work,
+    create_tex_student_work,
+)
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 
@@ -106,6 +110,7 @@ def _write_result_metadata(
     provider: str,
     final_path: Path,
     debug: bool,
+    source_work_id: str | None = None,
 ) -> None:
     meta = {
         "student_code": student_code,
@@ -114,6 +119,7 @@ def _write_result_metadata(
         "debug": debug,
         "saved_at": datetime.now().isoformat(timespec="seconds"),
         "final_file": final_path.name,
+        "source_work_id": source_work_id or "",
     }
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -130,10 +136,12 @@ async def _grade_tex_flow(
     session: dict,
     request: Request | None,
     selected_exam_id: str | None = None,
+    source_work_id: str | None = None,
     debug: bool = False,
 ) -> FileResponse:
     # Trust only the session for identity; never the form field.
     student_code = session["sub"] if session.get("role") == "student" else None
+    source_work_id = (source_work_id or "").strip() if student_code else ""
     """
     Canonical flow (no duplicate extraction):
 
@@ -204,7 +212,37 @@ async def _grade_tex_flow(
         tex_path.write_bytes(student_upload_bytes)
         artifact_name = "student_answer_bundle.json" if tex_path.suffix.lower() == ".json" else f"student_upload{tex_path.suffix or '.tex'}"
         trace.save_bytes(artifact_name, student_upload_bytes, stage="student_upload")
-        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes), suffix=tex_path.suffix.lower())
+        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes),
+                  suffix=tex_path.suffix.lower())
+
+        # If this is a direct student TeX/TXT upload, create a canonical
+        # student-work folder now. OCR uploads already created one earlier and
+        # pass source_work_id from the frontend.
+        if student_code and not source_work_id:
+            try:
+                created_work = create_tex_student_work(
+                    student_code=student_code,
+                    teacher_id=teacher_id,
+                    source_filename=uploaded_name,
+                    uploaded_bytes=student_upload_bytes,
+                    debug_trace_id=trace.run_id,
+                    debug_trace_dir=str(trace.path) if trace.enabled else "",
+                )
+                source_work_id = str(created_work.get("work_id") or "").strip()
+                trace.log(
+                    "student_work_store",
+                    "direct_tex_saved",
+                    work_id=source_work_id,
+                    teacher_id=created_work.get("teacher_id"),
+                    voucher_id=created_work.get("voucher_id"),
+                )
+            except Exception as e:
+                trace.log(
+                    "student_work_store",
+                    "direct_tex_save_failed",
+                    status="warning",
+                    error=_safe_str(e, 500),
+                )
         if job_id:
             push(job_id, "Saved student file")
 
@@ -568,6 +606,8 @@ async def _grade_tex_flow(
         )
         shutil.copy2(result_path, final_persistent_path)
 
+        result_saved_at = datetime.now().isoformat(timespec="seconds")
+
         _write_result_metadata(
             meta_path=final_persistent_path.with_suffix(".json"),
             student_code=student_code,
@@ -575,7 +615,35 @@ async def _grade_tex_flow(
             provider=normalized_provider,
             final_path=final_persistent_path,
             debug=debug,
+            source_work_id=source_work_id,
         )
+
+        if student_code and source_work_id:
+            try:
+                updated_work = attach_grading_feedback_to_student_work(
+                    student_code=student_code,
+                    work_id=source_work_id,
+                    exam_id=str(exam_id),
+                    provider=normalized_provider,
+                    final_path=final_persistent_path,
+                    saved_at=result_saved_at,
+                )
+                if updated_work:
+                    trace.log(
+                        "student_work_store",
+                        "feedback_attached",
+                        work_id=source_work_id,
+                        exam_id=str(exam_id),
+                        provider=normalized_provider,
+                    )
+            except Exception as e:
+                trace.log(
+                    "student_work_store",
+                    "feedback_attach_failed",
+                    status="warning",
+                    work_id=source_work_id,
+                    error=_safe_str(e, 500),
+                )
         trace.save_file(final_persistent_path, f"persisted_result{final_persistent_path.suffix}", stage="persist")
         trace.save_file(final_persistent_path.with_suffix(".json"), "persisted_result_metadata.json", stage="persist")
         trace.log(
@@ -630,6 +698,7 @@ async def grade_tex_ollama(
     job_id: str | None = Form(None),
     selected_exam_id: str | None = Form(None),
     session: dict = Depends(require_session),
+    source_work_id: str | None = Form(None),
 ):
     return await _grade_tex_flow(
         provider="ollama",
@@ -638,6 +707,7 @@ async def grade_tex_ollama(
         session=session,
         request=request,
         selected_exam_id=selected_exam_id,
+        source_work_id=source_work_id,
         debug=DEBUG,
     )
 
@@ -648,6 +718,7 @@ async def grade_tex_google(
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
     selected_exam_id: str | None = Form(None),
+    source_work_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     # IMPORTANT: pass "google" (not "gemini") so client selection + schema pruning match
@@ -658,6 +729,7 @@ async def grade_tex_google(
         session=session,
         request=request,
         selected_exam_id=selected_exam_id,
+        source_work_id=source_work_id,
         debug=DEBUG,
     )
 
@@ -668,6 +740,7 @@ async def grade_tex_chatgpt(
     student_tex: UploadFile = File(...),
     job_id: str | None = Form(None),
     selected_exam_id: str | None = Form(None),
+    source_work_id: str | None = Form(None),
     session: dict = Depends(require_session),
 ):
     return await _grade_tex_flow(
@@ -676,5 +749,6 @@ async def grade_tex_chatgpt(
         job_id=job_id,
         session=session,
         request=request,
+        source_work_id=source_work_id,
         debug=DEBUG,
     )

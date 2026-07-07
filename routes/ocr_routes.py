@@ -15,6 +15,7 @@ from schemas.ocr_response import OcrOptions
 from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_result
 from services.ocr_routing import decide_student_ocr_path
 from common.exam_summary import write_student_summary, read_json_file
+from services.student_work_store import save_ocr_student_work
 
 router = APIRouter(prefix="/routes", tags=["ocr"])
 
@@ -202,6 +203,35 @@ async def ocr_handwritten(
     generated_tex = student_result.student_tex
     tex_path = Path(student_result.student_tex_path)
 
+    stored_work: dict | None = None
+    if session_role == "student" and student_code:
+        try:
+            stored_work = save_ocr_student_work(
+                student_code=student_code,
+                teacher_id=teacher_id,
+                source_filename=filename,
+                uploaded_bytes=uploaded_bytes,
+                ocr_provider=ocr_result.provider or ocr_provider,
+                ocr_model=ocr_result.model or ocr_model or "",
+                document_type=route_decision.document_type,
+                ocr_path=route_decision.ocr_path,
+                route_reason=route_decision.reason,
+                debug_trace_id=trace.run_id,
+                debug_trace_dir=str(trace.path) if trace.enabled else "",
+                ocr_response_path=out_path,
+                student_work_result=student_result,
+                student_summary_path=student_summary_path,
+            )
+            trace.log(
+                "student_work_store",
+                "saved",
+                work_id=stored_work.get("work_id"),
+                primary_filename=stored_work.get("primary_filename"),
+            )
+        except Exception as e:
+            # Do not fail OCR just because archival storage failed.
+            trace.log("student_work_store", "failed", status="warning", error=str(e)[:500])
+
     return {
         "ok": True,
         "debug_trace_id": trace.run_id,
@@ -209,6 +239,7 @@ async def ocr_handwritten(
         "uploaded_filename": filename,
         "saved_path": str(saved_path),
         "raw_json_path": str(out_path),
+        "stored_work": stored_work,
 
         "ocr_route_requested_mode": route_decision.requested_mode,
         "ocr_document_type": route_decision.document_type,

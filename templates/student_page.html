@@ -50,7 +50,7 @@
           </article>
 
           <article class="mg-student-info-card">
-            <div class="mg-card-eyebrow">Previously graded work</div>
+            <div class="mg-card-eyebrow">Saved work and feedback</div>
             <h2 id="studentResultsTitle">Loading results…</h2>
             <div id="studentResultsList" class="mg-student-results-list">
               <div class="small">Checking saved feedback…</div>
@@ -236,6 +236,7 @@
     let ocrGeneratedBundleFile = null;
     let ocrGeneratedBundleJson = "";
     let ocrGeneratedOriginalTex = "";
+    let ocrCurrentWorkId = "";
 
     function nowTag() {
       const d = new Date();
@@ -338,25 +339,196 @@
       return d.toLocaleString();
     }
 
+    function findOcrTexUrl(result) {
+      if (!result || result.kind !== "ocr") return "";
+
+      const files = Array.isArray(result.files) ? result.files : [];
+      const texFile = files.find((f) =>
+        f &&
+        (
+          f.kind === "ocr_tex" ||
+          String(f.filename || "").toLowerCase().endsWith(".tex")
+        ) &&
+        f.download_url
+      );
+
+      return texFile ? texFile.download_url : (String(result.filename || "").toLowerCase().endsWith(".tex") ? result.download_url : "");
+    }
+
+    function cleanOcrTitle(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "OCR review";
+
+      return raw
+        .replace(/^OCR review:\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
     function resultCard(result) {
       const type = String(result.file_type || "").toUpperCase();
       const provider = result.provider || "unknown";
-      const exam = result.exam_id || result.exam_folder || "Assessment";
+      const rawExam = result.exam_id || result.exam_folder || "Assessment";
       const saved = formatDateTime(result.saved_at);
       const url = result.download_url || "#";
+      const isOcr = result.kind === "ocr";
+      const isTexWork = result.kind === "tex";
+      const ocrTexUrl = findOcrTexUrl(result);
+      const workId = result.work_id || result.exam_folder || "";
+      const hasFeedback = !!result.feedback_download_url;
+
+      const title = isOcr
+        ? (hasFeedback ? rawExam : "OCR review")
+        : (isTexWork && !hasFeedback ? "Uploaded LaTeX work" : rawExam);
+
+      const sourceName = isOcr
+        ? cleanOcrTitle(result.source_filename || rawExam)
+        : "";
+
+      const fileName = hasFeedback
+        ? (result.feedback_filename || result.filename || "")
+        : (result.filename || "");
+
+      const mainLabel = isOcr
+        ? (
+            hasFeedback
+              ? `OCR ready · Graded with ${escapeHtml(result.grading_provider || provider)} · ${escapeHtml(saved)}`
+              : `OCR result · ${escapeHtml(provider)} · ${escapeHtml(saved)}`
+          )
+        : (
+            hasFeedback
+              ? `${escapeHtml(type)} feedback · ${escapeHtml(provider)} · ${escapeHtml(saved)}`
+              : `Uploaded LaTeX · ${escapeHtml(saved)}`
+          );
+
+      const originalLink = isOcr && result.original_download_url
+        ? `<a class="secondary-btn small" href="${escapeHtml(result.original_download_url)}">Original upload</a>`
+        : "";
+
+      const feedbackLink = isOcr && hasFeedback
+        ? `<a class="primary-btn small" href="${escapeHtml(result.feedback_download_url)}">Download feedback</a>`
+        : "";
+
+      const editOcrButtons = isOcr && ocrTexUrl
+        ? `
+            <button
+              type="button"
+              class="secondary-btn small mg-edit-saved-ocr-btn"
+              data-ocr-url="${escapeHtml(ocrTexUrl)}"
+              data-ocr-title="${escapeHtml(sourceName || title)}"
+              data-work-id="${escapeHtml(workId)}"
+            >
+              Edit OCR
+            </button>
+            <button
+              type="button"
+              class="primary-btn small mg-use-saved-ocr-btn"
+              data-ocr-url="${escapeHtml(ocrTexUrl)}"
+              data-ocr-title="${escapeHtml(sourceName || title)}"
+              data-work-id="${escapeHtml(workId)}"
+            >
+              ${hasFeedback ? "Grade again" : "Use for grading"}
+            </button>
+          `
+        : "";
 
       return `
-        <div class="mg-student-result-item">
+        <div class="mg-student-result-item ${isOcr ? "mg-student-result-item-ocr" : ""}">
           <div class="mg-student-result-main">
-            <div class="mg-student-result-title">${escapeHtml(exam)}</div>
-            <div class="small">
-              ${escapeHtml(type)} feedback · ${escapeHtml(provider)} · ${escapeHtml(saved)}
-            </div>
-            <div class="small mg-student-result-file">${escapeHtml(result.filename || "")}</div>
+            <div class="mg-student-result-title">${escapeHtml(title)}</div>
+            ${sourceName ? `<div class="mg-student-result-source">${escapeHtml(sourceName)}</div>` : ""}
+            <div class="small">${mainLabel}</div>
+            <div class="small mg-student-result-file">${escapeHtml(fileName)}</div>
           </div>
-          <a class="secondary-btn small" href="${escapeHtml(url)}">Download</a>
+
+          <div class="mg-student-result-actions">
+            ${feedbackLink}
+            ${editOcrButtons}
+            <a class="secondary-btn small" href="${escapeHtml(url)}">${isOcr ? "Download OCR" : "Download upload"}</a>
+            ${originalLink}
+          </div>
         </div>
       `;
+    }
+
+    async function loadSavedOcrIntoReviewBox(ocrUrl, title, autoUseForGrading = false, workId = "") {
+      if (!ocrUrl) {
+        setStatusText([`[${nowTag()}] No OCR LaTeX file is available for this saved item.`], "err");
+        return;
+      }
+
+      try {
+        setStatusText([`[${nowTag()}] Loading saved OCR into the LaTeX review box…`], "work");
+
+        const r = await authedFetch(ocrUrl, { cache: "no-store" });
+        if (!r.ok) {
+          throw new Error(`Could not load saved OCR (${r.status}).`);
+        }
+
+        const tex = await r.text();
+        if (!tex.trim()) {
+          throw new Error("Saved OCR LaTeX file is empty.");
+        }
+
+        ocrCurrentWorkId = workId || "";
+
+        if (ocrTexReview && ocrReviewPanel) {
+          ocrTexReview.value = tex;
+          ocrGeneratedOriginalTex = tex;
+          ocrGeneratedTexFile = null;
+          ocrGeneratedBundleFile = null;
+          ocrGeneratedBundleJson = "";
+          ocrReviewPanel.style.display = "block";
+        }
+
+        if (studentTex) {
+          studentTex.value = "";
+        }
+
+        updateUI();
+
+        const label = title || "saved OCR";
+        setStatusText([
+          `[${nowTag()}] Loaded ${label} into the LaTeX review box.`,
+          autoUseForGrading
+            ? `Preparing it for grading…`
+            : `Edit it if needed, then click "Use this as LaTeX answer".`
+        ], "ok");
+
+        if (ocrReviewPanel) {
+          ocrReviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        if (autoUseForGrading) {
+          useReviewedOcrTex();
+        }
+      } catch (e) {
+        setStatusText([`[${nowTag()}] ERROR: ${e?.message || String(e)}`], "err");
+      }
+    }
+
+    function wireSavedOcrButtons() {
+      document.querySelectorAll(".mg-edit-saved-ocr-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+           loadSavedOcrIntoReviewBox(
+            btn.dataset.ocrUrl || "",
+            btn.dataset.ocrTitle || "",
+            false,
+            btn.dataset.workId || ""
+          );
+        });
+      });
+
+      document.querySelectorAll(".mg-use-saved-ocr-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          loadSavedOcrIntoReviewBox(
+            btn.dataset.ocrUrl || "",
+            btn.dataset.ocrTitle || "",
+            true,
+            btn.dataset.workId || ""
+          );
+        });
+      });
     }
 
     async function loadStudentDashboard() {
@@ -403,14 +575,16 @@
 
         if (studentResultsTitle) {
           studentResultsTitle.textContent = results.length
-            ? `${results.length} saved feedback file${results.length === 1 ? "" : "s"}`
-            : "No saved feedback yet";
+            ? `${results.length} saved work item${results.length === 1 ? "" : "s"}`
+            : "No saved work yet";
         }
 
         if (studentResultsList) {
           studentResultsList.innerHTML = results.length
             ? results.map(resultCard).join("")
-            : `<div class="mg-empty-student-results">Your graded PDFs/TeX files will appear here after you submit work.</div>`;
+            : `<div class="mg-empty-student-results">Your OCR results and graded PDFs/TeX files will appear here after you submit work.</div>`;
+
+          wireSavedOcrButtons();
         }
       } catch (e) {
         studentDashboardPanel.style.display = "block";
@@ -454,6 +628,9 @@
 
     function updateUI() {
       const stu = studentTex.files[0];
+      if (stu) {
+        ocrCurrentWorkId = "";
+      }
       const generated = ocrGeneratedBundleFile || ocrGeneratedTexFile;
       stuChip.style.display = (stu || generated) ? "inline-flex" : "none";
       stuName.textContent = stu ? stu.name : (generated ? generated.name : "");
@@ -571,8 +748,17 @@
 
       try {
         const form = new FormData();
-        form.append("student_tex", stu);
+       form.append("student_tex", stu);
         form.append("job_id", jobId);
+
+        const gradingFromSavedOcr = !!(
+          ocrCurrentWorkId &&
+          (stu === ocrGeneratedBundleFile || stu === ocrGeneratedTexFile)
+        );
+
+        if (gradingFromSavedOcr) {
+          form.append("source_work_id", ocrCurrentWorkId);
+        }
         if (currentRole === "teacher" && teacherReferenceMode && teacherReferenceMode.value === "manual") {
           const selectedExam = teacherReferenceExam ? (teacherReferenceExam.value || "") : "";
           if (!selectedExam) {
@@ -693,8 +879,17 @@
           ocrGeneratedBundleJson = data.student_answer_bundle_json || "";
         }
 
+        if (data.stored_work && data.stored_work.work_id) {
+          ocrCurrentWorkId = data.stored_work.work_id || "";
+          lines.push(`[${nowTag()}] OCR result saved to your work history.`);
+        }
+
         lines.push(`[${nowTag()}] Review the generated LaTeX, then click "Use this as LaTeX answer".`);
         setStatusText(lines, "ok");
+
+        if (currentRole === "student") {
+          await loadStudentDashboard();
+        }
       } catch (e) {
         lines.push(`[${nowTag()}] ERROR: ${e?.message || String(e)}`);
         setStatusText(lines, "err");
