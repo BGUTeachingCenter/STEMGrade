@@ -123,24 +123,59 @@
   <div class="mg-teacher-section-head">
     <div>
       <h2>Overview</h2>
-      <p>Student activity and model usage summary.</p>
+      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
     </div>
   </div>
 
-  <div class="statsLayout">
-    <div class="card">
-      <div class="cardInner">
-        <div style="font-weight:900; margin-bottom:8px;">Usage per day</div>
-        <canvas id="chartPerDay" width="520" height="220"></canvas>
-        <div class="small">Total student submissions/day</div>
+  <div class="mg-dashboard-tools">
+    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
+      <div class="mg-kpi-card">
+        <span>Active students</span>
+        <strong id="statsTotalStudents">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Recognized works</span>
+        <strong id="statsRecognizedWorks">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Total uploads</span>
+        <strong id="statsTotalUploads">…</strong>
       </div>
     </div>
 
+    <div class="mg-upload-log-download">
+      <label for="uploadLogVoucherSelect">Download upload log</label>
+      <div class="mg-upload-log-controls">
+        <select id="uploadLogVoucherSelect"></select>
+        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
+      </div>
+      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
+    </div>
+  </div>
+
+  <div class="card mg-work-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Submission progress by work</div>
+          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
+        </div>
+      </div>
+
+      <div id="workProgressGrid" class="mg-work-progress-grid">
+        <div class="emptyState">Loading upload progress…</div>
+      </div>
+
+      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="statsLayout mg-stats-two">
     <div class="card">
       <div class="cardInner">
-        <div style="font-weight:900; margin-bottom:8px;">Codes per exam_id</div>
-        <canvas id="chartCodesExam" width="520" height="220"></canvas>
-        <div class="small">Unique student codes per exam_id</div>
+        <div style="font-weight:900; margin-bottom:8px;">Uploads per day</div>
+        <canvas id="chartPerDay" width="520" height="220"></canvas>
+        <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
       </div>
     </div>
 
@@ -148,7 +183,7 @@
       <div class="cardInner">
         <div style="font-weight:900; margin-bottom:8px;">Gemini tokens per code</div>
         <canvas id="chartTokens" width="520" height="220"></canvas>
-        <div class="small">Histogram of total Gemini tokens used per code</div>
+        <div class="small">Histogram of total Gemini tokens used per student code.</div>
       </div>
     </div>
   </div>
@@ -758,28 +793,235 @@
     drawBars(canvasId, labels, bins);
   }
 
+  let latestTeacherStats = null;
+
+  function formatInt(n) {
+    return Number(n || 0).toLocaleString();
+  }
+
+  function formatPct(n) {
+    const value = Number(n || 0);
+    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
+  }
+
+  function formatDateTime(value) {
+    const s = String(value || "").trim();
+    if (!s) return "—";
+    return s.replace("T", " ").slice(0, 16);
+  }
+
+  function currentVoucherFilter() {
+    const el = $("uploadLogVoucherSelect");
+    return el ? (el.value || "__all__") : "__all__";
+  }
+
+  function updateUploadLogHref() {
+    const btn = $("downloadUploadLogBtn");
+    if (!btn) return;
+
+    const voucher = currentVoucherFilter();
+    btn.href = `${API_BASE}/routes/stats/teacher_upload_log.xlsx?voucher_id=${encodeURIComponent(voucher)}`;
+  }
+
+  function renderStatsKpis(data) {
+    const totalStudents = Number(data?.roster?.total_students || 0);
+    const matchedWorks = (data?.work_progress || []).filter(x => x.is_matched_exam).length;
+    const totalUploads = (data?.recent_uploads || []).length;
+
+    if ($("statsTotalStudents")) $("statsTotalStudents").textContent = formatInt(totalStudents);
+    if ($("statsRecognizedWorks")) $("statsRecognizedWorks").textContent = formatInt(matchedWorks);
+    if ($("statsTotalUploads")) $("statsTotalUploads").textContent = formatInt(totalUploads);
+  }
+
+  function renderVoucherOptions(data) {
+    const select = $("uploadLogVoucherSelect");
+    if (!select) return;
+
+    const previous = select.value || "__all__";
+    const vouchers = data?.vouchers || [];
+
+    const options = [
+      `<option value="__all__">All courses / vouchers</option>`,
+      ...vouchers.map(v => {
+        const label = `${v.course_label || "Course"} · ${v.total_students || 0} students · ${v.upload_count || 0} uploads`;
+        return `<option value="${escapeHtml(v.voucher_id || "")}">${escapeHtml(label)}</option>`;
+      })
+    ];
+
+    select.innerHTML = options.join("");
+
+    const values = Array.from(select.options).map(o => o.value);
+    select.value = values.includes(previous) ? previous : "__all__";
+
+    updateUploadLogHref();
+  }
+
+  function filteredWorkProgress() {
+    const all = latestTeacherStats?.work_progress || [];
+    const voucher = currentVoucherFilter();
+
+    if (!voucher || voucher === "__all__") return all;
+    return all.filter(x => x.voucher_id === voucher);
+  }
+
+  function workProgressCard(item, index) {
+    const pct = Math.max(0, Math.min(100, Number(item.completion_pct || 0)));
+    const uploaded = Number(item.uploaded_students || 0);
+    const total = Number(item.total_students || 0);
+    const attempts = Number(item.upload_count || 0);
+    const missing = Math.max(0, total - uploaded);
+    const unmatched = item.is_matched_exam ? "" : `<span class="mg-work-tag muted">Needs grading match</span>`;
+
+    return `
+      <div class="mg-work-progress-item" role="button" tabindex="0" data-work-index="${index}">
+        <div class="mg-work-progress-top">
+          <div>
+            <div class="mg-work-title">${escapeHtml(item.exam_id || "Unknown work")}</div>
+            <div class="mg-work-subtitle">${escapeHtml(item.voucher_id || "course")} · Last upload ${formatDateTime(item.last_upload_at)}</div>
+          </div>
+          <div class="mg-work-percent">${formatPct(pct)}</div>
+        </div>
+
+        <div class="mg-work-meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
+
+        <div class="mg-work-footer">
+          <span><strong>${formatInt(uploaded)}/${formatInt(total)}</strong> uploaded</span>
+          <span>${formatInt(attempts)} attempt${attempts === 1 ? "" : "s"}</span>
+          <span>${formatInt(missing)} missing</span>
+          ${unmatched}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderWorkProgress() {
+    const grid = $("workProgressGrid");
+    const panel = $("workDetailPanel");
+    if (!grid) return;
+
+    const works = filteredWorkProgress();
+
+    if (!works.length) {
+      grid.innerHTML = `<div class="emptyState">No student uploads found for this course yet.</div>`;
+      if (panel) panel.style.display = "none";
+      return;
+    }
+
+    grid.innerHTML = works.map((item, index) => workProgressCard(item, index)).join("");
+
+    grid.querySelectorAll(".mg-work-progress-item").forEach(card => {
+      const activate = () => {
+        const idx = Number(card.dataset.workIndex || 0);
+
+        grid.querySelectorAll(".mg-work-progress-item").forEach(x => x.classList.remove("active"));
+        card.classList.add("active");
+
+        renderWorkDetail(works[idx]);
+      };
+
+      card.addEventListener("click", activate);
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activate();
+        }
+      });
+    });
+  }
+
+  function renderWorkDetail(item) {
+    const panel = $("workDetailPanel");
+    if (!panel || !item) return;
+
+    const uploaded = item.students_uploaded || [];
+    const missing = item.students_missing || [];
+
+    const uploadedRows = uploaded.length
+      ? uploaded.map(s => `
+          <tr>
+            <td><code>${escapeHtml(s.code || "")}</code></td>
+            <td>${formatDateTime(s.first_uploaded_at)}</td>
+            <td>${formatDateTime(s.last_uploaded_at)}</td>
+            <td>${formatInt(s.attempts || 0)}</td>
+            <td>${escapeHtml(s.status || "—")}</td>
+            <td>${escapeHtml(s.source_filename || "—")}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="6">No uploaded students yet.</td></tr>`;
+
+    const missingHtml = missing.length
+      ? missing.map(code => `<span class="mg-missing-chip"><code>${escapeHtml(code)}</code></span>`).join("")
+      : `<span class="mg-complete-chip">No missing students</span>`;
+
+    panel.style.display = "block";
+    panel.innerHTML = `
+      <div class="mg-work-detail-head">
+        <div>
+          <div class="mg-card-title">${escapeHtml(item.exam_id || "Unknown work")}</div>
+          <div class="small">${formatInt(item.uploaded_students || 0)}/${formatInt(item.total_students || 0)} uploaded · ${formatPct(item.completion_pct || 0)} complete · ${formatInt(item.upload_count || 0)} total upload attempts</div>
+        </div>
+        <button type="button" class="secondary small" id="closeWorkDetailBtn">Close</button>
+      </div>
+
+      <div class="mg-work-table-wrap">
+        <table class="mg-work-detail-table">
+          <thead>
+            <tr>
+              <th>Student code</th>
+              <th>First upload</th>
+              <th>Latest upload</th>
+              <th>Attempts</th>
+              <th>Status</th>
+              <th>Latest source file</th>
+            </tr>
+          </thead>
+          <tbody>${uploadedRows}</tbody>
+        </table>
+      </div>
+
+      <div class="mg-missing-box">
+        <div class="mg-missing-title">Missing students</div>
+        <div class="mg-missing-list">${missingHtml}</div>
+      </div>
+    `;
+
+    const closeBtn = $("closeWorkDetailBtn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        panel.style.display = "none";
+        document.querySelectorAll(".mg-work-progress-item").forEach(x => x.classList.remove("active"));
+      });
+    }
+  }
+
   async function loadStatsAndRender(){
     try{
-      const r = await authedFetch(API_BASE + "/routes/stats/teacher_dashboard");
+      const r = await authedFetch(API_BASE + "/routes/stats/teacher_dashboard", { cache: "no-store" });
+
       if(!r.ok){
         console.log("Stats error:", await r.text());
         drawBars("chartPerDay", ["unauthorized"], [0]);
-        drawBars("chartCodesExam", ["unauthorized"], [0]);
         drawBars("chartTokens", ["unauthorized"], [0]);
+
+        if ($("workProgressGrid")) {
+          $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
+        }
+
         return;
       }
-      const j = await r.json();
 
-      const perDay = j.usage_per_day || [];
-      drawBars("chartPerDay",
+      const j = await r.json();
+      latestTeacherStats = j;
+
+      renderStatsKpis(j);
+      renderVoucherOptions(j);
+      renderWorkProgress();
+
+      const perDay = j.uploads_per_day || j.usage_per_day || [];
+      drawBars(
+        "chartPerDay",
         perDay.map(x => x.day),
         perDay.map(x => x.count)
-      );
-
-      const perExam = j.codes_per_exam || [];
-      drawBars("chartCodesExam",
-        perExam.map(x => x.exam_id),
-        perExam.map(x => x.unique_codes)
       );
 
       const tokens = (j.gemini_tokens_per_code || []).map(x => Number(x.tokens || 0));
@@ -787,10 +1029,21 @@
 
     }catch(e){
       console.log("Stats exception:", e);
+
+      if ($("workProgressGrid")) {
+        $("workProgressGrid").innerHTML = `<div class="emptyState">Stats failed to load.</div>`;
+      }
     }
   }
 
-  // load once and refresh every 30s
+  if ($("uploadLogVoucherSelect")) {
+    $("uploadLogVoucherSelect").addEventListener("change", () => {
+      updateUploadLogHref();
+      renderWorkProgress();
+    });
+  }
+
+  // load once when the teacher page opens
   loadStatsAndRender();
 
   // --------- Upload mode + drop zones ----------

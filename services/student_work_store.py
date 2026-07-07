@@ -554,6 +554,66 @@ def attach_grading_feedback_to_student_work(
     return meta
 
 
+def list_teacher_student_work_metadata(teacher_id: str) -> list[dict[str, Any]]:
+    """
+    Return canonical student-work metadata for a teacher, across vouchers/courses.
+
+    Scans the current layout:
+      data/student_work/<teacher>/<voucher>/<student>/<work_id>/metadata.json
+
+    The function intentionally returns metadata only, not file contents, so it is
+    safe to use for teacher dashboard statistics and Excel exports.
+    """
+    safe_teacher_id = _safe_teacher_id(teacher_id)
+    teacher_root = STUDENT_WORK_ROOT / safe_teacher_id
+    if not teacher_root.exists():
+        return []
+
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for meta_path in teacher_root.glob("*/*/*/metadata.json"):
+        meta = _read_json(meta_path)
+        if not meta:
+            continue
+
+        try:
+            rel = meta_path.relative_to(teacher_root)
+            voucher_part = rel.parts[0] if len(rel.parts) >= 4 else ""
+            student_part = rel.parts[1] if len(rel.parts) >= 4 else ""
+            work_part = rel.parts[2] if len(rel.parts) >= 4 else meta_path.parent.name
+        except Exception:
+            voucher_part = ""
+            student_part = ""
+            work_part = meta_path.parent.name
+
+        student_code = str(meta.get("student_code") or student_part or "").strip()
+        voucher_id = str(meta.get("voucher_id") or voucher_part or "voucher_default").strip()
+        work_id = str(meta.get("work_id") or work_part or "").strip()
+
+        key = (voucher_id, student_code, work_id)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        item = dict(meta)
+        item["teacher_id"] = str(item.get("teacher_id") or teacher_id or "").strip()
+        item["voucher_id"] = voucher_id
+        item["student_code"] = student_code
+        item["work_id"] = work_id
+        item["metadata_saved_at"] = str(item.get("saved_at") or "")
+        item["metadata_updated_at"] = str(item.get("updated_at") or "")
+        item["storage_path_parts"] = item.get("storage_path_parts") or {
+            "teacher": safe_teacher_id,
+            "voucher": voucher_part,
+            "student": student_part,
+        }
+        items.append(item)
+
+    items.sort(key=lambda x: str(x.get("graded_at") or x.get("saved_at") or ""), reverse=True)
+    return items
+
+
 def list_student_work_for_dashboard(student_code: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen_work_ids: set[str] = set()

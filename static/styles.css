@@ -2896,3 +2896,322 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     min-width: 0;
   }
 }
+
+/* Teacher dashboard: Option A upload progress cards + Excel export */
+.mg-dashboard-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 460px);
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+.mg-dashboard-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.mg-kpi-card,
+.mg-upload-log-download {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(243,154,30,.06), transparent 34%),
+    #fff;
+  box-shadow: 0 12px 30px rgba(79,79,82,.06);
+}
+
+.mg-kpi-card {
+  min-height: 116px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.mg-kpi-card span,
+.mg-upload-log-download label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.mg-kpi-card strong {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -.04em;
+}
+
+.mg-upload-log-download {
+  padding: 18px;
+}
+
+.mg-upload-log-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 8px 0 8px;
+}
+
+.mg-upload-log-controls select {
+  min-height: 44px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.mg-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.mg-card-title {
+  color: var(--text);
+  font-size: 23px;
+  font-weight: 950;
+  line-height: 1.1;
+  letter-spacing: -.025em;
+}
+
+.mg-work-progress-card {
+  margin-bottom: 20px;
+}
+
+.mg-work-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.mg-work-progress-item {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: #fffdfa;
+  box-shadow: 0 10px 26px rgba(79,79,82,.055);
+  cursor: pointer;
+  outline: none;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.mg-work-progress-item:hover,
+.mg-work-progress-item:focus-visible {
+  transform: translateY(-1px);
+  border-color: #f6b766;
+  box-shadow: 0 14px 34px rgba(243,154,30,.11);
+}
+
+.mg-work-progress-item.active {
+  border-color: var(--primary);
+  background: #fff7eb;
+  box-shadow: 0 16px 36px rgba(243,154,30,.14);
+}
+
+.mg-work-progress-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.mg-work-title {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 950;
+  line-height: 1.15;
+  word-break: break-word;
+}
+
+.mg-work-subtitle {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mg-work-percent {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  border: 1px solid #f1dcc0;
+  color: var(--primary-2);
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.mg-work-meter {
+  height: 12px;
+  margin: 16px 0 12px;
+  border-radius: 999px;
+  background: #eee8df;
+  overflow: hidden;
+}
+
+.mg-work-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), var(--primary-2));
+}
+
+.mg-work-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.mg-work-footer span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f7f3ee;
+  border: 1px solid #ece6dd;
+}
+
+.mg-work-footer strong {
+  color: var(--text);
+}
+
+.mg-work-tag.muted {
+  color: #8a5a17;
+  background: #fff7eb;
+  border-color: #f6d39b;
+}
+
+.mg-work-detail-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #f1dcc0;
+  border-radius: 24px;
+  background: #fffdfa;
+}
+
+.mg-work-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.mg-work-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+}
+
+.mg-work-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 780px;
+}
+
+.mg-work-detail-table th,
+.mg-work-detail-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #eee8df;
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.mg-work-detail-table th {
+  color: var(--text);
+  background: #faf8f5;
+  font-weight: 950;
+}
+
+.mg-work-detail-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.mg-missing-box {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px dashed #ead5b7;
+  border-radius: 18px;
+  background: #fff8ef;
+}
+
+.mg-missing-title {
+  margin-bottom: 9px;
+  color: var(--text);
+  font-weight: 950;
+}
+
+.mg-missing-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mg-missing-chip,
+.mg-complete-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.mg-missing-chip {
+  border: 1px solid #f2c4bd;
+  background: #fff1ef;
+  color: #9f2f25;
+}
+
+.mg-complete-chip {
+  border: 1px solid #cfe7d1;
+  background: #edf7ee;
+  color: #2f7d32;
+}
+
+.mg-teacher-page .statsLayout.mg-stats-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.emptyState {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 20px;
+  background: #fffdfa;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+@media (max-width: 1100px) {
+  .mg-dashboard-tools,
+  .mg-teacher-page .statsLayout.mg-stats-two {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .mg-dashboard-kpis,
+  .mg-upload-log-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-work-detail-head {
+    flex-direction: column;
+  }
+}
