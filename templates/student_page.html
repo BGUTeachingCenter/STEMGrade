@@ -35,6 +35,29 @@
         </div>
       </div>
 
+      <div id="studentDashboardPanel" class="mg-student-dashboard-panel" style="display:none;">
+        <div class="mg-student-dashboard-grid">
+          <article class="mg-student-info-card">
+            <div class="mg-card-eyebrow">Course</div>
+            <h2 id="studentCourseTitle">Loading course…</h2>
+            <div class="mg-student-info-lines">
+              <div><strong>Subject:</strong> <span id="studentCourseSubject">—</span></div>
+              <div><strong>Teacher:</strong> <span id="studentTeacherName">—</span></div>
+              <div><strong>Student:</strong> <span id="studentCodeDisplay">—</span></div>
+            </div>
+            <div id="studentCourseNote" class="small mg-student-course-note" style="display:none;"></div>
+          </article>
+
+          <article class="mg-student-info-card">
+            <div class="mg-card-eyebrow">Previously graded work</div>
+            <h2 id="studentResultsTitle">Loading results…</h2>
+            <div id="studentResultsList" class="mg-student-results-list">
+              <div class="small">Checking saved feedback…</div>
+            </div>
+          </article>
+        </div>
+      </div>
+
         <div class="mg-upload-busy-wrap">
           <div id="busyOverlay" class="mg-busy-overlay" aria-hidden="true">
             <div class="mg-busy-box">
@@ -170,6 +193,7 @@
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
     const ENDPOINT_LOGOUT = API_BASE + "/routes/logout";
     const ENDPOINT_ME = API_BASE + "/routes/me";
+    const ENDPOINT_STUDENT_DASHBOARD = API_BASE + "/routes/student/dashboard";
 
     const busyOverlay = document.getElementById("busyOverlay");
     const busyOverlayText = document.getElementById("busyOverlayText");
@@ -209,6 +233,14 @@
     const teacherReferenceMode = document.getElementById("teacherReferenceMode");
     const teacherReferenceChooser = document.getElementById("teacherReferenceChooser");
     const teacherReferenceExam = document.getElementById("teacherReferenceExam");
+    const studentDashboardPanel = document.getElementById("studentDashboardPanel");
+    const studentCourseTitle = document.getElementById("studentCourseTitle");
+    const studentCourseSubject = document.getElementById("studentCourseSubject");
+    const studentTeacherName = document.getElementById("studentTeacherName");
+    const studentCodeDisplay = document.getElementById("studentCodeDisplay");
+    const studentCourseNote = document.getElementById("studentCourseNote");
+    const studentResultsTitle = document.getElementById("studentResultsTitle");
+    const studentResultsList = document.getElementById("studentResultsList");
 
     let currentRole = null;
     let currentUserCode = null;
@@ -299,6 +331,106 @@
         document.getElementById("gptModelName").textContent = "unknown";
         document.getElementById("gptOcrModelName").textContent = "unknown";
         document.getElementById("mathpixOcrStatus").textContent = "unknown";
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "unknown time";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleString();
+    }
+
+    function resultCard(result) {
+      const type = String(result.file_type || "").toUpperCase();
+      const provider = result.provider || "unknown";
+      const exam = result.exam_id || result.exam_folder || "Assessment";
+      const saved = formatDateTime(result.saved_at);
+      const url = result.download_url || "#";
+
+      return `
+        <div class="mg-student-result-item">
+          <div class="mg-student-result-main">
+            <div class="mg-student-result-title">${escapeHtml(exam)}</div>
+            <div class="small">
+              ${escapeHtml(type)} feedback · ${escapeHtml(provider)} · ${escapeHtml(saved)}
+            </div>
+            <div class="small mg-student-result-file">${escapeHtml(result.filename || "")}</div>
+          </div>
+          <a class="secondary-btn small" href="${escapeHtml(url)}">Download</a>
+        </div>
+      `;
+    }
+
+    async function loadStudentDashboard() {
+      if (!studentDashboardPanel) return;
+
+      try {
+        const r = await authedFetch(ENDPOINT_STUDENT_DASHBOARD, { cache: "no-store" });
+        const j = await r.json().catch(() => null);
+
+        if (!r.ok || !j || !j.ok) {
+          throw new Error((j && j.detail) || "Could not load student dashboard.");
+        }
+
+        studentDashboardPanel.style.display = "block";
+
+        const course = j.course || {};
+        const teacher = j.teacher || {};
+        const student = j.student || {};
+        const results = Array.isArray(j.previous_results) ? j.previous_results : [];
+
+        if (studentCourseTitle) {
+          studentCourseTitle.textContent = course.course_label || (j.is_teacher_test ? "Teacher test mode" : "Course");
+        }
+
+        if (studentCourseSubject) {
+          studentCourseSubject.textContent = course.subject_label || course.subject || "—";
+        }
+
+        if (studentTeacherName) {
+          studentTeacherName.textContent = teacher.name || teacher.email || "—";
+        }
+
+        if (studentCodeDisplay) {
+          studentCodeDisplay.textContent = j.is_teacher_test
+            ? "Teacher test session"
+            : (student.student_code_display || "Student");
+        }
+
+        if (studentCourseNote) {
+          const note = course.note || "";
+          studentCourseNote.style.display = note ? "block" : "none";
+          studentCourseNote.textContent = note;
+        }
+
+        if (studentResultsTitle) {
+          studentResultsTitle.textContent = results.length
+            ? `${results.length} saved feedback file${results.length === 1 ? "" : "s"}`
+            : "No saved feedback yet";
+        }
+
+        if (studentResultsList) {
+          studentResultsList.innerHTML = results.length
+            ? results.map(resultCard).join("")
+            : `<div class="mg-empty-student-results">Your graded PDFs/TeX files will appear here after you submit work.</div>`;
+        }
+      } catch (e) {
+        studentDashboardPanel.style.display = "block";
+        if (studentCourseTitle) studentCourseTitle.textContent = "Course unavailable";
+        if (studentResultsTitle) studentResultsTitle.textContent = "Could not load saved feedback";
+        if (studentResultsList) {
+          studentResultsList.innerHTML = `<div class="mg-empty-student-results">Dashboard error: ${escapeHtml(e && e.message ? e.message : String(e))}</div>`;
+        }
       }
     }
 
@@ -499,6 +631,10 @@
         await pollPromise;
         lines.push(`[${nowTag()}] Done ✅ (${finalName})`);
         setStatusText(lines, "ok");
+
+        if (currentRole === "student") {
+          await loadStudentDashboard();
+        }
       } catch (e) {
         stopSignal.stopped = true;
         try { await pollPromise; } catch (_) {}
@@ -630,8 +766,13 @@
     useOcrTexBtn.addEventListener("click", useReviewedOcrTex);
     if (teacherReferenceMode) teacherReferenceMode.addEventListener("change", updateTeacherReferenceUI);
 
-    ensureSession();
-    loadHealth();
-    updateUI();
+    async function initStudentPage() {
+      await ensureSession();
+      await loadStudentDashboard();
+      loadHealth();
+      updateUI();
+    }
+
+    initStudentPage();
   </script>
 {% endblock %}

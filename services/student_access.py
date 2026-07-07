@@ -150,6 +150,31 @@ def create_student_codes(
     return created
 
 
+def get_student_code_record(code: str) -> dict[str, Any] | None:
+    """
+    Read a student-code record without incrementing usage counters.
+
+    Used by the student dashboard after login, so refreshing the page does not
+    count as a new student-code use.
+    """
+    normalized = normalize_student_code(code)
+    if not normalized:
+        return None
+
+    digest = _hash_code(normalized)
+
+    with _LOCK:
+        data = _load()
+        rec = data.get("codes", {}).get(digest)
+
+        if not isinstance(rec, dict):
+            return None
+
+        public = dict(rec)
+        public.pop("code_hash", None)
+        return public
+
+
 def authenticate_student_code(code: str) -> dict[str, Any] | None:
     normalized = normalize_student_code(code)
     if not normalized:
