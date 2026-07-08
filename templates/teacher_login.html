@@ -114,8 +114,13 @@ async function checkExistingTeacherSession() {
   try {
     const res = await fetch("/routes/me", { credentials: "same-origin", cache: "no-store" });
     const data = await res.json();
-    if (data && data.ok && data.role === "teacher") window.location.replace("/teacher");
-    if (data && data.ok && data.role === "admin") window.location.replace("/admin");
+
+    // Only auto-open the teacher portal for an existing teacher session.
+    // Do not redirect admins away from the teacher-login page;
+    // they may be trying to switch roles or test teacher login.
+    if (data && data.ok && data.role === "teacher") {
+      window.location.replace("/teacher");
+    }
   } catch (_) {}
 }
 async function doTeacherLogin(event) {
