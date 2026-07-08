@@ -820,7 +820,7 @@
     if (!btn) return;
 
     const voucher = currentVoucherFilter();
-    btn.href = `${API_BASE}/routes/stats/teacher_upload_log.xlsx?voucher_id=${encodeURIComponent(voucher)}`;
+    btn.href = `${API_BASE}/routes/teacher_upload_log.xlsx?voucher_id=${encodeURIComponent(voucher)}`;
   }
 
   function renderStatsKpis(data) {
@@ -996,7 +996,7 @@
 
   async function loadStatsAndRender(){
     try{
-      const r = await authedFetch(API_BASE + "/routes/stats/teacher_dashboard", { cache: "no-store" });
+      const r = await authedFetch(API_BASE + "/routes/teacher_dashboard", { cache: "no-store" });
 
       if(!r.ok){
         console.log("Stats error:", await r.text());

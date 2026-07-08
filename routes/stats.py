@@ -367,6 +367,7 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
 
 
 @router.get("/teacher_dashboard")
+@router.get("/stats/teacher_dashboard")
 def teacher_dashboard(_session: dict = Depends(require_teacher)):
     teacher_id = _teacher_id_from_session(_session)
     return _build_teacher_upload_dashboard(teacher_id)
@@ -509,6 +510,7 @@ def _make_upload_log_workbook(payload: dict[str, Any], voucher_id: str) -> Workb
 
 
 @router.get("/teacher_upload_log.xlsx")
+@router.get("/stats/teacher_upload_log.xlsx")
 def teacher_upload_log_xlsx(
     voucher_id: str = Query(ALL_VOUCHERS),
     _session: dict = Depends(require_teacher),

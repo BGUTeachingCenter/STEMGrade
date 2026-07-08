@@ -65,7 +65,14 @@ def _bind_teacher_bank_from_session(session: dict | None) -> Path:
             status_code=400,
             detail="Teacher profile is required for a private reference bank.",
         )
-    root = teacher_bank_root(teacher_id)
+    teacher = get_teacher(teacher_id) or {}
+    voucher_id = str(
+        teacher.get("voucher_id")
+        or teacher.get("voucher_hash")
+        or teacher.get("voucher_code")
+        or ""
+    ).strip()
+    root = teacher_bank_root(teacher_id, voucher_id=voucher_id)
     bind_bank_root(root)
     return root
 

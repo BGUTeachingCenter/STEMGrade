@@ -11,10 +11,15 @@ from urllib.parse import quote
 
 from fastapi import HTTPException
 
-from core.config import PROJECT_ROOT
+from core.config import PROJECT_ROOT, TEACHERS_ROOT
 
-STUDENT_WORK_ROOT = PROJECT_ROOT / "data" / "student_work"
-STUDENT_WORK_ROOT.mkdir(parents=True, exist_ok=True)
+# Legacy layout, kept readable:
+#   data/student_work/<teacher>/<voucher>/<student>/<work_id>/
+LEGACY_STUDENT_WORK_ROOT = PROJECT_ROOT / "data" / "student_work"
+LEGACY_STUDENT_WORK_ROOT.mkdir(parents=True, exist_ok=True)
+
+# Keep the old constant name for compatibility inside this module.
+STUDENT_WORK_ROOT = LEGACY_STUDENT_WORK_ROOT
 
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,180}$")
@@ -124,7 +129,130 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _course_root_from_ctx(ctx: dict[str, str]) -> Path:
+    """
+    Canonical course root:
+
+      data/teachers/<teacher>/courses/<voucher>/
+    """
+    root = (
+        TEACHERS_ROOT
+        / ctx["safe_teacher_id"]
+        / "courses"
+        / ctx["safe_voucher_id"]
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _students_root_from_ctx(ctx: dict[str, str]) -> Path:
+    root = _course_root_from_ctx(ctx) / "students"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _course_manifest_path(ctx: dict[str, str]) -> Path:
+    return _course_root_from_ctx(ctx) / "course_manifest.json"
+
+
+def _course_upload_log_path_from_meta(meta: dict[str, Any]) -> Path:
+    safe_teacher = _safe_teacher_id(str(meta.get("teacher_id") or "unknown_teacher"))
+    safe_voucher = _safe_voucher_id(str(meta.get("voucher_id") or "voucher_default"))
+    return TEACHERS_ROOT / safe_teacher / "courses" / safe_voucher / "upload_log.json"
+
+
+def _ensure_course_manifest(ctx: dict[str, str]) -> None:
+    path = _course_manifest_path(ctx)
+    current = _read_json(path) or {}
+
+    manifest = {
+        "schema_version": "course_manifest_v1",
+        "teacher_id": ctx.get("teacher_id") or current.get("teacher_id") or "",
+        "voucher_id": ctx.get("voucher_id") or current.get("voucher_id") or "",
+        "course_label": ctx.get("course_label") or current.get("course_label") or "Course",
+        "updated_at": _now(),
+        "created_at": current.get("created_at") or _now(),
+    }
+
+    _write_json(path, manifest)
+
+
+def _upload_log_entry(meta: dict[str, Any]) -> dict[str, Any]:
+    feedback = meta.get("feedback") if isinstance(meta.get("feedback"), dict) else {}
+
+    return {
+        "work_id": str(meta.get("work_id") or ""),
+        "student_code": str(meta.get("student_code") or ""),
+        "teacher_id": str(meta.get("teacher_id") or ""),
+        "voucher_id": str(meta.get("voucher_id") or ""),
+        "exam_id": str(meta.get("exam_id") or ""),
+        "kind": str(meta.get("kind") or ""),
+        "status": str(meta.get("status") or ""),
+        "source_filename": str(meta.get("source_filename") or ""),
+        "saved_at": str(meta.get("saved_at") or ""),
+        "updated_at": str(meta.get("updated_at") or ""),
+        "graded_at": str(meta.get("graded_at") or feedback.get("saved_at") or ""),
+        "ocr_provider": str(meta.get("ocr_provider") or ""),
+        "ocr_model": str(meta.get("ocr_model") or ""),
+        "grading_provider": str(meta.get("grading_provider") or feedback.get("provider") or ""),
+    }
+
+
+def _upsert_course_upload_log(meta: dict[str, Any]) -> None:
+    """
+    Course-level upload index:
+
+      data/teachers/<teacher>/courses/<voucher>/upload_log.json
+
+    This is an index for dashboards/exports. metadata.json inside each work
+    folder remains the detailed source of truth.
+    """
+    teacher_id = str(meta.get("teacher_id") or "").strip()
+    voucher_id = str(meta.get("voucher_id") or "").strip()
+    work_id = str(meta.get("work_id") or "").strip()
+
+    if not teacher_id or not work_id:
+        return
+
+    path = _course_upload_log_path_from_meta(meta)
+    current = _read_json(path) or {}
+
+    uploads = current.get("uploads")
+    if not isinstance(uploads, list):
+        uploads = []
+
+    entry = _upload_log_entry(meta)
+    replaced = False
+    out: list[dict[str, Any]] = []
+
+    for old in uploads:
+        if isinstance(old, dict) and str(old.get("work_id") or "") == work_id:
+            out.append(entry)
+            replaced = True
+        elif isinstance(old, dict):
+            out.append(old)
+
+    if not replaced:
+        out.append(entry)
+
+    out.sort(
+        key=lambda x: str(x.get("updated_at") or x.get("graded_at") or x.get("saved_at") or ""),
+        reverse=True,
+    )
+
+    payload = {
+        "schema_version": "course_upload_log_v1",
+        "teacher_id": teacher_id,
+        "voucher_id": voucher_id or "voucher_default",
+        "updated_at": _now(),
+        "uploads": out,
+    }
+
+    _write_json(path, payload)
 
 
 def _student_root(
@@ -138,14 +266,31 @@ def _student_root(
         teacher_id=teacher_id,
         voucher_id=voucher_id,
     )
-    root = (
-        STUDENT_WORK_ROOT
+
+    _ensure_course_manifest(ctx)
+
+    root = _students_root_from_ctx(ctx) / ctx["safe_student_code"]
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _legacy_teacher_student_root(
+    student_code: str,
+    *,
+    teacher_id: str = "",
+    voucher_id: str = "",
+) -> Path:
+    ctx = _lookup_student_work_context(
+        student_code,
+        teacher_id=teacher_id,
+        voucher_id=voucher_id,
+    )
+    return (
+        LEGACY_STUDENT_WORK_ROOT
         / ctx["safe_teacher_id"]
         / ctx["safe_voucher_id"]
         / ctx["safe_student_code"]
     )
-    root.mkdir(parents=True, exist_ok=True)
-    return root
 
 
 def _legacy_student_root(student_code: str) -> Path:
@@ -162,17 +307,53 @@ def _candidate_student_roots(
     teacher_id: str = "",
     voucher_id: str = "",
 ) -> list[Path]:
-    roots = [
-        _student_root(
-            student_code,
-            teacher_id=teacher_id,
-            voucher_id=voucher_id,
-        )
-    ]
+    ctx = _lookup_student_work_context(
+        student_code,
+        teacher_id=teacher_id,
+        voucher_id=voucher_id,
+    )
 
-    legacy = _legacy_student_root(student_code)
-    if legacy not in roots and legacy.exists():
-        roots.append(legacy)
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def add_root(path: Path, *, create: bool = False) -> None:
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
+        if not create and not path.exists():
+            return
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
+    # Canonical current root.
+    add_root(_student_root(student_code, teacher_id=ctx["teacher_id"], voucher_id=ctx["voucher_id"]), create=True)
+
+    # Canonical current root, but across every voucher for this teacher.
+    teacher_courses_root = TEACHERS_ROOT / ctx["safe_teacher_id"] / "courses"
+    if teacher_courses_root.exists():
+        for p in teacher_courses_root.glob(f"*/students/{ctx['safe_student_code']}"):
+            add_root(p)
+
+    # Previous teacher/voucher/student layout.
+    add_root(
+        _legacy_teacher_student_root(
+            student_code,
+            teacher_id=ctx["teacher_id"],
+            voucher_id=ctx["voucher_id"],
+        )
+    )
+
+    # Previous teacher/voucher/student layout, across every voucher.
+    legacy_teacher_root = LEGACY_STUDENT_WORK_ROOT / ctx["safe_teacher_id"]
+    if legacy_teacher_root.exists():
+        for p in legacy_teacher_root.glob(f"*/{ctx['safe_student_code']}"):
+            add_root(p)
+
+    # Very old student-only layout:
+    #   data/student_work/<student_code>/
+    add_root(_legacy_student_root(student_code))
 
     return roots
 
@@ -346,10 +527,12 @@ def save_ocr_student_work(
         "student_code": student_code,
         "teacher_id": ctx["teacher_id"],
         "voucher_id": ctx["voucher_id"],
-        "storage_schema": "teacher_voucher_student_work_v1",
+        "storage_schema": "teacher_course_voucher_students_v2",
         "storage_path_parts": {
             "teacher": ctx["safe_teacher_id"],
+            "courses": "courses",
             "voucher": ctx["safe_voucher_id"],
+            "students": "students",
             "student": ctx["safe_student_code"],
         },
         "source_filename": source_filename or "",
@@ -366,6 +549,7 @@ def save_ocr_student_work(
     }
 
     _write_json(work_dir / "metadata.json", metadata)
+    _upsert_course_upload_log(metadata)
     return metadata
 
 
@@ -438,6 +622,7 @@ def create_tex_student_work(
     }
 
     _write_json(work_dir / "metadata.json", metadata)
+    _upsert_course_upload_log(metadata)
     return metadata
 
 
@@ -551,6 +736,7 @@ def attach_grading_feedback_to_student_work(
     meta["updated_at"] = _now()
 
     _write_json(meta_path, meta)
+    _upsert_course_upload_log(meta)
     return meta
 
 
@@ -558,42 +744,52 @@ def list_teacher_student_work_metadata(teacher_id: str) -> list[dict[str, Any]]:
     """
     Return canonical student-work metadata for a teacher, across vouchers/courses.
 
-    Scans the current layout:
-      data/student_work/<teacher>/<voucher>/<student>/<work_id>/metadata.json
+    Reads both:
+      New:
+        data/teachers/<teacher>/courses/<voucher>/students/<student>/<work>/metadata.json
 
-    The function intentionally returns metadata only, not file contents, so it is
-    safe to use for teacher dashboard statistics and Excel exports.
+      Legacy:
+        data/student_work/<teacher>/<voucher>/<student>/<work>/metadata.json
+
+    The function intentionally returns metadata only, not file contents.
     """
     safe_teacher_id = _safe_teacher_id(teacher_id)
-    teacher_root = STUDENT_WORK_ROOT / safe_teacher_id
-    if not teacher_root.exists():
-        return []
-
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
 
-    for meta_path in teacher_root.glob("*/*/*/metadata.json"):
+    def add_meta(meta_path: Path, *, layout: str) -> None:
         meta = _read_json(meta_path)
         if not meta:
-            continue
+            return
 
+        student_code = str(meta.get("student_code") or "").strip()
+        voucher_id = str(meta.get("voucher_id") or "voucher_default").strip()
+        work_id = str(meta.get("work_id") or meta_path.parent.name).strip()
+
+        # Recover path-derived fields when old metadata is incomplete.
         try:
-            rel = meta_path.relative_to(teacher_root)
-            voucher_part = rel.parts[0] if len(rel.parts) >= 4 else ""
-            student_part = rel.parts[1] if len(rel.parts) >= 4 else ""
-            work_part = rel.parts[2] if len(rel.parts) >= 4 else meta_path.parent.name
+            if layout == "current":
+                # data/teachers/<teacher>/courses/<voucher>/students/<student>/<work>/metadata.json
+                parts = meta_path.parts
+                voucher_part = meta_path.parent.parent.parent.parent.name
+                student_part = meta_path.parent.parent.name
+            else:
+                # data/student_work/<teacher>/<voucher>/<student>/<work>/metadata.json
+                rel = meta_path.relative_to(LEGACY_STUDENT_WORK_ROOT / safe_teacher_id)
+                voucher_part = rel.parts[0] if len(rel.parts) >= 4 else ""
+                student_part = rel.parts[1] if len(rel.parts) >= 4 else ""
         except Exception:
             voucher_part = ""
             student_part = ""
-            work_part = meta_path.parent.name
 
-        student_code = str(meta.get("student_code") or student_part or "").strip()
-        voucher_id = str(meta.get("voucher_id") or voucher_part or "voucher_default").strip()
-        work_id = str(meta.get("work_id") or work_part or "").strip()
+        if not student_code:
+            student_code = student_part
+        if not voucher_id:
+            voucher_id = voucher_part or "voucher_default"
 
         key = (voucher_id, student_code, work_id)
         if key in seen:
-            continue
+            return
         seen.add(key)
 
         item = dict(meta)
@@ -603,14 +799,30 @@ def list_teacher_student_work_metadata(teacher_id: str) -> list[dict[str, Any]]:
         item["work_id"] = work_id
         item["metadata_saved_at"] = str(item.get("saved_at") or "")
         item["metadata_updated_at"] = str(item.get("updated_at") or "")
-        item["storage_path_parts"] = item.get("storage_path_parts") or {
-            "teacher": safe_teacher_id,
-            "voucher": voucher_part,
-            "student": student_part,
-        }
+        item["metadata_path"] = str(meta_path)
+        item["storage_layout"] = layout
         items.append(item)
 
-    items.sort(key=lambda x: str(x.get("graded_at") or x.get("saved_at") or ""), reverse=True)
+    # New canonical layout.
+    current_root = TEACHERS_ROOT / safe_teacher_id / "courses"
+    if current_root.exists():
+        for meta_path in current_root.glob("*/students/*/*/metadata.json"):
+            add_meta(meta_path, layout="current")
+
+    # Legacy teacher/voucher/student layout.
+    legacy_teacher_root = LEGACY_STUDENT_WORK_ROOT / safe_teacher_id
+    if legacy_teacher_root.exists():
+        for meta_path in legacy_teacher_root.glob("*/*/*/metadata.json"):
+            add_meta(meta_path, layout="legacy_teacher_voucher_student")
+
+    # Extra safety: scan any old metadata that says it belongs to this teacher.
+    if LEGACY_STUDENT_WORK_ROOT.exists():
+        for meta_path in LEGACY_STUDENT_WORK_ROOT.glob("*/*/*/metadata.json"):
+            meta = _read_json(meta_path)
+            if isinstance(meta, dict) and str(meta.get("teacher_id") or "").strip() == teacher_id:
+                add_meta(meta_path, layout="legacy_global_scan")
+
+    items.sort(key=lambda x: str(x.get("graded_at") or x.get("updated_at") or x.get("saved_at") or ""), reverse=True)
     return items
 
 

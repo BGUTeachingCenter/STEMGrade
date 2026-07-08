@@ -34,6 +34,7 @@ from services.student_work_store import (
     attach_grading_feedback_to_student_work,
     create_tex_student_work,
 )
+from services.student_access import get_student_code_record
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 
@@ -178,7 +179,21 @@ async def _grade_tex_flow(
             detail="Student code is not assigned to a teacher/course.",
         )
 
-    active_bank_root = teacher_bank_root(teacher_id) if teacher_id else BANK_ROOT
+    bank_voucher_id = ""
+
+    if session_role == "student" and student_code:
+        try:
+            student_record = get_student_code_record(student_code) or {}
+            bank_voucher_id = str(
+                student_record.get("voucher_id")
+                or student_record.get("voucher_hash")
+                or student_record.get("voucher_code")
+                or ""
+            ).strip()
+        except Exception:
+            bank_voucher_id = ""
+
+    active_bank_root = teacher_bank_root(teacher_id, voucher_id=bank_voucher_id) if teacher_id else BANK_ROOT
     bind_bank_root(active_bank_root)
 
     bind_usage_context(

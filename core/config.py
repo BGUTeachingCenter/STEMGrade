@@ -44,8 +44,8 @@ DEFAULT_SUBJECT = env_str("DEFAULT_SUBJECT", "math")
 DEFAULT_OLLAMA_MODEL = "gemma3:4b"
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_OPENAI_OCR_MODEL = "gpt-5.5"
-DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
-DEFAULT_GEMINI_OCR_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+DEFAULT_GEMINI_OCR_MODEL = "gemini-3.5-flash"
 DEFAULT_MATHGRADE_OLLAMA_PROOFREAD = "0"
 
 
@@ -65,6 +65,19 @@ MATHPIX_APP_KEY = (os.getenv("MATHPIX_APP_KEY") or "").strip()
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# Canonical course storage root:
+#   data/teachers/<teacher_id>/courses/<voucher_id>/
+#
+# Each course/voucher will contain:
+#   - solution_bank/
+#   - students/
+#   - course_manifest.json
+#   - upload_log.json
+TEACHERS_ROOT = Path(
+    os.getenv("MATHGRADE_TEACHERS_ROOT", PROJECT_ROOT / "data" / "teachers")
+)
+TEACHERS_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Runs + debug dirs
 RUNS_ROOT = Path(os.getenv("MATHGRADE_RUNS_DIR", PROJECT_ROOT / "runs"))

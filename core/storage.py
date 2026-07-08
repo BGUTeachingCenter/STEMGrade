@@ -4,12 +4,13 @@ from __future__ import annotations
 import contextvars
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
-from .config import BANK_ROOT, TEACHER_BANK_ROOT
+from .config import BANK_ROOT, TEACHER_BANK_ROOT, TEACHERS_ROOT
 from common.exam_summary import (
     build_reference_summary_from_full_solution_json,
     build_reference_summary_from_tex,
@@ -37,11 +38,68 @@ def require_safe_teacher_id(teacher_id: str) -> str:
     return teacher_id
 
 
-def teacher_bank_root(teacher_id: str) -> Path:
-    """Return the isolated solution bank root for one teacher."""
+def _safe_course_id(value: str) -> str:
+    value = (value or "").strip()
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._-")
+    return value[:120] or "voucher_default"
+
+
+def _default_voucher_for_teacher(teacher_id: str) -> str:
+    try:
+        from services.teacher_profiles import get_teacher
+
+        teacher = get_teacher(teacher_id) or {}
+        return str(
+            teacher.get("voucher_id")
+            or teacher.get("voucher_hash")
+            or teacher.get("voucher_code")
+            or "voucher_default"
+        ).strip() or "voucher_default"
+    except Exception:
+        return "voucher_default"
+
+
+def teacher_course_root(teacher_id: str, voucher_id: str = "") -> Path:
+    """
+    Canonical course root:
+
+      data/teachers/<teacher_id>/courses/<voucher_id>/
+    """
     teacher_id = require_safe_teacher_id(teacher_id)
-    d = TEACHER_BANK_ROOT / teacher_id
+    safe_voucher = _safe_course_id(voucher_id or _default_voucher_for_teacher(teacher_id))
+
+    d = TEACHERS_ROOT / teacher_id / "courses" / safe_voucher
     d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def teacher_bank_root(teacher_id: str, voucher_id: str = "") -> Path:
+    """
+    Canonical isolated solution bank root for one teacher/course:
+
+      data/teachers/<teacher_id>/courses/<voucher_id>/solution_bank/
+
+    Backward compatibility:
+      if data/teacher_banks/<teacher_id>/ exists and the new course bank is empty,
+      copy the old bank into the new course bank once.
+    """
+    teacher_id = require_safe_teacher_id(teacher_id)
+    course_root = teacher_course_root(teacher_id, voucher_id=voucher_id)
+    d = course_root / "solution_bank"
+    d.mkdir(parents=True, exist_ok=True)
+
+    legacy = TEACHER_BANK_ROOT / teacher_id
+    try:
+        is_empty = not any(d.iterdir())
+    except Exception:
+        is_empty = False
+
+    if legacy.exists() and legacy.is_dir() and is_empty:
+        try:
+            shutil.copytree(legacy, d, dirs_exist_ok=True)
+        except Exception:
+            pass
+
     return d
 
 
