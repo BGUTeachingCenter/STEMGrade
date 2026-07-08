@@ -34,7 +34,9 @@ from services.teacher_profiles import (
     authenticate_teacher,
     change_teacher_password,
     get_teacher,
+    list_teacher_courses,
     register_teacher_from_voucher,
+    set_active_teacher_course,
     subject_options,
     update_teacher_profile,
 )
@@ -218,6 +220,10 @@ class ChangeTeacherPasswordRequest(BaseModel):
     new_password_confirm: str
 
 
+class SetActiveCourseRequest(BaseModel):
+    course_id: str
+
+
 class CreateStudentCodesRequest(BaseModel):
     count: int = 1
     course_label: str = ""
@@ -371,7 +377,14 @@ def teacher_profile(_session: dict = Depends(require_teacher)):
             },
             "subjects": subject_options(),
         }
-    return {"ok": True, "legacy": False, "teacher": profile, "subjects": subject_options()}
+    return {
+        "ok": True,
+        "legacy": False,
+        "teacher": profile,
+        "courses": profile.get("courses") or list_teacher_courses(teacher_id),
+        "active_course": profile.get("active_course") or {},
+        "subjects": subject_options(),
+    }
 
 
 @router.post("/teacher/profile")
@@ -387,6 +400,24 @@ def teacher_profile_update(req: UpdateTeacherProfileRequest, _session: dict = De
         course_label=req.course_label,
     )
     return {"ok": True, "teacher": profile}
+
+
+@router.post("/teacher/active_course")
+def teacher_set_active_course(req: SetActiveCourseRequest, _session: dict = Depends(require_teacher)):
+    teacher_id = _session.get("teacher_id") or _session.get("sub")
+    if not teacher_id or teacher_id == "teacher":
+        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot switch courses.")
+
+    profile = set_active_teacher_course(
+        teacher_id=teacher_id,
+        course_id=req.course_id,
+    )
+    return {
+        "ok": True,
+        "teacher": profile,
+        "courses": profile.get("courses") or [],
+        "active_course": profile.get("active_course") or {},
+    }
 
 
 @router.post("/teacher/change_password")
@@ -408,6 +439,18 @@ def _teacher_id_or_400(session: dict) -> str:
     if not teacher_id or teacher_id == "teacher":
         raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot manage student codes.")
     return teacher_id
+
+
+def _active_voucher_id_for_teacher(teacher_id: str) -> str:
+    teacher = get_teacher(teacher_id) or {}
+    active_course = teacher.get("active_course") if isinstance(teacher.get("active_course"), dict) else {}
+    return str(
+        active_course.get("voucher_id")
+        or teacher.get("voucher_id")
+        or teacher.get("voucher_code")
+        or teacher.get("voucher_hash")
+        or ""
+    ).strip()
 
 
 def _cell_text(value) -> str:
@@ -491,10 +534,12 @@ def _rows_from_uploaded_student_codes_xlsx(content: bytes) -> list[dict[str, str
 @router.get("/teacher/student_codes")
 def teacher_student_codes(_session: dict = Depends(require_teacher)):
     teacher_id = _teacher_id_or_400(_session)
+    voucher_id = _active_voucher_id_for_teacher(teacher_id)
     return {
         "ok": True,
         "teacher_id": teacher_id,
-        "codes": list_student_codes_for_teacher(teacher_id),
+        "voucher_id": voucher_id,
+        "codes": list_student_codes_for_teacher(teacher_id, voucher_id=voucher_id),
     }
 
 
@@ -516,7 +561,8 @@ def teacher_create_student_codes(req: CreateStudentCodesRequest, _session: dict 
 @router.get("/teacher/student_codes.xlsx")
 def teacher_student_codes_xlsx(_session: dict = Depends(require_teacher)):
     teacher_id = _teacher_id_or_400(_session)
-    codes = list_student_codes_for_teacher(teacher_id)
+    voucher_id = _active_voucher_id_for_teacher(teacher_id)
+    codes = list_student_codes_for_teacher(teacher_id, voucher_id=voucher_id)
     wb = _student_codes_workbook(codes)
 
     bio = BytesIO()

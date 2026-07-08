@@ -101,8 +101,110 @@ def _save_vouchers(data: dict[str, Any]) -> None:
     _write_json(VOUCHERS_PATH, data)
 
 
+def _course_id_from_voucher(voucher: dict[str, Any], digest: str) -> str:
+    return str(
+        voucher.get("voucher_id")
+        or voucher.get("voucher_code")
+        or digest[:12]
+        or "course_default"
+    ).strip() or "course_default"
+
+
+def _course_from_voucher(
+    *,
+    voucher: dict[str, Any],
+    digest: str,
+    subject: str,
+    course_label: str,
+    grading_prompt_extra: str,
+) -> dict[str, Any]:
+    selected_subject = normalize_subject(subject or voucher.get("subject"))
+    now = _now()
+    return {
+        "course_id": _course_id_from_voucher(voucher, digest),
+        "voucher_id": voucher.get("voucher_id", ""),
+        "voucher_hash": digest,
+        "voucher_code": voucher.get("voucher_code", ""),
+        "course_label": (course_label or "").strip() or (voucher.get("note") or "").strip() or "Course",
+        "subject": selected_subject,
+        "subject_label": SUBJECT_LABELS.get(selected_subject, selected_subject),
+        "grading_prompt_extra": (grading_prompt_extra or "").strip() or default_subject_prompt(selected_subject),
+        "created_at": now,
+        "updated_at": now,
+        "status": "active",
+    }
+
+
+def _courses_list(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    courses = profile.get("courses")
+    if isinstance(courses, list):
+        return [c for c in courses if isinstance(c, dict)]
+
+    # Backward compatibility for teacher profiles created before courses existed.
+    legacy_course_id = str(
+        profile.get("voucher_id")
+        or profile.get("voucher_code")
+        or profile.get("voucher_hash")
+        or "course_default"
+    ).strip() or "course_default"
+
+    legacy_course = {
+        "course_id": legacy_course_id,
+        "voucher_id": profile.get("voucher_id", ""),
+        "voucher_hash": profile.get("voucher_hash", ""),
+        "voucher_code": profile.get("voucher_code", ""),
+        "course_label": profile.get("course_label", "") or "Course",
+        "subject": profile.get("subject", "math"),
+        "subject_label": profile.get("subject_label", profile.get("subject", "math")),
+        "grading_prompt_extra": profile.get("grading_prompt_extra", ""),
+        "created_at": profile.get("created_at", ""),
+        "updated_at": profile.get("updated_at", ""),
+        "status": "active",
+    }
+    return [legacy_course]
+
+
+def _active_course(profile: dict[str, Any]) -> dict[str, Any]:
+    courses = _courses_list(profile)
+    active_id = str(profile.get("active_course_id") or "").strip()
+
+    if active_id:
+        for course in courses:
+            if str(course.get("course_id") or "") == active_id:
+                return course
+
+    return courses[0] if courses else {}
+
+
+def _sync_active_course_fields(profile: dict[str, Any]) -> None:
+    """
+    Keep old code working by mirroring the active course onto the old top-level
+    fields: subject, voucher_id, course_label, grading_prompt_extra, etc.
+    """
+    courses = _courses_list(profile)
+    profile["courses"] = courses
+
+    if not courses:
+        return
+
+    active = _active_course(profile)
+    if not active:
+        active = courses[0]
+
+    profile["active_course_id"] = active.get("course_id", "")
+    profile["subject"] = active.get("subject", profile.get("subject", "math"))
+    profile["subject_label"] = active.get("subject_label", profile.get("subject_label", profile.get("subject", "math")))
+    profile["course_label"] = active.get("course_label", profile.get("course_label", ""))
+    profile["voucher_id"] = active.get("voucher_id", profile.get("voucher_id", ""))
+    profile["voucher_hash"] = active.get("voucher_hash", profile.get("voucher_hash", ""))
+    profile["voucher_code"] = active.get("voucher_code", profile.get("voucher_code", ""))
+    profile["grading_prompt_extra"] = active.get("grading_prompt_extra", profile.get("grading_prompt_extra", ""))
+
+
 def _public_teacher(profile: dict[str, Any]) -> dict[str, Any]:
     out = dict(profile)
+    _sync_active_course_fields(out)
+    out["active_course"] = _active_course(out)
     out.pop("password_hash", None)
     return out
 
@@ -238,6 +340,10 @@ def register_teacher_from_voucher(
         raise HTTPException(status_code=400, detail="Missing teacher name.")
     if not _EMAIL_RE.match(teacher_email):
         raise HTTPException(status_code=400, detail="Enter a valid teacher email.")
+
+    # For a new teacher this creates the password.
+    # For an existing teacher this must match the existing password,
+    # because redeeming another voucher now means "add course".
     _validate_password(password, password_confirm)
 
     digest = _voucher_hash(voucher_code)
@@ -251,31 +357,59 @@ def register_teacher_from_voucher(
             raise HTTPException(status_code=409, detail="This voucher was already used.")
 
         teachers = _load_teachers()
-        for existing in teachers.get("teachers", {}).values():
+        existing_teacher_id = ""
+        existing_profile: dict[str, Any] | None = None
+
+        for tid, existing in teachers.get("teachers", {}).items():
             if isinstance(existing, dict) and existing.get("email") == teacher_email:
-                raise HTTPException(status_code=409, detail="A teacher profile with this email already exists.")
+                existing_teacher_id = tid
+                existing_profile = existing
+                break
 
         selected_subject = normalize_subject(subject or voucher.get("subject"))
-        teacher_id = _new_teacher_id(teacher_email, teacher_name, teachers["teachers"])
-        prompt_extra = (grading_prompt_extra or "").strip() or default_subject_prompt(selected_subject)
+        new_course = _course_from_voucher(
+            voucher=voucher,
+            digest=digest,
+            subject=selected_subject,
+            course_label=course_label,
+            grading_prompt_extra=grading_prompt_extra,
+        )
 
-        profile = {
-            "teacher_id": teacher_id,
-            "name": teacher_name,
-            "email": teacher_email,
-            "subject": selected_subject,
-            "subject_label": SUBJECT_LABELS.get(selected_subject, selected_subject),
-            "course_label": course_label,
-            "voucher_id": voucher.get("voucher_id", ""),
-            "voucher_hash": digest,
-            "voucher_code": voucher.get("voucher_code", ""),
-            "grading_prompt_extra": prompt_extra,
-            "password_hash": hash_password(password),
-            "created_at": _now(),
-            "updated_at": _now(),
-            "status": "active",
-        }
-        teachers["teachers"][teacher_id] = profile
+        if existing_profile is not None:
+            if not verify_password_hash(password, existing_profile.get("password_hash")):
+                raise HTTPException(
+                    status_code=401,
+                    detail="This email already has a teacher account. Enter the existing teacher password to add this course.",
+                )
+
+            courses = _courses_list(existing_profile)
+            if any(str(c.get("voucher_hash") or "") == digest for c in courses):
+                raise HTTPException(status_code=409, detail="This course voucher is already attached to this teacher.")
+
+            courses.append(new_course)
+            existing_profile["courses"] = courses
+            existing_profile["active_course_id"] = new_course["course_id"]
+            existing_profile["name"] = teacher_name or existing_profile.get("name", "")
+            existing_profile["updated_at"] = _now()
+            _sync_active_course_fields(existing_profile)
+            teacher_id = existing_teacher_id
+            profile = existing_profile
+
+        else:
+            teacher_id = _new_teacher_id(teacher_email, teacher_name, teachers["teachers"])
+            profile = {
+                "teacher_id": teacher_id,
+                "name": teacher_name,
+                "email": teacher_email,
+                "password_hash": hash_password(password),
+                "courses": [new_course],
+                "active_course_id": new_course["course_id"],
+                "created_at": _now(),
+                "updated_at": _now(),
+                "status": "active",
+            }
+            _sync_active_course_fields(profile)
+            teachers["teachers"][teacher_id] = profile
 
         voucher["status"] = "used"
         voucher["used_at"] = _now()
@@ -325,16 +459,79 @@ def update_teacher_profile(
         profile = data.get("teachers", {}).get(teacher_id)
         if not isinstance(profile, dict):
             raise HTTPException(status_code=404, detail="Teacher profile not found.")
-        if subject is not None:
-            profile["subject"] = normalize_subject(subject)
-            profile["subject_label"] = SUBJECT_LABELS.get(profile["subject"], profile["subject"])
-        if grading_prompt_extra is not None:
-            profile["grading_prompt_extra"] = (grading_prompt_extra or "").strip()
+
+        courses = _courses_list(profile)
+        active_id = str(profile.get("active_course_id") or "").strip()
+        if not active_id and courses:
+            active_id = str(courses[0].get("course_id") or "")
+
+        active_course = None
+        for course in courses:
+            if str(course.get("course_id") or "") == active_id:
+                active_course = course
+                break
+
+        if active_course is None and courses:
+            active_course = courses[0]
+
         if name is not None and name.strip():
             profile["name"] = name.strip()
-        if course_label is not None:
-            profile["course_label"] = (course_label or "").strip()
+
+        # These are course-level settings, not teacher-account settings.
+        if active_course is not None:
+            if subject is not None:
+                active_course["subject"] = normalize_subject(subject)
+                active_course["subject_label"] = SUBJECT_LABELS.get(active_course["subject"], active_course["subject"])
+            if grading_prompt_extra is not None:
+                active_course["grading_prompt_extra"] = (grading_prompt_extra or "").strip()
+            if course_label is not None:
+                active_course["course_label"] = (course_label or "").strip()
+            active_course["updated_at"] = _now()
+
+        profile["courses"] = courses
         profile["updated_at"] = _now()
+        _sync_active_course_fields(profile)
+        _save_teachers(data)
+        return _public_teacher(profile)
+
+
+def list_teacher_courses(teacher_id: str) -> list[dict[str, Any]]:
+    teacher_id = (teacher_id or "").strip()
+    if not teacher_id:
+        return []
+
+    with _DATA_LOCK:
+        data = _load_teachers()
+        profile = data.get("teachers", {}).get(teacher_id)
+        if not isinstance(profile, dict):
+            return []
+        courses = _courses_list(profile)
+
+    courses.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+    return courses
+
+
+def set_active_teacher_course(*, teacher_id: str, course_id: str) -> dict[str, Any]:
+    teacher_id = (teacher_id or "").strip()
+    course_id = (course_id or "").strip()
+
+    if not course_id:
+        raise HTTPException(status_code=400, detail="Missing course_id.")
+
+    with _DATA_LOCK:
+        data = _load_teachers()
+        profile = data.get("teachers", {}).get(teacher_id)
+        if not isinstance(profile, dict):
+            raise HTTPException(status_code=404, detail="Teacher profile not found.")
+
+        courses = _courses_list(profile)
+        if not any(str(c.get("course_id") or "") == course_id for c in courses):
+            raise HTTPException(status_code=404, detail="Course not found for this teacher.")
+
+        profile["courses"] = courses
+        profile["active_course_id"] = course_id
+        profile["updated_at"] = _now()
+        _sync_active_course_fields(profile)
         _save_teachers(data)
         return _public_teacher(profile)
 

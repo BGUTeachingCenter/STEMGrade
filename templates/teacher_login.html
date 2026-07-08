@@ -4,7 +4,7 @@
 {% block header_title %}Teacher Portal{% endblock %}
 {% block header_subtitle %}Sign in to manage your {{ reference_bank_label }} and grading settings{% endblock %}
 {% block header_actions %}
-  <a class="secondary-btn small" href="/teacher-register">Create profile</a>
+  <a class="secondary-btn small" href="/teacher-register">Create / add course</a>
   <a class="secondary-btn small" href="/admin-login">Admin</a>
   <a class="secondary-btn small" href="/">Back to grader</a>
 {% endblock %}
@@ -22,7 +22,7 @@
           <div class="mg-agent-message-row bot">
             <div class="mg-agent-avatar">{{ app_logo_mark }}</div>
             <div class="mg-agent-message">
-              <strong>Teacher profile</strong>
+              <strong>Teacher account</strong>
               <span>Sign in with email/ID and password.</span>
             </div>
           </div>
@@ -49,7 +49,7 @@
         <div class="badge">{{ app_name }}</div>
         <h1>Teacher Login</h1>
         <p class="lead">
-          Use your teacher email or teacher ID and password. New teachers should create a profile with an admin voucher first.
+           Use your teacher email or teacher ID and password. New teachers create an account with a voucher; existing teachers can add another course with a new voucher.
         </p>
 
         <div id="teacherLoginNotice" class="alert error" style="display:none;"></div>
@@ -72,7 +72,7 @@
         </form>
 
         <div class="mg-agent-login-footer">
-          <a href="/teacher-register" class="secondary-btn small">Create profile with voucher</a>
+          <a href="/teacher-register" class="secondary-btn small">Create / add course with voucher</a>
           <a href="/student-login" class="secondary-btn small">Student Login</a>
         </div>
 

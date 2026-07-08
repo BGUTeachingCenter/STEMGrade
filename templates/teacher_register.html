@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
-{% block title %}Create Teacher Profile · {{ app_name }}{% endblock %}
-{% block header_title %}Create Teacher Profile{% endblock %}
-{% block header_subtitle %}Redeem a voucher, select a subject, and set your password{% endblock %}
+{% block title %}Create Course · {{ app_name }}{% endblock %}
+{% block header_title %}Create Course{% endblock %}
+{% block header_subtitle %}Redeem a voucher to create a new course under your teacher account{% endblock %}
 {% block header_actions %}
   <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
   <a class="secondary-btn small" href="/">Home</a>
@@ -23,20 +23,20 @@
 
     <div class="mg-agent-login-copy">
       <div class="badge">{{ app_name }}</div>
-      <h1>Create Teacher Profile</h1>
-      <p class="lead">Use the voucher from the admin. Your password is hashed before it is stored.</p>
+      <h1>Create or Add Course</h1>
+      <p class="lead">Use a voucher from the admin. New teachers create an account; existing teachers enter the same email and password to add another course.</p>
       <div id="registerNotice" class="alert error" style="display:none;"></div>
       <form id="registerForm" class="bot-form mg-agent-login-form" autocomplete="off">
         <label><span>Voucher code</span><input id="voucherCode" type="text" required placeholder="STEM-…" dir="auto" /></label>
         <label><span>Course / group label</span><input id="courseLabel" type="text" placeholder="e.g. Linear Algebra 2026" /></label>
         <label><span>Initial student codes</span><input id="initialStudentCount" type="number" min="0" max="200" value="0" /></label>
-        <label><span>Name</span><input id="teacherName" type="text" required placeholder="Teacher name" /></label>
-        <label><span>Email</span><input id="teacherEmail" type="email" required placeholder="teacher@example.edu" /></label>
+        <label><span>Teacher name</span><input id="teacherName" type="text" required placeholder="Teacher name" /></label>
+        <label><span>Teacher email</span><input id="teacherEmail" type="email" required placeholder="teacher@example.edu" /></label>
         <label><span>Subject</span><select id="teacherSubject"></select></label>
         <label><span>Basic grading prompt</span><textarea id="gradingPromptExtra" rows="5" placeholder="Optional subject-specific grading priorities…"></textarea></label>
-        <label><span>Password</span><input id="teacherPassword" type="password" required autocomplete="new-password" placeholder="At least 10 chars, upper/lowercase and digit" /></label>
+        <label><span>Teacher account password</span><input id="teacherPassword" type="password" required autocomplete="new-password" placeholder="For existing teachers, enter your current password" /></label>
         <label><span>Confirm password</span><input id="teacherPasswordConfirm" type="password" required autocomplete="new-password" /></label>
-        <button id="registerBtn" type="submit" class="primary-btn mg-agent-login-submit"><span>Create profile</span><span class="mg-btn-arrow">→</span></button>
+        <button id="registerBtn" type="submit" class="primary-btn mg-agent-login-submit"><span>Create course</span><span class="mg-btn-arrow">→</span></button>
       </form>
     </div>
   </section>
@@ -73,7 +73,7 @@ document.getElementById("teacherSubject").addEventListener("change", (ev) => {
   }
 });
 form.addEventListener("submit", async (ev) => {
-  ev.preventDefault(); hideNotice(); btn.disabled = true; btn.textContent = "Creating…";
+  ev.preventDefault(); hideNotice(); btn.disabled = true; btn.textContent = "Creating course…";
   try {
     const payload = {
       voucher_code: document.getElementById("voucherCode").value.trim(),
@@ -91,7 +91,7 @@ form.addEventListener("submit", async (ev) => {
     if (!res.ok || !data || !data.ok) { showNotice((data && data.detail) || "Could not create profile."); return; }
     window.location.href = "/teacher";
   } catch(err) { showNotice("Error: " + (err && err.message ? err.message : String(err))); }
-  finally { btn.disabled = false; btn.innerHTML = '<span>Create profile</span><span class="mg-btn-arrow">→</span>'; }
+  finally { btn.disabled = false; btn.innerHTML = '<span>Create course</span><span class="mg-btn-arrow">→</span>'; }
 });
 loadSubjects();
 </script>

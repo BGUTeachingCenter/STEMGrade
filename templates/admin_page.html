@@ -2,7 +2,7 @@
 
 {% block title %}Admin Portal · {{ app_name }}{% endblock %}
 {% block header_title %}Admin Portal{% endblock %}
-{% block header_subtitle %}Create teacher vouchers and review access{% endblock %}
+{% block header_subtitle %}Create course vouchers and review access{% endblock %}
 {% block header_actions %}
   <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
   <button id="adminLogoutBtn" class="secondary-btn small" type="button">Logout</button>
@@ -14,14 +14,14 @@
     <div>
       <div class="badge">Access management</div>
       <h1>Admin Portal</h1>
-      <p class="lead">Create one-time vouchers. Teachers redeem a voucher, choose a subject, and set their own password.</p>
+      <p class="lead">Create one-time course vouchers. Teachers redeem a voucher to create a new course under their teacher account.</p>
     </div>
     <div class="mg-teacher-hero-meta"><span class="pill">Admin</span></div>
   </section>
 
   <section class="mg-teacher-section">
     <div class="mg-teacher-section-head">
-      <div><h2>Create teacher voucher</h2><p>The raw voucher is shown only once. Copy it and send it to the teacher.</p></div>
+      <div><h2>Create course voucher</h2><p>The raw voucher is shown only once. Copy it and send it to the teacher.</p></div>
     </div>
     <div class="card mg-bank-big-card"><div class="cardInner">
       <div class="mg-upload-reference-grid">
@@ -37,12 +37,16 @@
       <div class="mg-upload-reference-actions">
         <button id="createVoucherBtn" type="button">Create voucher</button>
       </div>
-      <div id="newVoucherBox" class="statusBox" style="display:none;"></div>
+      <div
+        id="newVoucherBox"
+        class="statusBox"
+        style="display:none; min-height:0; padding:14px 16px; margin-top:12px;"
+      ></div>
     </div></div>
   </section>
 
   <section class="mg-teacher-section">
-    <div class="mg-teacher-section-head"><div><h2>Teachers</h2><p>Registered teacher profiles.</p></div></div>
+    <div class="mg-teacher-section-head"><div><h2>Teachers</h2><p>Registered teacher accounts. Each account may contain multiple courses.</p></div></div>
     <div class="card mg-bank-big-card"><div class="cardInner"><div id="teachersList" class="list"></div></div></div>
   </section>
 
@@ -152,8 +156,14 @@ function voucherCard(v) {
 
 function teacherCard(t) {
   const usage = t.token_usage || {};
+  const courses = Array.isArray(t.courses) ? t.courses : [];
+  const activeCourse = t.active_course || {};
+  const courseLine = courses.length
+    ? `${courses.length} course${courses.length === 1 ? "" : "s"} · Active: ${escapeHtml(activeCourse.course_label || t.course_label || "Course")}`
+    : `Active: ${escapeHtml(t.course_label || "Course")}`;
+
   return itemCard(
-    `${escapeHtml(t.name || t.teacher_id)} · ${escapeHtml(t.subject_label || t.subject || "")}`,
+    `${escapeHtml(t.name || t.teacher_id)} · ${courseLine}`,
     [
       `<strong>Email:</strong> ${escapeHtml(t.email || "")}`,
       `<strong>Teacher ID:</strong> <code>${escapeHtml(t.teacher_id || "")}</code>`,
@@ -200,17 +210,22 @@ async function loadAdminData() {
 
 function showNewVoucher(code) {
   const safeCode = escapeHtml(code);
+  const box = $("newVoucherBox");
 
-  $("newVoucherBox").style.display = "block";
-  $("newVoucherBox").innerHTML = `
-    <div>
-      <div class="small"><strong>New voucher code</strong></div>
-      <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-top:0.5rem;">
-        <code id="latestVoucherCode" style="font-size:1.25rem; font-weight:800;">${safeCode}</code>
+  box.style.display = "block";
+  box.style.minHeight = "0";
+  box.style.padding = "14px 16px";
+  box.style.marginTop = "12px";
+
+  box.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span class="small"><strong>New voucher code:</strong></span>
+        <code id="latestVoucherCode" style="font-size:1rem; font-weight:900;">${safeCode}</code>
         <button id="copyVoucherCodeBtn" type="button" class="secondary-btn small">Copy</button>
       </div>
-      <div class="small" style="margin-top:0.5rem;">
-        This code is now also saved in the voucher history.
+      <div class="small" style="margin:0; color:var(--muted);">
+        Saved in voucher history.
       </div>
     </div>
   `;
@@ -219,6 +234,7 @@ function showNewVoucher(code) {
     try {
       await navigator.clipboard.writeText(code);
       $("copyVoucherCodeBtn").textContent = "Copied";
+      setTimeout(() => { $("copyVoucherCodeBtn").textContent = "Copy"; }, 1200);
     } catch (_) {
       $("copyVoucherCodeBtn").textContent = "Copy failed";
     }

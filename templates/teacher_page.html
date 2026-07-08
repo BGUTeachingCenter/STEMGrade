@@ -28,7 +28,7 @@
 
     <nav class="mg-teacher-tabs" aria-label="Teacher portal sections">
       <a href="#teacherStats">Overview</a>
-      <a href="#teacherProfile">Profile & prompts</a>
+      <a href="#teacherProfile">Account & course</a>
       <a href="#studentCodes">Student codes</a>
       <a href="#teacherBank">{{ reference_bank_label }}</a>
       <a href="#uploadReference">Upload to Bank</a>
@@ -39,8 +39,8 @@
 <section class="mg-teacher-section mg-teacher-profile-section" id="teacherProfile">
   <div class="mg-teacher-section-head">
     <div>
-      <h2>Profile & grading prompt</h2>
-      <p>Set the default subject and base grading instructions for new reference uploads.</p>
+      <h2>Teacher account & active course</h2>
+      <p>Select the active course. Subject, grading prompt, student codes, uploads, and bank actions apply to the active course.</p>
     </div>
   </div>
 
@@ -53,9 +53,19 @@
           <div class="small mg-field-help" id="profileIdentity">Loading teacher profile…</div>
         </div>
         <div>
-          <label for="profileSubject">Default subject</label>
+          <label for="activeCourseSelect">Active course</label>
+          <select id="activeCourseSelect"></select>
+          <div class="small mg-field-help">Switching course reloads the current course data.</div>
+        </div>
+        <div>
+          <label for="profileCourseLabel">Course / group label</label>
+          <input id="profileCourseLabel" type="text" placeholder="e.g. Chemistry 2026" />
+          <div class="small mg-field-help">Shown in student codes and course reports.</div>
+        </div>
+        <div>
+          <label for="profileSubject">Course subject</label>
           <select id="profileSubject"></select>
-          <div class="small mg-field-help">Used as the default for new references.</div>
+          <div class="small mg-field-help">Used as the default for new references in this course.</div>
         </div>
       </div>
 
@@ -64,7 +74,7 @@
       <div class="small mg-field-help">This is appended to the subject prompt during grading.</div>
 
       <div class="mg-upload-reference-actions">
-        <button id="saveProfileBtn" type="button">Save profile prompt</button>
+         <button id="saveProfileBtn" type="button">Save account/course settings</button>
       </div>
       <div id="profileStatus" class="statusBox">Loading profile…</div>
 
@@ -525,12 +535,63 @@
 
   let CURRENT_TEACHER_PROFILE = null;
   let SUBJECTS = [];
+  let COURSES = [];
+  let ACTIVE_COURSE = null;
 
   function renderSubjectSelect(selectId, selected) {
     const sel = $(selectId);
     if (!sel) return;
     sel.innerHTML = SUBJECTS.map(s => `<option value="${s.value}">${s.label}</option>`).join("");
     if (selected) sel.value = selected;
+  }
+
+  function renderCourseSelect() {
+    const sel = $("activeCourseSelect");
+    if (!sel) return;
+
+    const activeId = ACTIVE_COURSE?.course_id || CURRENT_TEACHER_PROFILE?.active_course_id || "";
+    sel.innerHTML = (COURSES || []).map(course => {
+      const label = `${course.course_label || "Course"} · ${course.subject_label || course.subject || ""}`;
+      return `<option value="${escapeHtml(course.course_id || "")}">${escapeHtml(label)}</option>`;
+    }).join("");
+
+    if (activeId) sel.value = activeId;
+  }
+
+  async function switchActiveCourse(courseId) {
+    if (!courseId) return;
+
+    setProfileStatus("Switching active course…", "work");
+
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/active_course", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ course_id: courseId }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not switch course.");
+
+      CURRENT_TEACHER_PROFILE = j.teacher || {};
+      COURSES = j.courses || CURRENT_TEACHER_PROFILE.courses || [];
+      ACTIVE_COURSE = j.active_course || CURRENT_TEACHER_PROFILE.active_course || {};
+
+      renderCourseSelect();
+      renderSubjectSelect("profileSubject", CURRENT_TEACHER_PROFILE.subject || "math");
+      renderSubjectSelect("uploadSubject", CURRENT_TEACHER_PROFILE.subject || "math");
+
+      if ($("profileCourseLabel")) $("profileCourseLabel").value = CURRENT_TEACHER_PROFILE.course_label || "";
+      if ($("profilePromptExtra")) $("profilePromptExtra").value = CURRENT_TEACHER_PROFILE.grading_prompt_extra || "";
+      if ($("solutionPromptComment")) $("solutionPromptComment").value = CURRENT_TEACHER_PROFILE.grading_prompt_extra || "";
+
+      await loadStudentCodes();
+      await loadStatsAndRender();
+      await loadExams();
+
+      setProfileStatus("Active course switched.", "ok");
+    } catch (e) {
+      setProfileStatus("Course switch failed: " + (e && e.message ? e.message : String(e)), "err");
+    }
   }
 
   function setProfileStatus(msg, kind) {
@@ -548,9 +609,15 @@
       if (!r.ok || !j.ok) throw new Error(j.detail || "Could not load teacher profile.");
       CURRENT_TEACHER_PROFILE = j.teacher || {};
       SUBJECTS = j.subjects || [];
+      COURSES = j.courses || CURRENT_TEACHER_PROFILE.courses || [];
+      ACTIVE_COURSE = j.active_course || CURRENT_TEACHER_PROFILE.active_course || {};
+
+      renderCourseSelect();
       renderSubjectSelect("profileSubject", CURRENT_TEACHER_PROFILE.subject || "math");
       renderSubjectSelect("uploadSubject", CURRENT_TEACHER_PROFILE.subject || "math");
+
       if ($("profileName")) $("profileName").value = CURRENT_TEACHER_PROFILE.name || "";
+      if ($("profileCourseLabel")) $("profileCourseLabel").value = CURRENT_TEACHER_PROFILE.course_label || "";
       if ($("profilePromptExtra")) $("profilePromptExtra").value = CURRENT_TEACHER_PROFILE.grading_prompt_extra || "";
       if ($("solutionPromptComment") && !$("solutionPromptComment").value.trim()) {
         $("solutionPromptComment").value = CURRENT_TEACHER_PROFILE.grading_prompt_extra || "";
@@ -558,7 +625,7 @@
       if ($("profileIdentity")) {
         $("profileIdentity").textContent = j.legacy
           ? "Legacy teacher session — create a profile to save prompt/password settings."
-          : `Teacher ID: ${CURRENT_TEACHER_PROFILE.teacher_id || ""} · ${CURRENT_TEACHER_PROFILE.email || ""}`;
+          : `Teacher ID: ${CURRENT_TEACHER_PROFILE.teacher_id || ""} · ${CURRENT_TEACHER_PROFILE.email || ""} · Active course: ${CURRENT_TEACHER_PROFILE.course_label || "Course"}`;
       }
       setProfileStatus(j.legacy ? "Legacy session loaded. Profile editing is disabled until you register with a voucher." : "Profile loaded.", j.legacy ? "work" : "ok");
       if (j.legacy && $("saveProfileBtn")) $("saveProfileBtn").disabled = true;
@@ -751,6 +818,7 @@
   async function saveTeacherProfile() {
     const payload = {
       name: $("profileName") ? $("profileName").value.trim() : "",
+      course_label: $("profileCourseLabel") ? $("profileCourseLabel").value.trim() : "",
       subject: $("profileSubject") ? $("profileSubject").value : "math",
       grading_prompt_extra: $("profilePromptExtra") ? $("profilePromptExtra").value.trim() : ""
     };
@@ -764,8 +832,13 @@
       const j = await r.json().catch(()=>null);
       if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not save profile.");
       CURRENT_TEACHER_PROFILE = j.teacher;
+      COURSES = CURRENT_TEACHER_PROFILE.courses || COURSES;
+      ACTIVE_COURSE = CURRENT_TEACHER_PROFILE.active_course || ACTIVE_COURSE;
+      renderCourseSelect();
       renderSubjectSelect("uploadSubject", CURRENT_TEACHER_PROFILE.subject || "math");
-      setProfileStatus("Profile saved.", "ok");
+      setProfileStatus("Account/course settings saved.", "ok");
+      await loadStudentCodes();
+      await loadStatsAndRender();
     } catch(e) {
       setProfileStatus("Save failed: " + (e && e.message ? e.message : String(e)), "err");
     }
@@ -796,6 +869,11 @@
 
   if ($("saveProfileBtn")) $("saveProfileBtn").addEventListener("click", saveTeacherProfile);
   if ($("changeTeacherPasswordBtn")) $("changeTeacherPasswordBtn").addEventListener("click", changeTeacherPassword);
+  if ($("activeCourseSelect")) {
+    $("activeCourseSelect").addEventListener("change", (ev) => {
+      switchActiveCourse(ev.target.value || "");
+    });
+  }
   loadTeacherProfile();
 
 

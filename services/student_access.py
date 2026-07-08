@@ -66,8 +66,14 @@ def _new_code(existing_hashes: set[str]) -> str:
     raise RuntimeError("Could not generate a unique student code.")
 
 
-def list_student_codes_for_teacher(teacher_id: str) -> list[dict[str, Any]]:
+def list_student_codes_for_teacher(
+    teacher_id: str,
+    *,
+    voucher_id: str = "",
+) -> list[dict[str, Any]]:
     teacher_id = (teacher_id or "").strip()
+    voucher_id = (voucher_id or "").strip()
+
     if not teacher_id:
         return []
 
@@ -79,6 +85,17 @@ def list_student_codes_for_teacher(teacher_id: str) -> list[dict[str, Any]]:
                 continue
             if rec.get("teacher_id") != teacher_id:
                 continue
+
+            if voucher_id:
+                rec_voucher = str(
+                    rec.get("voucher_id")
+                    or rec.get("voucher_code")
+                    or rec.get("voucher_hash")
+                    or ""
+                ).strip()
+                if rec_voucher != voucher_id:
+                    continue
+
             item = dict(rec)
             item.pop("code_hash", None)
             out.append(item)
@@ -114,6 +131,7 @@ def create_student_codes(
 
     count = max(1, min(int(count or 1), 200))
     course_label = (course_label or "").strip() or str(teacher.get("course_label") or "").strip()
+    active_course = teacher.get("active_course") if isinstance(teacher.get("active_course"), dict) else {}
     note = (note or "").strip()
     student_name = (student_name or "").strip()
     student_email = (student_email or "").strip().lower()
@@ -134,11 +152,12 @@ def create_student_codes(
                 "teacher_id": teacher_id,
                 "teacher_name": teacher.get("name", ""),
                 "teacher_email": teacher.get("email", ""),
-                "voucher_id": teacher.get("voucher_id", ""),
-                "voucher_hash": teacher.get("voucher_hash", ""),
-                "voucher_code": teacher.get("voucher_code", ""),
-                "subject": teacher.get("subject", "math"),
-                "subject_label": teacher.get("subject_label", teacher.get("subject", "math")),
+                "voucher_id": active_course.get("voucher_id") or teacher.get("voucher_id", ""),
+                "voucher_hash": active_course.get("voucher_hash") or teacher.get("voucher_hash", ""),
+                "voucher_code": active_course.get("voucher_code") or teacher.get("voucher_code", ""),
+                "course_id": active_course.get("course_id") or teacher.get("active_course_id", ""),
+                "subject": active_course.get("subject") or teacher.get("subject", "math"),
+                "subject_label": active_course.get("subject_label") or teacher.get("subject_label", teacher.get("subject", "math")),
                 "course_label": course_label,
                 "student_name": student_name,
                 "student_email": student_email,
