@@ -28,6 +28,8 @@
       <div id="registerNotice" class="alert error" style="display:none;"></div>
       <form id="registerForm" class="bot-form mg-agent-login-form" autocomplete="off">
         <label><span>Voucher code</span><input id="voucherCode" type="text" required placeholder="STEM-…" dir="auto" /></label>
+        <label><span>Course / group label</span><input id="courseLabel" type="text" placeholder="e.g. Linear Algebra 2026" /></label>
+        <label><span>Initial student codes</span><input id="initialStudentCount" type="number" min="0" max="200" value="0" /></label>
         <label><span>Name</span><input id="teacherName" type="text" required placeholder="Teacher name" /></label>
         <label><span>Email</span><input id="teacherEmail" type="email" required placeholder="teacher@example.edu" /></label>
         <label><span>Subject</span><select id="teacherSubject"></select></label>
@@ -79,6 +81,8 @@ form.addEventListener("submit", async (ev) => {
       teacher_email: document.getElementById("teacherEmail").value.trim(),
       subject: document.getElementById("teacherSubject").value,
       grading_prompt_extra: document.getElementById("gradingPromptExtra").value.trim(),
+      course_label: document.getElementById("courseLabel").value.trim(),
+      initial_student_count: Number(document.getElementById("initialStudentCount").value || 0),
       password: document.getElementById("teacherPassword").value,
       password_confirm: document.getElementById("teacherPasswordConfirm").value
     };

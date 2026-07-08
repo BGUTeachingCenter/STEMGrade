@@ -225,10 +225,12 @@ def register_teacher_from_voucher(
     password: str,
     password_confirm: str,
     grading_prompt_extra: str = "",
+    course_label: str = "",
 ) -> dict[str, Any]:
     voucher_code = (voucher_code or "").strip()
     teacher_name = (teacher_name or "").strip()
     teacher_email = (teacher_email or "").strip().lower()
+    course_label = (course_label or "").strip()
 
     if not voucher_code:
         raise HTTPException(status_code=400, detail="Missing voucher code.")
@@ -263,6 +265,7 @@ def register_teacher_from_voucher(
             "email": teacher_email,
             "subject": selected_subject,
             "subject_label": SUBJECT_LABELS.get(selected_subject, selected_subject),
+            "course_label": course_label,
             "voucher_id": voucher.get("voucher_id", ""),
             "voucher_hash": digest,
             "voucher_code": voucher.get("voucher_code", ""),
@@ -314,6 +317,7 @@ def update_teacher_profile(
     subject: str | None = None,
     grading_prompt_extra: str | None = None,
     name: str | None = None,
+    course_label: str | None = None,
 ) -> dict[str, Any]:
     teacher_id = (teacher_id or "").strip()
     with _DATA_LOCK:
@@ -328,6 +332,8 @@ def update_teacher_profile(
             profile["grading_prompt_extra"] = (grading_prompt_extra or "").strip()
         if name is not None and name.strip():
             profile["name"] = name.strip()
+        if course_label is not None:
+            profile["course_label"] = (course_label or "").strip()
         profile["updated_at"] = _now()
         _save_teachers(data)
         return _public_teacher(profile)

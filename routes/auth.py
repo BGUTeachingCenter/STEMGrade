@@ -5,12 +5,13 @@ import json
 import re
 import time
 from collections import deque
+from io import BytesIO
 from urllib.parse import quote
 from threading import Lock
 from typing import Deque, Dict, Set
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from core.config import RUNS_ROOT
@@ -27,6 +28,7 @@ from services.student_access import (
     create_student_codes,
     get_student_code_record,
     list_student_codes_for_teacher,
+    update_student_codes_for_teacher,
 )
 from services.teacher_profiles import (
     authenticate_teacher,
@@ -199,12 +201,15 @@ class TeacherRegisterRequest(BaseModel):
     password: str
     password_confirm: str
     grading_prompt_extra: str = ""
+    course_label: str = ""
+    initial_student_count: int = 0
 
 
 class UpdateTeacherProfileRequest(BaseModel):
     subject: str | None = None
     grading_prompt_extra: str | None = None
     name: str | None = None
+    course_label: str | None = None
 
 
 class ChangeTeacherPasswordRequest(BaseModel):
@@ -216,6 +221,8 @@ class ChangeTeacherPasswordRequest(BaseModel):
 class CreateStudentCodesRequest(BaseModel):
     count: int = 1
     course_label: str = ""
+    student_name: str = ""
+    student_email: str = ""
     note: str = ""
 
 
@@ -305,7 +312,18 @@ def teacher_register(req: TeacherRegisterRequest, request: Request, response: Re
         password=req.password,
         password_confirm=req.password_confirm,
         grading_prompt_extra=req.grading_prompt_extra,
+        course_label=req.course_label,
     )
+
+    initial_count = max(0, min(int(req.initial_student_count or 0), 200))
+    initial_codes = []
+    if initial_count:
+        initial_codes = create_student_codes(
+            teacher_id=profile["teacher_id"],
+            count=initial_count,
+            course_label=req.course_label,
+        )
+
     set_profile_session_cookie(
         response,
         role="teacher",
@@ -313,7 +331,7 @@ def teacher_register(req: TeacherRegisterRequest, request: Request, response: Re
         teacher_id=profile["teacher_id"],
     )
     _record_successful_attempt(ip)
-    return {"ok": True, "role": "teacher", "teacher": profile}
+    return {"ok": True, "role": "teacher", "teacher": profile, "initial_codes": initial_codes}
 
 
 @router.post("/teacher/login")
@@ -366,6 +384,7 @@ def teacher_profile_update(req: UpdateTeacherProfileRequest, _session: dict = De
         subject=req.subject,
         grading_prompt_extra=req.grading_prompt_extra,
         name=req.name,
+        course_label=req.course_label,
     )
     return {"ok": True, "teacher": profile}
 
@@ -384,11 +403,94 @@ def teacher_change_password(req: ChangeTeacherPasswordRequest, _session: dict = 
     return {"ok": True}
 
 
-@router.get("/teacher/student_codes")
-def teacher_student_codes(_session: dict = Depends(require_teacher)):
-    teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+def _teacher_id_or_400(session: dict) -> str:
+    teacher_id = (session.get("teacher_id") or session.get("sub") or "").strip()
     if not teacher_id or teacher_id == "teacher":
         raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot manage student codes.")
+    return teacher_id
+
+
+def _cell_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _normalize_excel_header(value) -> str:
+    key = _cell_text(value).lower()
+    key = re.sub(r"[^a-z0-9]+", "_", key).strip("_")
+    aliases = {
+        "student": "student_name",
+        "student_name": "student_name",
+        "name": "student_name",
+        "email": "student_email",
+        "student_email": "student_email",
+        "course": "course_label",
+        "course_group": "course_label",
+        "course_label": "course_label",
+        "group": "course_label",
+        "note": "note",
+        "notes": "note",
+        "status": "status",
+        "code": "code",
+        "student_code": "code",
+    }
+    return aliases.get(key, key)
+
+
+def _student_codes_workbook(codes: list[dict]) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "student_codes"
+
+    headers = [
+        "code",
+        "student_name",
+        "student_email",
+        "course_label",
+        "note",
+        "status",
+        "uses",
+        "last_used_at",
+        "created_at",
+    ]
+    ws.append(headers)
+
+    for rec in codes:
+        ws.append([rec.get(h, "") for h in headers])
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or "")) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max(max_len + 2, 12), 34)
+
+    return wb
+
+
+def _rows_from_uploaded_student_codes_xlsx(content: bytes) -> list[dict[str, str]]:
+    wb = load_workbook(BytesIO(content), data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    headers = [_normalize_excel_header(x) for x in rows[0]]
+    out: list[dict[str, str]] = []
+    for raw in rows[1:]:
+        row = {}
+        for i, header in enumerate(headers):
+            if not header:
+                continue
+            row[header] = _cell_text(raw[i] if i < len(raw) else None)
+        if any(row.values()):
+            out.append(row)
+    return out
+
+
+@router.get("/teacher/student_codes")
+def teacher_student_codes(_session: dict = Depends(require_teacher)):
+    teacher_id = _teacher_id_or_400(_session)
     return {
         "ok": True,
         "teacher_id": teacher_id,
@@ -398,17 +500,51 @@ def teacher_student_codes(_session: dict = Depends(require_teacher)):
 
 @router.post("/teacher/student_codes")
 def teacher_create_student_codes(req: CreateStudentCodesRequest, _session: dict = Depends(require_teacher)):
-    teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
-    if not teacher_id or teacher_id == "teacher":
-        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot create student codes.")
+    teacher_id = _teacher_id_or_400(_session)
 
     codes = create_student_codes(
         teacher_id=teacher_id,
         count=req.count,
         course_label=req.course_label,
         note=req.note,
+        student_name=req.student_name,
+        student_email=req.student_email,
     )
     return {"ok": True, "teacher_id": teacher_id, "codes": codes}
+
+
+@router.get("/teacher/student_codes.xlsx")
+def teacher_student_codes_xlsx(_session: dict = Depends(require_teacher)):
+    teacher_id = _teacher_id_or_400(_session)
+    codes = list_student_codes_for_teacher(teacher_id)
+    wb = _student_codes_workbook(codes)
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = f"student_codes_{teacher_id}.xlsx"
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={quote(filename)}"},
+    )
+
+
+@router.post("/teacher/student_codes/import")
+async def teacher_import_student_codes(
+    file: UploadFile = File(...),
+    _session: dict = Depends(require_teacher),
+):
+    teacher_id = _teacher_id_or_400(_session)
+    name = (file.filename or "").lower()
+    if not name.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Upload an .xlsx file exported from the student-codes table.")
+
+    content = await file.read()
+    rows = _rows_from_uploaded_student_codes_xlsx(content)
+    result = update_student_codes_for_teacher(teacher_id, rows)
+    return {"ok": True, "teacher_id": teacher_id, **result}
 
 
 @router.get("/student/dashboard")

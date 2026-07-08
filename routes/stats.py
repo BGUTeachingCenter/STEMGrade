@@ -90,8 +90,9 @@ def _roster_for_teacher(teacher_id: str) -> list[dict[str, Any]]:
                 "code": code,
                 "voucher_id": voucher_id,
                 "course_label": str(rec.get("course_label") or "").strip(),
+                "student_name": str(rec.get("student_name") or "").strip(),
+                "student_email": str(rec.get("student_email") or "").strip(),
                 "note": str(rec.get("note") or "").strip(),
-                "created_at": str(rec.get("created_at") or ""),
                 "last_used_at": str(rec.get("last_used_at") or ""),
                 "uses": int(rec.get("uses") or 0),
             }
@@ -268,6 +269,69 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
 
     work_progress.sort(key=lambda x: (str(x.get("voucher_id") or ""), str(x.get("exam_id") or "")))
 
+    student_progress_by_code: dict[str, dict[str, Any]] = {}
+    for rec in roster:
+        student_progress_by_code[rec["code"]] = {
+            "code": rec["code"],
+            "voucher_id": rec.get("voucher_id", ""),
+            "course_label": rec.get("course_label", ""),
+            "student_name": rec.get("student_name", ""),
+            "student_email": rec.get("student_email", ""),
+            "note": rec.get("note", ""),
+            "created_at": rec.get("created_at", ""),
+            "last_used_at": rec.get("last_used_at", ""),
+            "uses": int(rec.get("uses") or 0),
+            "works": [],
+            "total_attempts": 0,
+            "uploaded_work_count": 0,
+        }
+
+    for work in work_progress:
+        for uploaded in work.get("students_uploaded", []) or []:
+            code = str(uploaded.get("code") or "").strip()
+            if not code:
+                continue
+
+            row = student_progress_by_code.setdefault(
+                code,
+                {
+                    "code": code,
+                    "voucher_id": work.get("voucher_id", ""),
+                    "course_label": str(uploaded.get("course_label") or ""),
+                    "student_name": "",
+                    "student_email": "",
+                    "note": "",
+                    "created_at": "",
+                    "last_used_at": "",
+                    "uses": 0,
+                    "works": [],
+                    "total_attempts": 0,
+                    "uploaded_work_count": 0,
+                },
+            )
+
+            attempts = int(uploaded.get("attempts") or 0)
+            row["works"].append(
+                {
+                    "exam_id": work.get("exam_id", ""),
+                    "voucher_id": work.get("voucher_id", ""),
+                    "is_matched_exam": bool(work.get("is_matched_exam")),
+                    "attempts": attempts,
+                    "first_uploaded_at": uploaded.get("first_uploaded_at", ""),
+                    "last_uploaded_at": uploaded.get("last_uploaded_at", ""),
+                    "last_graded_at": uploaded.get("last_graded_at", ""),
+                    "status": uploaded.get("status", ""),
+                    "source_filename": uploaded.get("source_filename", ""),
+                }
+            )
+            row["total_attempts"] = int(row.get("total_attempts") or 0) + attempts
+            row["uploaded_work_count"] = int(row.get("uploaded_work_count") or 0) + 1
+
+    student_progress = list(student_progress_by_code.values())
+    for row in student_progress:
+        row["works"].sort(key=lambda x: str(x.get("last_uploaded_at") or ""), reverse=True)
+    student_progress.sort(key=lambda x: (str(x.get("course_label") or ""), str(x.get("code") or "")))
+
     vouchers = []
     for voucher_id in sorted(voucher_ids or {default_voucher}):
         roster_for_voucher = roster_by_voucher.get(voucher_id, [])
@@ -360,6 +424,7 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         "uploads_per_day": uploads_per_day,
         "usage_per_day": uploads_per_day,
         "work_progress": work_progress,
+        "student_progress": student_progress,
         "codes_per_exam": codes_per_exam,
         "gemini_tokens_per_code": gemini_tokens_per_code,
         "recent_uploads": recent_uploads,

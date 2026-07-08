@@ -101,6 +101,8 @@ def create_student_codes(
     count: int = 1,
     course_label: str = "",
     note: str = "",
+    student_name: str = "",
+    student_email: str = "",
 ) -> list[dict[str, Any]]:
     teacher_id = (teacher_id or "").strip()
     if not teacher_id:
@@ -111,8 +113,10 @@ def create_student_codes(
         raise HTTPException(status_code=404, detail="Teacher profile not found.")
 
     count = max(1, min(int(count or 1), 200))
-    course_label = (course_label or "").strip()
+    course_label = (course_label or "").strip() or str(teacher.get("course_label") or "").strip()
     note = (note or "").strip()
+    student_name = (student_name or "").strip()
+    student_email = (student_email or "").strip().lower()
 
     with _LOCK:
         data = _load()
@@ -136,6 +140,8 @@ def create_student_codes(
                 "subject": teacher.get("subject", "math"),
                 "subject_label": teacher.get("subject_label", teacher.get("subject", "math")),
                 "course_label": course_label,
+                "student_name": student_name,
+                "student_email": student_email,
                 "note": note,
                 "status": "active",
                 "created_at": _now(),
@@ -151,6 +157,86 @@ def create_student_codes(
         _save(data)
 
     return created
+
+
+def update_student_codes_for_teacher(
+    teacher_id: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Update editable fields for this teacher's existing student-code records.
+
+    Intended for Excel import from the teacher portal. The access code itself is
+    not editable here, because it is the login credential and its hash is the
+    storage key. Blank cells leave the previous value unchanged.
+    """
+    teacher_id = (teacher_id or "").strip()
+    if not teacher_id:
+        raise HTTPException(status_code=400, detail="Missing teacher profile.")
+
+    allowed_statuses = {"active", "disabled", "inactive"}
+    editable_fields = {"student_name", "student_email", "course_label", "note"}
+
+    updated = 0
+    skipped = 0
+    errors: list[str] = []
+
+    with _LOCK:
+        data = _load()
+        codes = data.get("codes", {})
+
+        for row_index, row in enumerate(rows, start=2):
+            if not isinstance(row, dict):
+                skipped += 1
+                continue
+
+            raw_code = str(row.get("code") or "").strip()
+            if not raw_code:
+                skipped += 1
+                continue
+
+            digest = _hash_code(raw_code)
+            rec = codes.get(digest)
+            if not isinstance(rec, dict) or rec.get("teacher_id") != teacher_id:
+                skipped += 1
+                errors.append(f"Row {row_index}: code not found for this teacher.")
+                continue
+
+            changed = False
+            for field in editable_fields:
+                if field not in row:
+                    continue
+                value = str(row.get(field) or "").strip()
+                if field == "student_email":
+                    value = value.lower()
+                if value != "" and value != str(rec.get(field) or ""):
+                    rec[field] = value
+                    changed = True
+
+            if "status" in row:
+                status = str(row.get("status") or "").strip().lower()
+                if status:
+                    if status not in allowed_statuses:
+                        skipped += 1
+                        errors.append(f"Row {row_index}: status must be active, disabled, or inactive.")
+                        continue
+                    if status != str(rec.get("status") or ""):
+                        rec["status"] = status
+                        changed = True
+
+            if changed:
+                rec["updated_at"] = _now()
+                updated += 1
+
+        _save(data)
+
+    return {
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors[:20],
+    }
+
+
 
 
 def get_student_code_record(code: str) -> dict[str, Any] | None:

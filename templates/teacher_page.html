@@ -85,34 +85,49 @@
 <section class="mg-teacher-section mg-student-codes-section" id="studentCodes">
   <div class="mg-teacher-section-head">
     <div>
-      <h2>Student codes</h2>
-      <p>Create course/student access codes. Students who log in with these codes will use your reference bank.</p>
+      <h2>Students & access codes</h2>
+      <p>Student codes are created when the course is created. Here you can export current codes, import edited details, or add a student.</p>
     </div>
+    <a id="downloadStudentCodesBtn" class="secondary-btn small" href="/routes/teacher/student_codes.xlsx">Download current codes</a>
   </div>
 
   <div class="card mg-bank-big-card">
     <div class="cardInner">
-      <div class="mg-upload-reference-grid">
-        <div>
-          <label for="studentCodeCount">Number of codes</label>
-          <input id="studentCodeCount" type="number" min="1" max="200" value="1" />
+      <div class="mg-student-code-tools">
+        <div class="mg-student-code-toolbox">
+          <div class="mg-card-title">Import code edits</div>
+          <p class="small">Download the Excel file, edit <strong>student_name</strong>, <strong>student_email</strong>, <strong>course_label</strong>, <strong>note</strong>, or <strong>status</strong>, then upload it here. The code column is used only to match existing students.</p>
+          <div class="mg-student-code-upload-row">
+            <input id="studentCodesImportFile" type="file" accept=".xlsx" />
+            <button id="importStudentCodesBtn" type="button" class="secondary-btn">Upload Excel edits</button>
+          </div>
         </div>
-        <div>
-          <label for="studentCourseLabel">Course / group label</label>
-          <input id="studentCourseLabel" type="text" placeholder="e.g. Linear Algebra 2026" />
-        </div>
-        <div>
-          <label for="studentCodeNote">Note</label>
-          <input id="studentCodeNote" type="text" placeholder="Optional note…" />
-        </div>
-      </div>
 
-      <div class="mg-upload-reference-actions">
-        <button id="createStudentCodesBtn" type="button">Create student codes</button>
+        <div class="mg-student-code-toolbox">
+          <div class="mg-card-title">Add student</div>
+          <p class="small">Adds one active student code to the current course.</p>
+          <div class="mg-student-add-grid">
+            <div>
+              <label for="newStudentName">Student name</label>
+              <input id="newStudentName" type="text" placeholder="Optional name" />
+            </div>
+            <div>
+              <label for="newStudentEmail">Email</label>
+              <input id="newStudentEmail" type="email" placeholder="Optional email" />
+            </div>
+            <div>
+              <label for="newStudentNote">Note</label>
+              <input id="newStudentNote" type="text" placeholder="Optional note" />
+            </div>
+          </div>
+          <div class="mg-upload-reference-actions">
+            <button id="addStudentCodeBtn" type="button">Add student</button>
+          </div>
+        </div>
       </div>
 
       <div id="newStudentCodesBox" class="statusBox" style="display:none;"></div>
-      <div id="studentCodesStatus" class="statusBox">Loading student codes…</div>
+      <div id="studentCodesStatus" class="statusBox">Loading students…</div>
       <div id="studentCodesList" class="list"></div>
     </div>
   </div>
@@ -167,6 +182,20 @@
       </div>
 
       <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card mg-student-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Current students</div>
+          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
+        </div>
+      </div>
+      <div id="studentProgressList" class="mg-student-progress-list">
+        <div class="emptyState">Loading current students…</div>
+      </div>
     </div>
   </div>
 
@@ -538,26 +567,46 @@
     }
   }
 
-  function studentCodeCard(c) {
-    return `
-      <div class="mg-bank-item">
-        <div class="mg-bank-item-main">
-          <div class="mg-bank-item-title">
-            <code>${escapeHtml(c.code || "")}</code>
+    function studentCodeTable(codes) {
+    if (!codes.length) return `<div class="emptyState">No students yet.</div>`;
+
+    const rows = codes.map(c => `
+      <tr>
+        <td>
+          <div class="mg-student-name-cell">
+            <strong>${escapeHtml(c.student_name || "Unnamed student")}</strong>
+            ${c.student_email ? `<span>${escapeHtml(c.student_email)}</span>` : ""}
           </div>
-          <div class="small"><strong>Course:</strong> ${escapeHtml(c.course_label || "—")}</div>
-          <div class="small"><strong>Subject:</strong> ${escapeHtml(c.subject_label || c.subject || "—")}</div>
-          <div class="small"><strong>Status:</strong> ${escapeHtml(c.status || "")}</div>
-          <div class="small"><strong>Uses:</strong> ${Number(c.uses || 0).toLocaleString()}</div>
-          <div class="small"><strong>Last used:</strong> ${escapeHtml(c.last_used_at || "—")}</div>
-          <div class="small"><strong>Created:</strong> ${escapeHtml(c.created_at || "")}</div>
-          ${c.note ? `<div class="small"><strong>Note:</strong> ${escapeHtml(c.note)}</div>` : ""}
-        </div>
-        <div class="mg-solution-actions">
-          <button type="button" class="secondary small mg-copy-student-code" data-code="${escapeHtml(c.code || "")}">
-            Copy
-          </button>
-        </div>
+        </td>
+        <td><code>${escapeHtml(c.code || "")}</code></td>
+        <td>${escapeHtml(c.course_label || "—")}</td>
+        <td>${escapeHtml(c.status || "")}</td>
+        <td>${Number(c.uses || 0).toLocaleString()}</td>
+        <td>${escapeHtml(c.last_used_at || "—")}</td>
+        <td>${escapeHtml(c.note || "—")}</td>
+        <td>
+          <button type="button" class="secondary small mg-copy-student-code" data-code="${escapeHtml(c.code || "")}">Copy</button>
+        </td>
+      </tr>
+    `).join("");
+
+    return `
+      <div class="mg-work-table-wrap mg-student-code-table-wrap">
+        <table class="mg-work-detail-table mg-student-code-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Code</th>
+              <th>Course</th>
+              <th>Status</th>
+              <th>Logins</th>
+              <th>Last login</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>
     `;
   }
@@ -571,13 +620,14 @@
 
       const codes = j.codes || [];
       if ($("studentCodesList")) {
-        $("studentCodesList").innerHTML = codes.length
-          ? codes.map(studentCodeCard).join("")
-          : `<div class="emptyState">No student codes yet.</div>`;
+        $("studentCodesList").innerHTML = studentCodeTable(codes);
       }
 
+      const downloadBtn = $("downloadStudentCodesBtn");
+      if (downloadBtn) downloadBtn.href = `${API_BASE}/routes/teacher/student_codes.xlsx`;
+
       if (status) {
-        status.textContent = `${codes.length} student code${codes.length === 1 ? "" : "s"} for this teacher.`;
+        status.textContent = `${codes.length} current student${codes.length === 1 ? "" : "s"} for this teacher.`;
         status.classList.remove("err", "work");
         status.classList.add("ok");
       }
@@ -595,50 +645,106 @@
       });
     } catch (e) {
       if (status) {
-        status.textContent = "Student code load failed: " + (e && e.message ? e.message : String(e));
+        status.textContent = "Student list load failed: " + (e && e.message ? e.message : String(e));
         status.classList.remove("ok", "work");
         status.classList.add("err");
       }
     }
   }
 
-  async function createStudentCodes() {
-    const count = Number($("studentCodeCount") ? $("studentCodeCount").value : 1) || 1;
-    const course_label = $("studentCourseLabel") ? $("studentCourseLabel").value.trim() : "";
-    const note = $("studentCodeNote") ? $("studentCodeNote").value.trim() : "";
+  async function addStudentCode() {
+    const student_name = $("newStudentName") ? $("newStudentName").value.trim() : "";
+    const student_email = $("newStudentEmail") ? $("newStudentEmail").value.trim() : "";
+    const note = $("newStudentNote") ? $("newStudentNote").value.trim() : "";
 
     const box = $("newStudentCodesBox");
     if (box) {
       box.style.display = "block";
-      box.textContent = "Creating student codes…";
+      box.textContent = "Adding student…";
+      box.classList.remove("ok", "err");
+      box.classList.add("work");
     }
 
     try {
       const r = await authedFetch(API_BASE + "/routes/teacher/student_codes", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ count, course_label, note }),
+        body: JSON.stringify({ count: 1, student_name, student_email, note }),
       });
       const j = await r.json().catch(() => null);
-      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not create student codes.");
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not add student.");
 
-      const codes = j.codes || [];
+      const code = (j.codes || [])[0]?.code || "";
       if (box) {
-        box.innerHTML =
-          `<strong>New codes:</strong><br>` +
-          codes.map(c => `<code style="font-weight:800;">${escapeHtml(c.code)}</code>`).join("<br>");
+        box.innerHTML = `<strong>Student added.</strong> New code: <code style="font-weight:900;">${escapeHtml(code)}</code>`;
+        box.classList.remove("work", "err");
+        box.classList.add("ok");
       }
 
+      ["newStudentName", "newStudentEmail", "newStudentNote"].forEach(id => { if ($(id)) $(id).value = ""; });
       await loadStudentCodes();
+      await loadStatsAndRender();
     } catch (e) {
       if (box) {
-        box.textContent = "Create failed: " + (e && e.message ? e.message : String(e));
+        box.textContent = "Add student failed: " + (e && e.message ? e.message : String(e));
+        box.classList.remove("work", "ok");
+        box.classList.add("err");
       }
     }
   }
 
-  if ($("createStudentCodesBtn")) {
-    $("createStudentCodesBtn").addEventListener("click", createStudentCodes);
+  async function importStudentCodesExcel() {
+    const input = $("studentCodesImportFile");
+    const file = input && input.files ? input.files[0] : null;
+    const status = $("studentCodesStatus");
+    if (!file) {
+      if (status) {
+        status.textContent = "Choose an .xlsx file first.";
+        status.classList.remove("ok", "work");
+        status.classList.add("err");
+      }
+      return;
+    }
+
+    if (status) {
+      status.textContent = "Importing student-code edits…";
+      status.classList.remove("ok", "err");
+      status.classList.add("work");
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const r = await authedFetch(API_BASE + "/routes/teacher/student_codes/import", {
+        method: "POST",
+        body: formData,
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not import student-code edits.");
+
+      if (status) {
+        const errors = (j.errors || []).length ? ` Warnings: ${(j.errors || []).slice(0, 3).join(" ")}` : "";
+        status.textContent = `Imported edits. Updated ${j.updated || 0}; skipped ${j.skipped || 0}.${errors}`;
+        status.classList.remove("work", "err");
+        status.classList.add("ok");
+      }
+      if (input) input.value = "";
+      await loadStudentCodes();
+      await loadStatsAndRender();
+    } catch (e) {
+      if (status) {
+        status.textContent = "Import failed: " + (e && e.message ? e.message : String(e));
+        status.classList.remove("work", "ok");
+        status.classList.add("err");
+      }
+    }
+  }
+
+  if ($("addStudentCodeBtn")) {
+    $("addStudentCodeBtn").addEventListener("click", addStudentCode);
+  }
+  if ($("importStudentCodesBtn")) {
+    $("importStudentCodesBtn").addEventListener("click", importStudentCodesExcel);
   }
   loadStudentCodes();
 
@@ -994,6 +1100,61 @@
     }
   }
 
+    function filteredStudentProgress() {
+    const rows = latestTeacherStats?.student_progress || [];
+    const voucher = currentVoucherFilter();
+    if (!voucher || voucher === "__all__") return rows;
+    return rows.filter(row => {
+      if (row.voucher_id === voucher) return true;
+      return (row.works || []).some(w => w.voucher_id === voucher);
+    });
+  }
+
+  function renderStudentProgress() {
+    const list = $("studentProgressList");
+    if (!list) return;
+
+    const rows = filteredStudentProgress();
+    if (!rows.length) {
+      list.innerHTML = `<div class="emptyState">No current students found.</div>`;
+      return;
+    }
+
+    list.innerHTML = rows.map(row => {
+      const works = row.works || [];
+      const worksHtml = works.length
+        ? works.map(w => `
+            <div class="mg-student-work-chip">
+              <strong>${escapeHtml(w.exam_id || "Unknown work")}</strong>
+              <span>${formatInt(w.attempts || 0)} attempt${Number(w.attempts || 0) === 1 ? "" : "s"}</span>
+              <span>Latest: ${formatDateTime(w.last_uploaded_at)}</span>
+            </div>
+          `).join("")
+        : `<span class="mg-missing-chip">No uploads yet</span>`;
+
+      return `
+        <div class="mg-student-progress-item">
+          <div class="mg-student-progress-main">
+            <div class="mg-student-progress-title">
+              ${escapeHtml(row.student_name || "Unnamed student")}
+              <code>${escapeHtml(row.code || "")}</code>
+            </div>
+            <div class="small">
+              ${escapeHtml(row.student_email || "")}${row.student_email ? " · " : ""}
+              ${escapeHtml(row.course_label || "Course")}
+              · ${formatInt(row.uploaded_work_count || 0)} uploaded work${Number(row.uploaded_work_count || 0) === 1 ? "" : "s"}
+              · ${formatInt(row.total_attempts || 0)} total attempt${Number(row.total_attempts || 0) === 1 ? "" : "s"}
+              · ${formatInt(row.uses || 0)} login${Number(row.uses || 0) === 1 ? "" : "s"}
+            </div>
+            ${row.note ? `<div class="small"><strong>Note:</strong> ${escapeHtml(row.note)}</div>` : ""}
+          </div>
+          <div class="mg-student-work-chip-list">${worksHtml}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+
   async function loadStatsAndRender(){
     try{
       const r = await authedFetch(API_BASE + "/routes/teacher_dashboard", { cache: "no-store" });
@@ -1006,6 +1167,9 @@
         if ($("workProgressGrid")) {
           $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
         }
+        if ($("studentProgressList")) {
+          $("studentProgressList").innerHTML = `<div class="emptyState">Could not load current students.</div>`;
+        }
 
         return;
       }
@@ -1016,6 +1180,7 @@
       renderStatsKpis(j);
       renderVoucherOptions(j);
       renderWorkProgress();
+      renderStudentProgress();
 
       const perDay = j.uploads_per_day || j.usage_per_day || [];
       drawBars(
@@ -1033,6 +1198,9 @@
       if ($("workProgressGrid")) {
         $("workProgressGrid").innerHTML = `<div class="emptyState">Stats failed to load.</div>`;
       }
+      if ($("studentProgressList")) {
+        $("studentProgressList").innerHTML = `<div class="emptyState">Current student list failed to load.</div>`;
+      }
     }
   }
 
@@ -1040,6 +1208,7 @@
     $("uploadLogVoucherSelect").addEventListener("change", () => {
       updateUploadLogHref();
       renderWorkProgress();
+      renderStudentProgress();
     });
   }
 
