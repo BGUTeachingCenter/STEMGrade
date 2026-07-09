@@ -12,3 +12,11 @@ __pycache__/
 # Runtime output
 /runs/
 /debug_logs/
+
+# Teacher credentials & runtime data — NEVER commit.
+# Contains teacher emails, salted password hashes, vouchers, uploads.
+/data/
+/data/teacher_profiles/
+/data/teacher_banks/
+teachers.json
+vouchers.json

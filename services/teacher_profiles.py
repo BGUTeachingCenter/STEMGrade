@@ -1,8 +1,10 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
+import stat
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -66,11 +68,29 @@ def _read_json(path: Path, fallback: Any) -> Any:
         return fallback
 
 
+# Owner read/write only. These files hold teacher emails and salted password
+# hashes, so keep them unreadable to other OS users on the host.
+_SECRET_FILE_MODE = stat.S_IRUSR | stat.S_IWUSR  # 0o600
+_SECRET_DIR_MODE = stat.S_IRWXU  # 0o700
+
+
+def _restrict(path: Path, mode: int) -> None:
+    """Best-effort permission tightening; no-op where the OS doesn't support it (e.g. Windows)."""
+    try:
+        os.chmod(path, mode)
+    except (OSError, NotImplementedError):
+        pass
+
+
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    _restrict(path.parent, _SECRET_DIR_MODE)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Tighten before the rename so the file is never briefly world-readable.
+    _restrict(tmp, _SECRET_FILE_MODE)
     tmp.replace(path)
+    _restrict(path, _SECRET_FILE_MODE)
 
 
 def _load_teachers() -> dict[str, Any]:
