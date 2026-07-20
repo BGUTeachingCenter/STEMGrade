@@ -26,9 +26,16 @@ from services.student_grading.grading.payloads import build_payloads
 from services.student_grading.grading.solution_bank_matcher import pick_reference_with_match_info
 from services.student_grading.bundler import _write_bundle_tex_inline_answers  # uses your existing bundler writer
 from common.tex.compile_tex_to_pdf import compile_tex_to_pdf
-from services.student_grading.feedback_tex import build_feedback_tex
-from common.exam_summary import _safe_str, compare_summaries, read_json_file, write_student_summary as write_student_summary_file
-from services.student_grading.unified_tex import build_unified_tex
+from common.exam_summary import (
+    _safe_str,
+    compare_summaries,
+    read_json_file,
+    write_student_summary as write_student_summary_file,
+)
+from services.student_grading.unified_tex import (
+    build_graded_result_json,
+    build_graded_result_tex,
+)
 from core.ai_clients.ai_usage_logger import bind_usage_context
 from services.student_work_store import (
     attach_grading_feedback_to_student_work,
@@ -112,15 +119,40 @@ def _write_result_metadata(
     final_path: Path,
     debug: bool,
     source_work_id: str | None = None,
+    structured_json_path: Path | None = None,
+    graded_tex_path: Path | None = None,
 ) -> None:
     meta = {
+        "schema_version": (
+            "grading_result_metadata_v2"
+        ),
         "student_code": student_code,
         "exam_id": exam_id,
         "provider": provider,
         "debug": debug,
-        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "saved_at": (
+            datetime.now().isoformat(
+                timespec="seconds"
+            )
+        ),
         "final_file": final_path.name,
-        "source_work_id": source_work_id or "",
+        "structured_json_file": (
+            Path(
+                structured_json_path
+            ).name
+            if structured_json_path
+            else ""
+        ),
+        "graded_tex_file": (
+            Path(
+                graded_tex_path
+            ).name
+            if graded_tex_path
+            else ""
+        ),
+        "source_work_id": (
+            source_work_id or ""
+        ),
     }
     meta_path.write_text(
         json.dumps(meta, ensure_ascii=False, indent=2),
@@ -278,141 +310,364 @@ def _embedded_answer_bundle(
     }, is_partial
 
 
-def _normalize_student_bundle_for_grading(
-        input_path: Path,
-        *,
-        out_dir: Path,
-) -> tuple[Path, dict[str, Any] | None]:
+def _flatten_embedded_answer_bundle(
+    bundle: dict[str, Any],
+    *,
+    depth: int = 0,
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+    bool,
+]:
     """
-    Unwrap structured OCR JSON that was accidentally stored inside one
-    outer answer_text field.
+    Flatten answer bundles embedded inside answer_text.
 
-    The original uploaded file is never modified. When recovery is needed,
-    a separate student_answer_bundle_normalized.json file is created and
-    used only by the grading pipeline.
+    Supports both forms:
+
+      1. A normal bundle:
+         {"answers": [{question_id, part_key, answer_text}, ...]}
+
+      2. A damaged wrapper:
+         {
+           "answers": [
+             {
+               "question_id": 1,
+               "answer_text": "{\"answers\": [...]}"
+             }
+           ]
+         }
+
+    Recursion is limited so malformed model output cannot cause an
+    infinite loop.
+    """
+    if depth > 5:
+        return [], {}, False
+
+    raw_answers = bundle.get("answers")
+
+    if not isinstance(raw_answers, list):
+        return [], {}, False
+
+    flattened: list[dict[str, Any]] = []
+    metadata: dict[str, Any] = {}
+    source_was_partial = False
+
+    for key in (
+        "student_name",
+        "student_id",
+        "exam_id",
+        "source_name",
+        "document_type",
+        "ocr_provider",
+        "ocr_model",
+    ):
+        value = bundle.get(key)
+
+        if value not in (None, ""):
+            metadata[key] = value
+
+    for answer in raw_answers:
+        if not isinstance(answer, dict):
+            continue
+
+        answer_text = str(
+            answer.get("answer_text") or ""
+        ).strip()
+
+        nested_bundle = None
+        nested_partial = False
+
+        if '"answers"' in answer_text:
+            nested_bundle, nested_partial = (
+                _embedded_answer_bundle(
+                    answer_text
+                )
+            )
+
+        source_was_partial = (
+            source_was_partial
+            or nested_partial
+        )
+
+        if nested_bundle:
+            (
+                nested_answers,
+                nested_metadata,
+                deeper_partial,
+            ) = _flatten_embedded_answer_bundle(
+                nested_bundle,
+                depth=depth + 1,
+            )
+
+            source_was_partial = (
+                source_was_partial
+                or deeper_partial
+            )
+
+            if nested_answers:
+                flattened.extend(
+                    nested_answers
+                )
+
+                for key, value in (
+                    nested_metadata.items()
+                ):
+                    if value not in (
+                        None,
+                        "",
+                    ):
+                        metadata[key] = value
+
+                continue
+
+        if answer_text:
+            flattened.append(
+                dict(answer)
+            )
+
+    return (
+        flattened,
+        metadata,
+        source_was_partial,
+    )
+
+
+def _normalize_student_bundle_for_grading(
+    input_path: Path,
+    *,
+    out_dir: Path,
+) -> tuple[
+    Path,
+    dict[str, Any] | None,
+]:
+    """
+    Recover structured OCR answers before grading.
+
+    The structured bundle may arrive as:
+
+      - a regular .json file;
+      - JSON inside a .tex document body;
+      - JSON inside one outer answer_text field;
+      - a truncated JSON response containing several complete answers.
+
+    The original uploaded file is never changed. When structured answers
+    are recovered, a normalized JSON file is written beside the temporary
+    grading artifacts.
     """
     input_path = Path(input_path)
 
-    if input_path.suffix.lower() != ".json":
-        return input_path, None
-
     try:
-        original = json.loads(
-            input_path.read_text(
-                encoding="utf-8"
-            )
+        raw_text = input_path.read_text(
+            encoding="utf-8",
+            errors="replace",
         )
     except Exception:
         return input_path, None
 
-    if not isinstance(original, dict):
+    source_text = raw_text.strip()
+
+    if not source_text:
         return input_path, None
 
-    outer_answers = original.get("answers")
+    # OCR review sends a .tex file whose document body may actually be
+    # the structured JSON returned by the OCR provider.
+    begin_document = r"\begin{document}"
+    end_document = r"\end{document}"
 
-    if not isinstance(outer_answers, list):
+    if begin_document in source_text:
+        source_text = source_text.split(
+            begin_document,
+            1,
+        )[1]
+
+    if end_document in source_text:
+        source_text = source_text.rsplit(
+            end_document,
+            1,
+        )[0]
+
+    source_text = source_text.strip()
+
+    # Remove wrappers sometimes used when JSON is placed in a TeX file.
+    source_text = re.sub(
+        r"^\s*\\begin\{(?:verbatim|lstlisting)\}\s*",
+        "",
+        source_text,
+        flags=re.IGNORECASE,
+    )
+
+    source_text = re.sub(
+        r"\s*\\end\{(?:verbatim|lstlisting)\}\s*$",
+        "",
+        source_text,
+        flags=re.IGNORECASE,
+    )
+
+    if '"answers"' not in source_text:
         return input_path, None
 
-    recovered: list[dict[str, Any]] = []
-    recovered_meta: dict[str, Any] = {}
-    source_was_partial = False
+    recovered_bundle, source_was_partial = (
+        _embedded_answer_bundle(
+            source_text
+        )
+    )
 
-    for outer_answer in outer_answers:
-        if not isinstance(outer_answer, dict):
-            continue
+    if not recovered_bundle:
+        return input_path, None
 
-        answer_text = str(
-            outer_answer.get("answer_text") or ""
+    (
+        recovered_answers,
+        recovered_metadata,
+        nested_source_was_partial,
+    ) = _flatten_embedded_answer_bundle(
+        recovered_bundle
+    )
+
+    source_was_partial = (
+        source_was_partial
+        or nested_source_was_partial
+    )
+
+    if not recovered_answers:
+        return input_path, None
+
+    unique_answers: list[
+        dict[str, Any]
+    ] = []
+
+    seen: set[
+        tuple[str, str, str]
+    ] = set()
+
+    for answer in recovered_answers:
+        question_id = str(
+            answer.get("question_id")
+            or answer.get("questionId")
+            or ""
         ).strip()
 
-        nested_bundle, nested_partial = (
-            _embedded_answer_bundle(answer_text)
-        )
+        part_key = str(
+            answer.get("part_key")
+            or answer.get("partKey")
+            or answer.get("part")
+            or ""
+        ).strip()
 
-        source_was_partial = (
-                source_was_partial
-                or nested_partial
-        )
-
-        if not nested_bundle:
-            continue
-
-        nested_answers = nested_bundle.get(
-            "answers"
-        )
-
-        if isinstance(nested_answers, list):
-            recovered.extend(
-                item
-                for item in nested_answers
-                if isinstance(item, dict)
+        answer_text = str(
+            answer.get("answer_text")
+            or answer.get(
+                "student_answer"
             )
+            or ""
+        ).strip()
 
-        for key in (
-                "student_name",
-                "student_id",
-                "exam_id",
-                "source_name",
+        if (
+            not question_id
+            or not answer_text
         ):
-            value = nested_bundle.get(key)
-
-            if value not in (None, ""):
-                recovered_meta[key] = value
-
-    if not recovered:
-        return input_path, None
-
-    unique_answers: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
-
-    for answer in recovered:
-        signature = (
-            str(
-                answer.get("question_id") or ""
-            ).strip(),
-            str(
-                answer.get("part_key")
-                or answer.get("part")
-                or ""
-            ).strip(),
-            str(
-                answer.get("answer_text") or ""
-            ).strip(),
-        )
-
-        if not signature[2]:
             continue
+
+        signature = (
+            question_id,
+            part_key.lower(),
+            answer_text,
+        )
 
         if signature in seen:
             continue
 
         seen.add(signature)
-        unique_answers.append(answer)
 
-    normalized = dict(original)
-    normalized["answers"] = unique_answers
+        normalized_answer = dict(
+            answer
+        )
 
-    for key, value in recovered_meta.items():
-        if not normalized.get(key):
-            normalized[key] = value
+        normalized_answer[
+            "question_id"
+        ] = question_id
 
-    normalization_info = {
-        "applied": True,
-        "reason": (
-            "Recovered answer objects embedded "
-            "inside answer_text."
+        normalized_answer[
+            "part_key"
+        ] = part_key
+
+        normalized_answer[
+            "answer_text"
+        ] = answer_text
+
+        unique_answers.append(
+            normalized_answer
+        )
+
+    if not unique_answers:
+        return input_path, None
+
+    normalized = {
+        "schema_version": (
+            "student_answer_bundle_v1"
         ),
-        "recovered_answer_count": len(
-            unique_answers
+        "student_name": str(
+            recovered_metadata.get(
+                "student_name"
+            )
+            or ""
         ),
-        "source_was_partial": (
-            source_was_partial
+        "student_id": str(
+            recovered_metadata.get(
+                "student_id"
+            )
+            or ""
         ),
+        "exam_id": str(
+            recovered_metadata.get(
+                "exam_id"
+            )
+            or ""
+        ),
+        "source_name": str(
+            recovered_metadata.get(
+                "source_name"
+            )
+            or input_path.name
+        ),
+        "document_type": str(
+            recovered_metadata.get(
+                "document_type"
+            )
+            or "handwritten_scan"
+        ),
+        "ocr_provider": str(
+            recovered_metadata.get(
+                "ocr_provider"
+            )
+            or ""
+        ),
+        "ocr_model": (
+            recovered_metadata.get(
+                "ocr_model"
+            )
+        ),
+        "answers": unique_answers,
+        "normalization": {
+            "applied": True,
+            "source_filename": (
+                input_path.name
+            ),
+            "source_suffix": (
+                input_path.suffix.lower()
+            ),
+            "reason": (
+                "Recovered structured OCR "
+                "answers from the uploaded "
+                "grading file."
+            ),
+            "recovered_answer_count": (
+                len(unique_answers)
+            ),
+            "source_was_partial": (
+                source_was_partial
+            ),
+        },
     }
-
-    normalized["normalization"] = (
-        normalization_info
-    )
 
     out_dir.mkdir(
         parents=True,
@@ -420,8 +675,8 @@ def _normalize_student_bundle_for_grading(
     )
 
     normalized_path = (
-            out_dir
-            / "student_answer_bundle_normalized.json"
+        out_dir
+        / "student_answer_bundle_normalized.json"
     )
 
     normalized_path.write_text(
@@ -435,10 +690,8 @@ def _normalize_student_bundle_for_grading(
 
     return (
         normalized_path,
-        normalization_info,
+        normalized["normalization"],
     )
-
-
 # -------------------------
 # Main grading flow (single extraction, single source-of-truth payloads)
 # -------------------------
@@ -790,6 +1043,60 @@ async def _grade_tex_flow(
                 error=_safe_str(e, 500),
             )
 
+        if grading_input_path != tex_path:
+            try:
+                normalized_check = json.loads(
+                    grading_input_path.read_text(
+                        encoding="utf-8"
+                    )
+                )
+
+                normalized_answers = (
+                    normalized_check.get(
+                        "answers"
+                    )
+                    if isinstance(
+                        normalized_check,
+                        dict,
+                    )
+                    else []
+                )
+
+                normalized_answer_count = (
+                    len(normalized_answers)
+                    if isinstance(
+                        normalized_answers,
+                        list,
+                    )
+                    else 0
+                )
+
+                trace.log(
+                    "student_upload",
+                    "normalized_bundle_ready_for_payloads",
+                    normalized_path=str(
+                        grading_input_path
+                    ),
+                    answer_count=(
+                        normalized_answer_count
+                    ),
+                )
+
+                if (
+                    normalized_answer_count
+                    == 0
+                ):
+                    raise RuntimeError(
+                        "The normalized OCR bundle "
+                        "contains no answers."
+                    )
+
+            except Exception as normalization_error:
+                raise RuntimeError(
+                    "Structured OCR normalization "
+                    "failed before payload creation: "
+                    f"{normalization_error}"
+                ) from normalization_error
         # Stage 4: build payloads ONCE (source-of-truth)
         if job_id:
             push(job_id, "Extracting parts (building payloads)…")
@@ -911,39 +1218,136 @@ async def _grade_tex_flow(
         except Exception:
             pass
 
-        # Stage 7: feedback TeX
+        # Stage 7: canonical structured graded result
         if job_id:
-            push(job_id, "Generating feedback (TeX)…")
+            push(
+                job_id,
+                "Building structured graded result…",
+            )
 
-        t_fb = perf_counter()
-        feedback_tex = await run_in_threadpool(
-            build_feedback_tex,
-            grades_json=grades_json,
-            out_dir=ai_dir,
+        t_structured = perf_counter()
+
+        graded_result_json = (
+            await run_in_threadpool(
+                build_graded_result_json,
+                manifest_json=manifest_json,
+                grades_json=grades_json,
+                out_dir=ai_dir,
+                exam_id=str(exam_id),
+                provider=normalized_provider,
+                student_code=student_code or "",
+                source_filename=uploaded_name,
+            )
         )
-        fb_secs = perf_counter() - t_fb
-        trace.save_file(feedback_tex, "feedback.tex", stage="feedback_tex")
-        trace.log("feedback_tex", "built", duration_s=round(fb_secs, 3), path=str(feedback_tex))
-        if job_id:
-            push(job_id, f"Feedback TeX ready ({fb_secs:.1f}s)")
 
-        # Stage 8: unify bundle + feedback into one final TeX
-        if job_id:
-            push(job_id, "Combining Q/A bundle with feedback…")
+        structured_secs = (
+                perf_counter()
+                - t_structured
+        )
 
-        t_union = perf_counter()
+        trace.save_file(
+            graded_result_json,
+            "graded_result.json",
+            stage="graded_result",
+        )
+
+        try:
+            structured_data = json.loads(
+                graded_result_json.read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            structured_part_count = len(
+                structured_data.get(
+                    "parts"
+                )
+                or []
+            )
+        except Exception:
+            structured_part_count = 0
+
+        trace.log(
+            "graded_result",
+            "built",
+            duration_s=round(
+                structured_secs,
+                3,
+            ),
+            path=str(
+                graded_result_json
+            ),
+            part_count=(
+                structured_part_count
+            ),
+        )
+
+        if job_id:
+            push(
+                job_id,
+                (
+                    "Structured graded result "
+                    f"ready with "
+                    f"{structured_part_count} "
+                    f"parts "
+                    f"({structured_secs:.1f}s)"
+                ),
+            )
+
+        # Stage 8: render the final tandem TeX from the JSON
+        if job_id:
+            push(
+                job_id,
+                (
+                    "Generating Question → "
+                    "Student answer → Feedback "
+                    "document…"
+                ),
+            )
+
+        t_tex = perf_counter()
+
         final_tex = await run_in_threadpool(
-            build_unified_tex,
-            qa_tex=bundle_tex,
-            feedback_tex=feedback_tex,
+            build_graded_result_tex,
+            graded_result_json=(
+                graded_result_json
+            ),
             out_dir=ai_dir,
-            output_stem=f"graded_{normalized_provider}",
+            output_stem=(
+                f"graded_{normalized_provider}"
+            ),
+            font_name=FIXED_FONT,
         )
-        union_secs = perf_counter() - t_union
-        trace.save_file(final_tex, "final_unified.tex", stage="unified_tex")
-        trace.log("unified_tex", "built", duration_s=round(union_secs, 3), path=str(final_tex))
+
+        tex_secs = (
+                perf_counter()
+                - t_tex
+        )
+
+        trace.save_file(
+            final_tex,
+            "final_structured.tex",
+            stage="graded_result_tex",
+        )
+
+        trace.log(
+            "graded_result_tex",
+            "built",
+            duration_s=round(
+                tex_secs,
+                3,
+            ),
+            path=str(final_tex),
+        )
+
         if job_id:
-            push(job_id, f"Unified TeX ready ({union_secs:.1f}s)")
+            push(
+                job_id,
+                (
+                    "Structured grading TeX "
+                    f"ready ({tex_secs:.1f}s)"
+                ),
+            )
 
         # Stage 9: compile final TeX to PDF (fallback to TeX)
         if job_id:
@@ -959,7 +1363,9 @@ async def _grade_tex_flow(
                     clean=True,
                     font_name=FIXED_FONT,
                     passes=2,
-                    texinputs=[final_tex.parent, bundle_tex.parent, feedback_tex.parent],
+                    texinputs=[
+                        final_tex.parent,
+                    ],
                 ).pdf
             )
             compiled_pdf = Path(compiled_pdf)
@@ -991,29 +1397,114 @@ async def _grade_tex_flow(
             provider=normalized_provider,
             source_result_path=result_path,
         )
-        shutil.copy2(result_path, final_persistent_path)
+        shutil.copy2(
+            result_path,
+            final_persistent_path,
+        )
 
-        result_saved_at = datetime.now().isoformat(timespec="seconds")
+        persistent_stem = (
+            final_persistent_path.stem
+        )
+
+        structured_persistent_path = (
+            final_persistent_path.parent
+            / (
+                f"{persistent_stem}"
+                "_structured.json"
+            )
+        )
+
+        shutil.copy2(
+            graded_result_json,
+            structured_persistent_path,
+        )
+
+        if (
+            final_persistent_path.suffix.lower()
+            == ".tex"
+        ):
+            graded_tex_persistent_path = (
+                final_persistent_path
+            )
+        else:
+            graded_tex_persistent_path = (
+                final_persistent_path.parent
+                / (
+                    f"{persistent_stem}"
+                    "_source.tex"
+                )
+            )
+
+            shutil.copy2(
+                final_tex,
+                graded_tex_persistent_path,
+            )
+
+        persistent_metadata_path = (
+            final_persistent_path.parent
+            / (
+                f"{persistent_stem}"
+                "_metadata.json"
+            )
+        )
+
+        result_saved_at = (
+            datetime.now().isoformat(
+                timespec="seconds"
+            )
+        )
 
         _write_result_metadata(
-            meta_path=final_persistent_path.with_suffix(".json"),
+            meta_path=(
+                persistent_metadata_path
+            ),
             student_code=student_code,
             exam_id=str(exam_id),
             provider=normalized_provider,
-            final_path=final_persistent_path,
+            final_path=(
+                final_persistent_path
+            ),
             debug=debug,
-            source_work_id=source_work_id,
+            source_work_id=(
+                source_work_id
+            ),
+            structured_json_path=(
+                structured_persistent_path
+            ),
+            graded_tex_path=(
+                graded_tex_persistent_path
+            ),
         )
 
         if student_code and source_work_id:
             try:
-                updated_work = attach_grading_feedback_to_student_work(
-                    student_code=student_code,
-                    work_id=source_work_id,
-                    exam_id=str(exam_id),
-                    provider=normalized_provider,
-                    final_path=final_persistent_path,
-                    saved_at=result_saved_at,
+                updated_work = (
+                    attach_grading_feedback_to_student_work(
+                        student_code=(
+                            student_code
+                        ),
+                        work_id=(
+                            source_work_id
+                        ),
+                        exam_id=str(
+                            exam_id
+                        ),
+                        provider=(
+                            normalized_provider
+                        ),
+                        final_path=(
+                            final_persistent_path
+                        ),
+                        graded_result_json_path=(
+                            structured_persistent_path
+                        ),
+                        graded_result_tex_path=(
+                            graded_tex_persistent_path
+                        ),
+                        saved_at=(
+                            result_saved_at
+                        ),
+                    )
                 )
                 if updated_work:
                     trace.log(
@@ -1031,8 +1522,32 @@ async def _grade_tex_flow(
                     work_id=source_work_id,
                     error=_safe_str(e, 500),
                 )
-        trace.save_file(final_persistent_path, f"persisted_result{final_persistent_path.suffix}", stage="persist")
-        trace.save_file(final_persistent_path.with_suffix(".json"), "persisted_result_metadata.json", stage="persist")
+        trace.save_file(
+            final_persistent_path,
+            (
+                "persisted_result"
+                f"{final_persistent_path.suffix}"
+            ),
+            stage="persist",
+        )
+
+        trace.save_file(
+            structured_persistent_path,
+            "persisted_graded_result.json",
+            stage="persist",
+        )
+
+        trace.save_file(
+            graded_tex_persistent_path,
+            "persisted_graded_result.tex",
+            stage="persist",
+        )
+
+        trace.save_file(
+            persistent_metadata_path,
+            "persisted_result_metadata.json",
+            stage="persist",
+        )
         trace.log(
             "grading",
             "finished",

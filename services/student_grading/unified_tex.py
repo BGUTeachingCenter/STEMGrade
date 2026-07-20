@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+from common.tex.latex_render import latex_render_mixed
+from common.tex.math_normalize import normalize_math_text
 from typing import Dict, List, Tuple
 
 
@@ -404,3 +410,1124 @@ def _tex_escape_title(text: str) -> str:
         .replace("{", r"\{")
         .replace("}", r"\}")
     )
+
+
+# =========================================================
+# Canonical JSON-driven graded result
+# =========================================================
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [
+            str(item).strip()
+            for item in value
+            if str(item).strip()
+        ]
+
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+
+    return []
+
+
+def _payload_qid(
+    payload: dict[str, Any],
+    manifest_item: dict[str, Any],
+    index: int,
+) -> str:
+    raw_qid = str(
+        payload.get("qid")
+        or manifest_item.get("qid")
+        or payload.get("question_id")
+        or ""
+    ).strip()
+
+    normalized = _normalize_qid(raw_qid)
+    if normalized:
+        return normalized
+
+    key = (
+        payload.get("key")
+        if isinstance(payload.get("key"), dict)
+        else {}
+    )
+
+    qnum = (
+        key.get("qnum")
+        or key.get("question_id")
+        or index
+    )
+
+    part = str(
+        key.get("part")
+        or key.get("part_key")
+        or ""
+    ).strip()
+
+    try:
+        qnum_text = str(int(qnum))
+    except Exception:
+        qnum_text = (
+            str(qnum or index).strip()
+            or str(index)
+        )
+
+    if part:
+        return f"Q{qnum_text}({part})"
+
+    return f"Q{qnum_text}"
+
+
+def _qid_components(
+    qid: str,
+    payload: dict[str, Any],
+) -> tuple[int | None, str]:
+    key = (
+        payload.get("key")
+        if isinstance(payload.get("key"), dict)
+        else {}
+    )
+
+    qnum_raw = (
+        key.get("qnum")
+        or key.get("question_id")
+    )
+
+    part = str(
+        key.get("part")
+        or key.get("part_key")
+        or ""
+    ).strip()
+
+    match = _QID_RE.search(qid or "")
+
+    if match:
+        if qnum_raw in (None, ""):
+            qnum_raw = match.group(1)
+
+        if not part:
+            part = str(
+                match.group(2) or ""
+            ).strip()
+
+    try:
+        qnum = int(qnum_raw)
+    except Exception:
+        qnum = None
+
+    return qnum, part
+
+
+def build_graded_result_json(
+    *,
+    manifest_json: Path,
+    grades_json: Path,
+    out_dir: Path,
+    exam_id: str,
+    provider: str,
+    student_code: str = "",
+    source_filename: str = "",
+    output_name: str = "graded_result.json",
+) -> Path:
+    """
+    Merge grading payloads and grades.json into one canonical result.
+
+    The payload supplies:
+      - question text
+      - student answer
+      - reference solution
+      - part identity
+
+    grades.json supplies:
+      - score
+      - summary
+      - correct elements
+      - mistakes
+      - improvement advice
+    """
+    manifest_json = Path(manifest_json)
+    grades_json = Path(grades_json)
+
+    manifest = json.loads(
+        manifest_json.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    grades = json.loads(
+        grades_json.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    manifest_items = (
+        manifest.get("items")
+        if isinstance(
+            manifest.get("items"),
+            list,
+        )
+        else []
+    )
+
+    grade_items = (
+        grades.get("question_grades")
+        or grades.get("questions")
+        or []
+    )
+
+    if not isinstance(grade_items, list):
+        grade_items = []
+
+    # Grade entries are stored in buckets because duplicate QIDs should
+    # not silently overwrite one another.
+
+    grade_buckets: dict[
+        str,
+        list[dict[str, Any]],
+    ] = {}
+
+    for grade in grade_items:
+        if not isinstance(grade, dict):
+            continue
+
+        raw_grade_qid = str(
+            grade.get("qid")
+            or grade.get("id")
+            or grade.get("question_id")
+            or ""
+        ).strip()
+
+        normalized_grade_qid = (
+            _normalize_qid(raw_grade_qid)
+        )
+
+        grade_key = (
+            normalized_grade_qid
+            or raw_grade_qid
+        ).lower()
+
+        grade_buckets.setdefault(
+            grade_key,
+            [],
+        ).append(grade)
+
+    payload_dir = (
+        manifest_json.parent
+        / "payloads"
+    )
+
+    parts: list[dict[str, Any]] = []
+
+    for index, manifest_item in enumerate(
+        manifest_items,
+        start=1,
+    ):
+        if not isinstance(
+            manifest_item,
+            dict,
+        ):
+            continue
+
+        payload_filename = str(
+            manifest_item.get(
+                "payload_file"
+            )
+            or ""
+        ).strip()
+
+        if not payload_filename:
+            continue
+
+        payload_path = (
+            payload_dir
+            / payload_filename
+        )
+
+        if not payload_path.exists():
+            continue
+
+        payload = json.loads(
+            payload_path.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        if not isinstance(payload, dict):
+            continue
+
+        qid = _payload_qid(
+            payload,
+            manifest_item,
+            index,
+        )
+
+        question_id, part_key = (
+            _qid_components(
+                qid,
+                payload,
+            )
+        )
+
+        grade_key = (
+            _normalize_qid(qid)
+            or qid
+        ).lower()
+
+        grade_bucket = (
+            grade_buckets.get(grade_key)
+            or []
+        )
+
+        grade = (
+            grade_bucket.pop(0)
+            if grade_bucket
+            else {}
+        )
+
+        reference = (
+            payload.get("reference")
+            if isinstance(
+                payload.get("reference"),
+                dict,
+            )
+            else {}
+        )
+
+        student = (
+            payload.get("student")
+            if isinstance(
+                payload.get("student"),
+                dict,
+            )
+            else {}
+        )
+
+        rubric = (
+            payload.get("rubric")
+            if isinstance(
+                payload.get("rubric"),
+                dict,
+            )
+            else {}
+        )
+
+        max_score = grade.get(
+            "max_points"
+        )
+
+        if max_score in (None, ""):
+            max_score = (
+                payload.get("max_points")
+                or rubric.get("score_max")
+                or 0
+            )
+
+        student_answer = str(
+            student.get("latex_raw")
+            or student.get("latex_clean")
+            or ""
+        ).strip()
+
+        parts.append(
+            {
+                "qid": qid,
+                "question_id": question_id,
+                "part_key": part_key,
+                "question_text": str(
+                    reference.get(
+                        "question_text"
+                    )
+                    or ""
+                ).strip(),
+                "student_answer": (
+                    student_answer
+                ),
+                "reference_solution": str(
+                    reference.get(
+                        "solution_text"
+                    )
+                    or ""
+                ).strip(),
+                "score": grade.get(
+                    "score",
+                    0,
+                ),
+                "max_score": max_score,
+                "summary": str(
+                    grade.get("summary")
+                    or ""
+                ).strip(),
+                "what_was_correct": (
+                    _as_string_list(
+                        grade.get(
+                            "what_was_correct"
+                        )
+                    )
+                ),
+                "main_mistakes": (
+                    _as_string_list(
+                        grade.get(
+                            "main_mistakes"
+                        )
+                    )
+                ),
+                "how_to_improve": (
+                    _as_string_list(
+                        grade.get(
+                            "how_to_improve"
+                        )
+                    )
+                ),
+                "suggested_next_step": str(
+                    grade.get(
+                        "suggested_next_step_he"
+                    )
+                    or grade.get(
+                        "suggested_next_step"
+                    )
+                    or ""
+                ).strip(),
+                "confidence": grade.get(
+                    "confidence"
+                ),
+                "mismatch": (
+                    grade.get("mismatch")
+                    if isinstance(
+                        grade.get("mismatch"),
+                        dict,
+                    )
+                    else {}
+                ),
+                "common_errors": (
+                    _as_string_list(
+                        grade.get(
+                            "common_errors_detected"
+                        )
+                    )
+                ),
+                "ocr_missing": (
+                    not bool(student_answer)
+                ),
+            }
+        )
+
+    # Preserve any grade that did not match a payload.
+    # This makes QID mismatches visible instead of silently losing feedback.
+    for remaining_bucket in (
+        grade_buckets.values()
+    ):
+        for grade in remaining_bucket:
+            raw_qid = str(
+                grade.get("qid")
+                or grade.get("id")
+                or "Q?"
+            ).strip()
+
+            qid = (
+                _normalize_qid(raw_qid)
+                or raw_qid
+            )
+
+            question_id, part_key = (
+                _qid_components(
+                    qid,
+                    {},
+                )
+            )
+
+            parts.append(
+                {
+                    "qid": qid,
+                    "question_id": (
+                        question_id
+                    ),
+                    "part_key": part_key,
+                    "question_text": "",
+                    "student_answer": "",
+                    "reference_solution": "",
+                    "score": grade.get(
+                        "score",
+                        0,
+                    ),
+                    "max_score": grade.get(
+                        "max_points",
+                        0,
+                    ),
+                    "summary": str(
+                        grade.get("summary")
+                        or ""
+                    ).strip(),
+                    "what_was_correct": (
+                        _as_string_list(
+                            grade.get(
+                                "what_was_correct"
+                            )
+                        )
+                    ),
+                    "main_mistakes": (
+                        _as_string_list(
+                            grade.get(
+                                "main_mistakes"
+                            )
+                        )
+                    ),
+                    "how_to_improve": (
+                        _as_string_list(
+                            grade.get(
+                                "how_to_improve"
+                            )
+                        )
+                    ),
+                    "suggested_next_step": str(
+                        grade.get(
+                            "suggested_next_step_he"
+                        )
+                        or ""
+                    ).strip(),
+                    "confidence": grade.get(
+                        "confidence"
+                    ),
+                    "mismatch": (
+                        grade.get("mismatch")
+                        if isinstance(
+                            grade.get(
+                                "mismatch"
+                            ),
+                            dict,
+                        )
+                        else {}
+                    ),
+                    "common_errors": (
+                        _as_string_list(
+                            grade.get(
+                                "common_errors_detected"
+                            )
+                        )
+                    ),
+                    "ocr_missing": True,
+                }
+            )
+
+    result = {
+        "schema_version": (
+            "graded_result_v1"
+        ),
+        "created_at": (
+            datetime.now().isoformat(
+                timespec="seconds"
+            )
+        ),
+        "exam_id": str(
+            exam_id
+            or manifest.get("exam_id")
+            or ""
+        ),
+        "provider": str(
+            provider or ""
+        ),
+        "student_code": str(
+            student_code or ""
+        ),
+        "source_filename": str(
+            source_filename or ""
+        ),
+        "subject": str(
+            manifest.get("subject")
+            or "math"
+        ),
+        "total_score": grades.get(
+            "total_score",
+            0,
+        ),
+        "total_max_score": grades.get(
+            "total_max",
+            grades.get(
+                "total_max_score",
+                0,
+            ),
+        ),
+        "parts": parts,
+    }
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    out_path = out_dir / output_name
+
+    out_path.write_text(
+        json.dumps(
+            result,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return out_path
+
+
+def _format_number(value: Any) -> str:
+    try:
+        number = float(value)
+    except Exception:
+        return str(value or "0")
+
+    if number.is_integer():
+        return str(int(number))
+
+    return (
+        f"{number:.2f}"
+        .rstrip("0")
+        .rstrip(".")
+    )
+
+
+def _strip_document_wrapper(
+    value: str,
+) -> str:
+    text = str(value or "").strip()
+
+    begin_document = (
+        r"\begin{document}"
+    )
+
+    end_document = (
+        r"\end{document}"
+    )
+
+    if begin_document in text:
+        text = text.split(
+            begin_document,
+            1,
+        )[1]
+
+    if end_document in text:
+        text = text.rsplit(
+            end_document,
+            1,
+        )[0]
+
+    return text.strip()
+
+
+def _safe_feedback_text(
+    value: Any,
+) -> str:
+    """
+    Render AI feedback as prose and math, while dropping presentation
+    commands that must not leak into the structured result.
+    """
+    text = str(value or "").strip()
+
+    if not text:
+        return ""
+
+    text = re.sub(
+        r"\\(?:vspace|hspace)\*?"
+        r"(?:\[[^\]]*\])?"
+        r"\{[^{}]*\}",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"\\(?:hrule|par|smallskip|"
+        r"medskip|bigskip|newpage|"
+        r"clearpage)\b",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"[ \t]+",
+        " ",
+        text,
+    ).strip()
+
+    normalized = normalize_math_text(
+        text
+    )
+
+    return latex_render_mixed(
+        normalized
+    )
+
+
+def _append_feedback_items(
+    lines: list[str],
+    title: str,
+    items: list[str],
+    color_name: str,
+) -> None:
+    if not items:
+        return
+
+    lines.extend(
+        [
+            (
+                rf"\textcolor{{{color_name}}}"
+                rf"{{\textbf{{{title}}}}}"
+            ),
+            r"\begin{itemize}",
+        ]
+    )
+
+    for item in items:
+        lines.append(
+            rf"\item {_safe_feedback_text(item)}"
+        )
+
+    lines.append(
+        r"\end{itemize}"
+    )
+
+
+def build_graded_result_tex(
+    *,
+    graded_result_json: Path,
+    out_dir: Path,
+    output_stem: str = "graded_result",
+    font_name: str = "Arial",
+) -> Path:
+    """
+    Render the canonical result as:
+
+      Question
+      Student answer
+      Feedback
+
+    repeated once for every question/part.
+    """
+    data = json.loads(
+        Path(
+            graded_result_json
+        ).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    parts = (
+        data.get("parts")
+        if isinstance(
+            data.get("parts"),
+            list,
+        )
+        else []
+    )
+
+    lines: list[str] = [
+        r"\documentclass[12pt]{article}",
+        (
+            r"\usepackage"
+            r"[a4paper,margin=1.8cm]"
+            r"{geometry}"
+        ),
+        r"\usepackage{fontspec}",
+        rf"\setmainfont{{{font_name}}}",
+        r"\usepackage{polyglossia}",
+        (
+            r"\setdefaultlanguage"
+            r"{hebrew}"
+        ),
+        (
+            r"\setotherlanguage"
+            r"{english}"
+        ),
+        (
+            rf"\newfontfamily"
+            rf"\hebrewfont"
+            rf"{{{font_name}}}"
+        ),
+        (
+            rf"\newfontfamily"
+            rf"\englishfont"
+            rf"{{{font_name}}}"
+        ),
+        (
+            r"\usepackage"
+            r"{amsmath,amssymb,mathtools}"
+        ),
+        r"\usepackage{xcolor}",
+        r"\usepackage{enumitem}",
+        (
+            r"\usepackage"
+            r"[most]{tcolorbox}"
+        ),
+        (
+            r"\definecolor"
+            r"{MGOrange}{HTML}{F39A1E}"
+        ),
+        (
+            r"\definecolor"
+            r"{MGGreen}{HTML}{2F7D32}"
+        ),
+        (
+            r"\definecolor"
+            r"{MGRed}{HTML}{C43D2F}"
+        ),
+        (
+            r"\definecolor"
+            r"{MGText}{HTML}{4F4F52}"
+        ),
+        (
+            r"\definecolor"
+            r"{MGBorder}{HTML}{E6DED3}"
+        ),
+        (
+            r"\setlength"
+            r"{\parindent}{0pt}"
+        ),
+        (
+            r"\setlength"
+            r"{\parskip}{0.55em}"
+        ),
+        (
+            r"\setlist[itemize]"
+            r"{leftmargin=*,"
+            r"itemsep=2pt,"
+            r"topsep=3pt}"
+        ),
+        r"\raggedbottom",
+        r"\begin{document}",
+        r"\begin{center}",
+        (
+            r"{\LARGE\bfseries "
+            r"משוב בדיקה}\par"
+        ),
+        r"\end{center}",
+    ]
+
+    exam_id = str(
+        data.get("exam_id")
+        or ""
+    ).strip()
+
+    provider = str(
+        data.get("provider")
+        or ""
+    ).strip()
+
+    total_score = data.get(
+        "total_score"
+    )
+
+    total_max = data.get(
+        "total_max_score"
+    )
+
+    summary_bits: list[str] = []
+
+    if exam_id:
+        summary_bits.append(
+            (
+                r"\textbf{מטלה:} "
+                r"\begin{english}"
+                f"{_tex_escape_title(exam_id)}"
+                r"\end{english}"
+            )
+        )
+
+    if provider:
+        summary_bits.append(
+            (
+                r"\textbf{מודל בדיקה:} "
+                r"\begin{english}"
+                f"{_tex_escape_title(provider)}"
+                r"\end{english}"
+            )
+        )
+
+    if total_max not in (
+        None,
+        "",
+        0,
+        0.0,
+    ):
+        summary_bits.append(
+            (
+                r"\textbf{ציון כולל:} "
+                f"{_format_number(total_score)}"
+                " / "
+                f"{_format_number(total_max)}"
+            )
+        )
+
+    if summary_bits:
+        lines.extend(
+            [
+                (
+                    r"\begin{tcolorbox}"
+                    r"[colback=orange!5,"
+                    r"colframe=MGOrange!45,"
+                    r"arc=3mm,"
+                    r"boxrule=0.7pt]"
+                ),
+                r"\\[2pt]".join(
+                    summary_bits
+                ),
+                r"\end{tcolorbox}",
+            ]
+        )
+
+    if not parts:
+        lines.append(
+            (
+                r"\textcolor{MGRed}"
+                r"{לא נמצאו חלקים להצגה.}"
+            )
+        )
+
+    for index, part in enumerate(
+        parts,
+        start=1,
+    ):
+        if not isinstance(part, dict):
+            continue
+
+        qid = str(
+            part.get("qid")
+            or f"Q{index}"
+        ).strip()
+
+        question_text = (
+            _strip_document_wrapper(
+                str(
+                    part.get(
+                        "question_text"
+                    )
+                    or ""
+                )
+            )
+        )
+
+        student_answer = (
+            _strip_document_wrapper(
+                str(
+                    part.get(
+                        "student_answer"
+                    )
+                    or ""
+                )
+            )
+        )
+
+        score = part.get(
+            "score",
+            0,
+        )
+
+        max_score = part.get(
+            "max_score",
+            0,
+        )
+
+        summary = str(
+            part.get("summary")
+            or ""
+        ).strip()
+
+        lines.extend(
+            [
+                (
+                    r"\begin{tcolorbox}"
+                    r"[enhanced,"
+                    r"breakable,"
+                    r"colback=white,"
+                    r"colframe=MGBorder,"
+                    r"arc=4mm,"
+                    r"boxrule=0.8pt,"
+                    r"left=5mm,"
+                    r"right=5mm,"
+                    r"top=4mm,"
+                    r"bottom=4mm]"
+                ),
+                (
+                    r"\begin{english}"
+                    r"\textbf{\large "
+                    f"{_tex_escape_title(qid)}"
+                    r"}"
+                    r"\end{english}"
+                ),
+                r"\hfill",
+                (
+                    r"\textcolor{MGGreen}"
+                    r"{\textbf{"
+                    f"{_format_number(score)}"
+                    " / "
+                    f"{_format_number(max_score)}"
+                    r"}}\par"
+                ),
+                (
+                    r"\medskip"
+                    r"\textcolor{MGOrange}"
+                    r"{\textbf{שאלה}}\par"
+                ),
+                (
+                    question_text
+                    if question_text
+                    else (
+                        r"\textcolor{MGRed}"
+                        r"{טקסט השאלה אינו זמין.}"
+                    )
+                ),
+                (
+                    r"\medskip"
+                    r"\textcolor{MGOrange}"
+                    r"{\textbf{תשובת הסטודנט}}"
+                    r"\par"
+                ),
+                (
+                    student_answer
+                    if student_answer
+                    else (
+                        r"\textcolor{MGRed}"
+                        r"{לא זוהתה תשובת סטודנט.}"
+                    )
+                ),
+                (
+                    r"\medskip"
+                    r"\textcolor{MGGreen}"
+                    r"{\textbf{משוב}}\par"
+                ),
+            ]
+        )
+
+        if summary:
+            lines.append(
+                _safe_feedback_text(
+                    summary
+                )
+                + r"\par"
+            )
+
+        _append_feedback_items(
+            lines,
+            "מה נעשה נכון",
+            _as_string_list(
+                part.get(
+                    "what_was_correct"
+                )
+            ),
+            "MGGreen",
+        )
+
+        _append_feedback_items(
+            lines,
+            "טעויות או חלקים חסרים",
+            _as_string_list(
+                part.get(
+                    "main_mistakes"
+                )
+            ),
+            "MGRed",
+        )
+
+        _append_feedback_items(
+            lines,
+            "איך להשתפר",
+            _as_string_list(
+                part.get(
+                    "how_to_improve"
+                )
+            ),
+            "MGOrange",
+        )
+
+        next_step = str(
+            part.get(
+                "suggested_next_step"
+            )
+            or ""
+        ).strip()
+
+        if next_step:
+            lines.extend(
+                [
+                    (
+                        r"\begin{tcolorbox}"
+                        r"[colback=orange!4,"
+                        r"colframe=MGOrange!35,"
+                        r"arc=2mm,"
+                        r"boxrule=0.5pt,"
+                        r"title={צעד מומלץ הבא}]"
+                    ),
+                    _safe_feedback_text(
+                        next_step
+                    ),
+                    r"\end{tcolorbox}",
+                ]
+            )
+
+        mismatch = (
+            part.get("mismatch")
+            if isinstance(
+                part.get("mismatch"),
+                dict,
+            )
+            else {}
+        )
+
+        if mismatch.get("is_mismatch"):
+            explanation = str(
+                mismatch.get(
+                    "explanation_he"
+                )
+                or ""
+            ).strip()
+
+            lines.extend(
+                [
+                    (
+                        r"\begin{tcolorbox}"
+                        r"[colback=red!3,"
+                        r"colframe=MGRed!45,"
+                        r"arc=2mm,"
+                        r"boxrule=0.5pt,"
+                        r"title={אי התאמה אפשרית}]"
+                    ),
+                    _safe_feedback_text(
+                        explanation
+                        or (
+                            "ייתכן שהתשובה "
+                            "מתייחסת לשאלה אחרת."
+                        )
+                    ),
+                    r"\end{tcolorbox}",
+                ]
+            )
+
+        lines.extend(
+            [
+                r"\end{tcolorbox}",
+                r"\medskip",
+            ]
+        )
+
+    lines.extend(
+        [
+            r"\end{document}",
+            "",
+        ]
+    )
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    out_path = (
+        out_dir
+        / f"{output_stem}.tex"
+    )
+
+    out_path.write_text(
+        "\n".join(lines),
+        encoding="utf-8",
+    )
+
+    return out_path

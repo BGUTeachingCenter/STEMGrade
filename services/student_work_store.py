@@ -667,78 +667,310 @@ def attach_grading_feedback_to_student_work(
     exam_id: str,
     provider: str,
     final_path: Path,
+    graded_result_json_path: (
+        Path | None
+    ) = None,
+    graded_result_tex_path: (
+        Path | None
+    ) = None,
     saved_at: str | None = None,
 ) -> dict[str, Any] | None:
     """
-    Attach a grading result to an existing OCR work item.
+    Attach all current grading artifacts to one student-work item:
 
-    After this, the dashboard can render one card:
-      original upload + OCR result + graded feedback
+      - final PDF or TeX fallback
+      - canonical graded_result.json
+      - source TeX used to produce the PDF
     """
-    student_code = (student_code or "").strip()
+    student_code = (
+        student_code or ""
+    ).strip()
+
     if not student_code:
         return None
 
-    work_id = _assert_safe_token(work_id, label="work_id")
-    work_dir = _find_work_dir(student_code, work_id)
+    work_id = _assert_safe_token(
+        work_id,
+        label="work_id",
+    )
+
+    work_dir = _find_work_dir(
+        student_code,
+        work_id,
+    )
 
     if work_dir is None:
         return None
 
-    meta_path = work_dir / "metadata.json"
+    meta_path = (
+        work_dir
+        / "metadata.json"
+    )
+
     meta = _read_json(meta_path)
+
     if not meta:
         return None
 
-    source = Path(final_path)
-    if not source.exists() or not source.is_file():
+    final_source = Path(
+        final_path
+    )
+
+    if (
+        not final_source.exists()
+        or not final_source.is_file()
+    ):
         return None
 
-    suffix = source.suffix.lower() or ".pdf"
-    exam_part = _safe_name(exam_id or "graded_work", "graded_work")
-    provider_part = _safe_name(provider or "ai", "ai")
-    feedback_filename = f"graded_{exam_part}_{provider_part}{suffix}"
-    feedback_path = work_dir / feedback_filename
+    exam_part = _safe_name(
+        exam_id or "graded_work",
+        "graded_work",
+    )
 
-    # Avoid Windows overwrite conflicts if the same OCR item is graded again.
-    if feedback_path.exists():
-        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        feedback_filename = f"graded_{exam_part}_{provider_part}_{ts}{suffix}"
-        feedback_path = work_dir / feedback_filename
+    provider_part = _safe_name(
+        provider or "ai",
+        "ai",
+    )
 
-    shutil.copy2(source, feedback_path)
+    version_tag = (
+        datetime.now().strftime(
+            "%Y-%m-%d_%H-%M-%S"
+        )
+    )
 
-    feedback_saved_at = saved_at or _now()
+    def copy_artifact(
+        source_path: Path | None,
+        desired_filename: str,
+    ) -> str:
+        if not source_path:
+            return ""
+
+        source = Path(source_path)
+
+        if (
+            not source.exists()
+            or not source.is_file()
+        ):
+            return ""
+
+        target = (
+            work_dir
+            / desired_filename
+        )
+
+        if target.exists():
+            desired = Path(
+                desired_filename
+            )
+
+            target = (
+                work_dir
+                / (
+                    f"{desired.stem}_"
+                    f"{version_tag}"
+                    f"{desired.suffix}"
+                )
+            )
+
+        shutil.copy2(
+            source,
+            target,
+        )
+
+        return target.name
+
+    final_suffix = (
+        final_source.suffix.lower()
+        or ".pdf"
+    )
+
+    feedback_filename = (
+        copy_artifact(
+            final_source,
+            (
+                f"graded_{exam_part}_"
+                f"{provider_part}"
+                f"{final_suffix}"
+            ),
+        )
+    )
+
+    if not feedback_filename:
+        return None
+
+    structured_json_filename = (
+        copy_artifact(
+            graded_result_json_path,
+            (
+                f"graded_{exam_part}_"
+                f"{provider_part}"
+                "_structured.json"
+            ),
+        )
+    )
+
+    tex_filename = ""
+
+    if graded_result_tex_path:
+        tex_source = Path(
+            graded_result_tex_path
+        )
+
+        try:
+            same_as_final = (
+                tex_source.resolve()
+                == final_source.resolve()
+            )
+        except Exception:
+            same_as_final = False
+
+        if (
+            same_as_final
+            and final_suffix == ".tex"
+        ):
+            tex_filename = (
+                feedback_filename
+            )
+        else:
+            tex_filename = (
+                copy_artifact(
+                    tex_source,
+                    (
+                        f"graded_{exam_part}_"
+                        f"{provider_part}"
+                        "_source.tex"
+                    ),
+                )
+            )
+
+    feedback_saved_at = (
+        saved_at or _now()
+    )
+
     feedback = {
         "exam_id": exam_id or "",
         "provider": provider or "",
-        "filename": feedback_filename,
-        "file_type": suffix.lstrip("."),
-        "saved_at": feedback_saved_at,
+        "filename": (
+            feedback_filename
+        ),
+        "file_type": (
+            Path(
+                feedback_filename
+            ).suffix.lower().lstrip(".")
+        ),
+        "structured_json_filename": (
+            structured_json_filename
+        ),
+        "tex_filename": tex_filename,
+        "saved_at": (
+            feedback_saved_at
+        ),
     }
 
-    files = meta.get("files") if isinstance(meta.get("files"), list) else []
+    files = (
+        meta.get("files")
+        if isinstance(
+            meta.get("files"),
+            list,
+        )
+        else []
+    )
+
     files = _upsert_file_entry(
         files,
         {
             "kind": "graded_feedback",
-            "filename": feedback_filename,
-            "label": "Graded feedback",
+            "filename": (
+                feedback_filename
+            ),
+            "label": (
+                "Graded feedback"
+            ),
         },
     )
 
+    if structured_json_filename:
+        files = _upsert_file_entry(
+            files,
+            {
+                "kind": (
+                    "graded_result_json"
+                ),
+                "filename": (
+                    structured_json_filename
+                ),
+                "label": (
+                    "Structured graded result"
+                ),
+            },
+        )
+
+    if (
+        tex_filename
+        and tex_filename
+        != feedback_filename
+    ):
+        files = _upsert_file_entry(
+            files,
+            {
+                "kind": (
+                    "graded_result_tex"
+                ),
+                "filename": (
+                    tex_filename
+                ),
+                "label": (
+                    "Graded result LaTeX"
+                ),
+            },
+        )
+
     meta["status"] = "graded"
-    meta["exam_id"] = exam_id or meta.get("exam_id") or ""
-    meta["graded_at"] = feedback_saved_at
-    meta["grading_provider"] = provider or ""
+
+    meta["exam_id"] = (
+        exam_id
+        or meta.get("exam_id")
+        or ""
+    )
+
+    meta["graded_at"] = (
+        feedback_saved_at
+    )
+
+    meta["grading_provider"] = (
+        provider or ""
+    )
+
     meta["feedback"] = feedback
+
+    meta["graded_result"] = {
+        "schema_version": (
+            "graded_result_v1"
+        ),
+        "final_filename": (
+            feedback_filename
+        ),
+        "structured_json_filename": (
+            structured_json_filename
+        ),
+        "tex_filename": (
+            tex_filename
+        ),
+    }
+
     meta["files"] = files
     meta["updated_at"] = _now()
 
-    _write_json(meta_path, meta)
-    _upsert_course_upload_log(meta)
-    return meta
+    _write_json(
+        meta_path,
+        meta,
+    )
 
+    _upsert_course_upload_log(
+        meta
+    )
+
+    return meta
 
 def list_teacher_student_work_metadata(teacher_id: str) -> list[dict[str, Any]]:
     """
@@ -905,7 +1137,33 @@ def list_student_work_for_dashboard(student_code: str) -> list[dict[str, Any]]:
                 "voucher_id": str(meta.get("voucher_id") or ""),
                 "storage_path_parts": meta.get("storage_path_parts") or {},
                 "original_download_url": next(
-                    (x["download_url"] for x in files if x.get("kind") in {"original", "student_tex"}),
+                    (
+                        x["download_url"]
+                        for x in files
+                        if x.get("kind")
+                        in {
+                            "original",
+                            "student_tex",
+                        }
+                    ),
+                    "",
+                ),
+                "graded_result_json_download_url": next(
+                    (
+                        x["download_url"]
+                        for x in files
+                        if x.get("kind")
+                        == "graded_result_json"
+                    ),
+                    "",
+                ),
+                "graded_result_tex_download_url": next(
+                    (
+                        x["download_url"]
+                        for x in files
+                        if x.get("kind")
+                        == "graded_result_tex"
+                    ),
                     "",
                 ),
                 "files": files,
