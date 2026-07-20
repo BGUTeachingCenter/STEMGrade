@@ -19,9 +19,8 @@ from core.security import (
     clear_session_cookie,
     get_session,
     require_session,
-    set_session_cookie,
-    set_profile_session_cookie,
     require_teacher,
+    set_profile_session_cookie,
 )
 from services.student_access import (
     authenticate_student_code,
@@ -30,16 +29,7 @@ from services.student_access import (
     list_student_codes_for_teacher,
     update_student_codes_for_teacher,
 )
-from services.teacher_profiles import (
-    authenticate_teacher,
-    change_teacher_password,
-    get_teacher,
-    list_teacher_courses,
-    register_teacher_from_voucher,
-    set_active_teacher_course,
-    subject_options,
-    update_teacher_profile,
-)
+from services.teacher_profiles import get_teacher
 from services.student_work_store import list_student_work_for_dashboard
 
 from openpyxl import Workbook, load_workbook
@@ -190,38 +180,8 @@ class LoginRequest(BaseModel):
     code: str
 
 
-class TeacherLoginRequest(BaseModel):
-    identifier: str
-    password: str
-
-
-class TeacherRegisterRequest(BaseModel):
-    voucher_code: str
-    teacher_name: str
-    teacher_email: str
-    subject: str = "math"
-    password: str
-    password_confirm: str
-    grading_prompt_extra: str = ""
-    course_label: str = ""
-    initial_student_count: int = 0
-
-
-class UpdateTeacherProfileRequest(BaseModel):
-    subject: str | None = None
-    grading_prompt_extra: str | None = None
-    name: str | None = None
-    course_label: str | None = None
-
-
-class ChangeTeacherPasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
-    new_password_confirm: str
-
-
-class SetActiveCourseRequest(BaseModel):
-    course_id: str
+# Teacher account and course request models now live in
+# routes/teacher_routes.py.
 
 
 class CreateStudentCodesRequest(BaseModel):
@@ -300,138 +260,8 @@ def login(req: LoginRequest, request: Request, response: Response):
         "course_label": student_access.get("course_label", ""),
     }
 
-
-@router.get("/teacher/subjects")
-def teacher_subject_options():
-    return {"ok": True, "subjects": subject_options()}
-
-
-@router.post("/teacher/register")
-def teacher_register(req: TeacherRegisterRequest, request: Request, response: Response):
-    ip = _client_ip(request)
-    _check_rate_limit(ip)
-    profile = register_teacher_from_voucher(
-        voucher_code=req.voucher_code,
-        teacher_name=req.teacher_name,
-        teacher_email=req.teacher_email,
-        subject=req.subject,
-        password=req.password,
-        password_confirm=req.password_confirm,
-        grading_prompt_extra=req.grading_prompt_extra,
-        course_label=req.course_label,
-    )
-
-    initial_count = max(0, min(int(req.initial_student_count or 0), 200))
-    initial_codes = []
-    if initial_count:
-        initial_codes = create_student_codes(
-            teacher_id=profile["teacher_id"],
-            count=initial_count,
-            course_label=req.course_label,
-        )
-
-    set_profile_session_cookie(
-        response,
-        role="teacher",
-        sub=profile["teacher_id"],
-        teacher_id=profile["teacher_id"],
-    )
-    _record_successful_attempt(ip)
-    return {"ok": True, "role": "teacher", "teacher": profile, "initial_codes": initial_codes}
-
-
-@router.post("/teacher/login")
-def teacher_profile_login(req: TeacherLoginRequest, request: Request, response: Response):
-    ip = _client_ip(request)
-    _check_rate_limit(ip)
-    profile = authenticate_teacher(req.identifier, req.password)
-    if not profile:
-        _record_failed_attempt(ip)
-        raise HTTPException(status_code=401, detail="Invalid teacher email/ID or password")
-    set_profile_session_cookie(
-        response,
-        role="teacher",
-        sub=profile["teacher_id"],
-        teacher_id=profile["teacher_id"],
-    )
-    _record_successful_attempt(ip)
-    return {"ok": True, "role": "teacher", "teacher": profile}
-
-
-@router.get("/teacher/profile")
-def teacher_profile(_session: dict = Depends(require_teacher)):
-    teacher_id = _session.get("teacher_id") or _session.get("sub")
-    profile = get_teacher(teacher_id)
-    if not profile:
-        # Legacy env-code teacher. Keep the portal usable, but make it explicit.
-        return {
-            "ok": True,
-            "legacy": True,
-            "teacher": {
-                "teacher_id": "legacy_teacher",
-                "name": "Legacy teacher",
-                "email": "",
-                "subject": "math",
-                "subject_label": "Math",
-                "grading_prompt_extra": "",
-            },
-            "subjects": subject_options(),
-        }
-    return {
-        "ok": True,
-        "legacy": False,
-        "teacher": profile,
-        "courses": profile.get("courses") or list_teacher_courses(teacher_id),
-        "active_course": profile.get("active_course") or {},
-        "subjects": subject_options(),
-    }
-
-
-@router.post("/teacher/profile")
-def teacher_profile_update(req: UpdateTeacherProfileRequest, _session: dict = Depends(require_teacher)):
-    teacher_id = _session.get("teacher_id") or _session.get("sub")
-    if not teacher_id or teacher_id == "teacher":
-        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot edit a saved profile.")
-    profile = update_teacher_profile(
-        teacher_id=teacher_id,
-        subject=req.subject,
-        grading_prompt_extra=req.grading_prompt_extra,
-        name=req.name,
-        course_label=req.course_label,
-    )
-    return {"ok": True, "teacher": profile}
-
-
-@router.post("/teacher/active_course")
-def teacher_set_active_course(req: SetActiveCourseRequest, _session: dict = Depends(require_teacher)):
-    teacher_id = _session.get("teacher_id") or _session.get("sub")
-    if not teacher_id or teacher_id == "teacher":
-        raise HTTPException(status_code=400, detail="Legacy teacher sessions cannot switch courses.")
-
-    profile = set_active_teacher_course(
-        teacher_id=teacher_id,
-        course_id=req.course_id,
-    )
-    return {
-        "ok": True,
-        "teacher": profile,
-        "courses": profile.get("courses") or [],
-        "active_course": profile.get("active_course") or {},
-    }
-
-
-@router.post("/teacher/change_password")
-def teacher_change_password(req: ChangeTeacherPasswordRequest, _session: dict = Depends(require_teacher)):
-    teacher_id = _session.get("teacher_id") or _session.get("sub")
-    if not teacher_id or teacher_id == "teacher":
-        raise HTTPException(status_code=400, detail="Legacy teacher sessions do not have a saved profile password.")
-    change_teacher_password(
-        teacher_id=teacher_id,
-        old_password=req.old_password,
-        new_password=req.new_password,
-        new_password_confirm=req.new_password_confirm,
-    )
-    return {"ok": True}
+# Teacher registration, login, profile, password, and course routes now live in:
+# routes/teacher_routes.py
 
 
 def _teacher_id_or_400(session: dict) -> str:
