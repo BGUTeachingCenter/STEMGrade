@@ -20,7 +20,17 @@ TEACHERS_PATH = TEACHER_DATA_ROOT / "teachers.json"
 VOUCHERS_PATH = TEACHER_DATA_ROOT / "vouchers.json"
 
 _SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_-]+")
+
+# Kept temporarily so the old development registration flow continues to run
+# until it is removed in Phase 2.
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Usernames may contain Unicode letters/numbers, spaces, dots, underscores,
+# and hyphens. The internal teacher_id is generated separately and is always
+# safe to use as a folder name.
+_USERNAME_EXTRA_CHARACTERS = {" ", ".", "_", "-"}
+_USERNAME_MIN_LENGTH = 3
+_USERNAME_MAX_LENGTH = 40
 
 DEFAULT_SUBJECT_PROMPTS: dict[str, str] = {
     "math": "Grade mathematical reasoning, notation, algebra/calculus steps, final answer, and justification. Do not give credit for an unsupported final answer when the method is required.",
@@ -68,8 +78,8 @@ def _read_json(path: Path, fallback: Any) -> Any:
         return fallback
 
 
-# Owner read/write only. These files hold teacher emails and salted password
-# hashes, so keep them unreadable to other OS users on the host.
+# Owner read/write only. These files hold usernames and salted password hashes,
+# so keep them unreadable to other OS users on the host.
 _SECRET_FILE_MODE = stat.S_IRUSR | stat.S_IWUSR  # 0o600
 _SECRET_DIR_MODE = stat.S_IRWXU  # 0o700
 
@@ -94,12 +104,21 @@ def _write_json(path: Path, data: Any) -> None:
 
 
 def _load_teachers() -> dict[str, Any]:
-    data = _read_json(TEACHERS_PATH, {"schema_version": "teacher_profiles_v1", "teachers": {}})
+    fallback = {
+        "schema_version": "teacher_profiles_v2",
+        "teachers": {},
+    }
+
+    data = _read_json(TEACHERS_PATH, fallback)
+
     if not isinstance(data, dict):
-        return {"schema_version": "teacher_profiles_v1", "teachers": {}}
+        return dict(fallback)
+
     teachers = data.get("teachers")
     if not isinstance(teachers, dict):
         data["teachers"] = {}
+
+    data["schema_version"] = "teacher_profiles_v2"
     return data
 
 
@@ -251,6 +270,77 @@ def _new_teacher_id(email: str, name: str, existing: dict[str, Any]) -> str:
     return candidate
 
 
+def normalize_username(username: str | None) -> str:
+    """
+    Canonical username used for uniqueness and authentication.
+
+    Whitespace is collapsed and casefold() is used instead of lower() so
+    Unicode usernames are compared consistently.
+    """
+    display = " ".join((username or "").strip().split())
+    return display.casefold()
+
+
+def _validate_username(username: str | None) -> tuple[str, str]:
+    """
+    Return (display_username, normalized_username) after validation.
+    """
+    display = " ".join((username or "").strip().split())
+
+    if not display:
+        raise HTTPException(status_code=400, detail="Enter a username.")
+
+    if len(display) < _USERNAME_MIN_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Username must contain at least {_USERNAME_MIN_LENGTH} characters.",
+        )
+
+    if len(display) > _USERNAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Username may contain at most {_USERNAME_MAX_LENGTH} characters.",
+        )
+
+    if not any(ch.isalnum() for ch in display):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must contain at least one letter or number.",
+        )
+
+    invalid = [
+        ch
+        for ch in display
+        if not ch.isalnum() and ch not in _USERNAME_EXTRA_CHARACTERS
+    ]
+
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Username may contain letters, numbers, spaces, dots, "
+                "underscores, and hyphens."
+            ),
+        )
+
+    normalized = normalize_username(display)
+    return display, normalized
+
+
+def _new_profile_teacher_id(existing: dict[str, Any]) -> str:
+    """
+    Generate an internal ID independent of the public username.
+
+    This prevents usernames from becoming folder names and allows Unicode
+    usernames without affecting filesystem paths.
+    """
+    for _ in range(100):
+        candidate = f"teacher_{secrets.token_hex(8)}"
+        if candidate not in existing:
+            return candidate
+
+    raise RuntimeError("Could not generate a unique teacher ID.")
+
 def _validate_password(password: str, password_confirm: str | None = None) -> None:
     password = password or ""
     if password_confirm is not None and password != password_confirm:
@@ -285,6 +375,10 @@ def create_voucher(*, created_by: str, subject: str = "math", note: str = "") ->
             "created_by": created_by or "admin",
             "used_at": "",
             "used_by_teacher_id": "",
+            "used_by_username": "",
+
+            # Temporary compatibility field. Removed after the old
+            # voucher-first teacher registration route is deleted.
             "used_by_email": "",
         }
         _save_vouchers(data)
@@ -336,6 +430,163 @@ def get_teacher(teacher_id: str | None) -> dict[str, Any] | None:
         data = _load_teachers()
         profile = data.get("teachers", {}).get(teacher_id)
         return _public_teacher(profile) if isinstance(profile, dict) else None
+
+
+def create_teacher_account(
+    *,
+    username: str,
+    password: str,
+    password_confirm: str,
+) -> dict[str, Any]:
+    """
+    Create a teacher account without creating a course or using a voucher.
+
+    Courses remain empty until the authenticated teacher redeems a voucher.
+    """
+    display_username, normalized_username = _validate_username(username)
+    _validate_password(password, password_confirm)
+
+    with _DATA_LOCK:
+        data = _load_teachers()
+        teachers = data.setdefault("teachers", {})
+
+        for existing in teachers.values():
+            if not isinstance(existing, dict):
+                continue
+
+            existing_normalized = str(
+                existing.get("username_normalized")
+                or normalize_username(existing.get("username"))
+                or ""
+            )
+
+            if existing_normalized == normalized_username:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This username is already in use.",
+                )
+
+        teacher_id = _new_profile_teacher_id(teachers)
+        now = _now()
+
+        profile = {
+            "teacher_id": teacher_id,
+            "username": display_username,
+            "username_normalized": normalized_username,
+
+            # Existing course/student code displays currently read "name".
+            # Keep it mirrored until those call sites are cleaned in Phase 4.
+            "name": display_username,
+
+            "password_hash": hash_password(password),
+            "courses": [],
+            "active_course_id": "",
+            "created_at": now,
+            "updated_at": now,
+            "status": "active",
+        }
+
+        teachers[teacher_id] = profile
+        _save_teachers(data)
+
+    return _public_teacher(profile)
+
+
+def redeem_voucher_for_course(
+    *,
+    teacher_id: str,
+    voucher_code: str,
+    course_label: str = "",
+    subject: str = "",
+    grading_prompt_extra: str = "",
+) -> dict[str, Any]:
+    """
+    Redeem one unused voucher and attach the resulting course to an existing
+    authenticated teacher account.
+    """
+    teacher_id = (teacher_id or "").strip()
+    voucher_code = (voucher_code or "").strip()
+    course_label = (course_label or "").strip()
+
+    if not teacher_id:
+        raise HTTPException(status_code=400, detail="Missing teacher profile.")
+
+    if not voucher_code:
+        raise HTTPException(status_code=400, detail="Enter a voucher code.")
+
+    digest = _voucher_hash(voucher_code)
+
+    with _DATA_LOCK:
+        teachers = _load_teachers()
+        profile = teachers.get("teachers", {}).get(teacher_id)
+
+        if not isinstance(profile, dict):
+            raise HTTPException(
+                status_code=404,
+                detail="Teacher profile not found.",
+            )
+
+        if profile.get("status") != "active":
+            raise HTTPException(
+                status_code=403,
+                detail="This teacher profile is not active.",
+            )
+
+        vouchers = _load_vouchers()
+        voucher = vouchers.get("vouchers", {}).get(digest)
+
+        if not isinstance(voucher, dict):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid voucher code.",
+            )
+
+        if voucher.get("status") != "unused":
+            raise HTTPException(
+                status_code=409,
+                detail="This voucher has already been used.",
+            )
+
+        courses = _courses_list(profile)
+
+        if any(
+            str(course.get("voucher_hash") or "") == digest
+            for course in courses
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="This voucher is already attached to this profile.",
+            )
+
+        selected_subject = normalize_subject(
+            subject or voucher.get("subject")
+        )
+
+        new_course = _course_from_voucher(
+            voucher=voucher,
+            digest=digest,
+            subject=selected_subject,
+            course_label=course_label,
+            grading_prompt_extra=grading_prompt_extra,
+        )
+
+        courses.append(new_course)
+
+        profile["courses"] = courses
+        profile["active_course_id"] = new_course["course_id"]
+        profile["updated_at"] = _now()
+        _sync_active_course_fields(profile)
+
+        voucher["status"] = "used"
+        voucher["used_at"] = _now()
+        voucher["used_by_teacher_id"] = teacher_id
+        voucher["used_by_username"] = profile.get("username", "")
+        voucher["used_by_email"] = ""
+
+        _save_teachers(teachers)
+        _save_vouchers(vouchers)
+
+    return _public_teacher(profile)
 
 
 def register_teacher_from_voucher(
@@ -442,32 +693,63 @@ def register_teacher_from_voucher(
     return _public_teacher(profile)
 
 
-def authenticate_teacher(identifier: str, password: str) -> dict[str, Any] | None:
-    ident = (identifier or "").strip().lower()
-    if not ident or not password:
+def authenticate_teacher(username: str, password: str) -> dict[str, Any] | None:
+    normalized = normalize_username(username)
+
+    if not normalized or not password:
         return None
 
     with _DATA_LOCK:
         data = _load_teachers()
-        candidates = []
-        direct = data.get("teachers", {}).get(ident)
+        candidates: list[dict[str, Any]] = []
+        seen_teacher_ids: set[str] = set()
+
+        # Internal teacher IDs remain accepted temporarily for development and
+        # troubleshooting, although the UI will expose username login only.
+        direct = data.get("teachers", {}).get((username or "").strip())
         if isinstance(direct, dict):
             candidates.append(direct)
+            seen_teacher_ids.add(str(direct.get("teacher_id") or ""))
+
         for profile in data.get("teachers", {}).values():
-            if isinstance(profile, dict) and profile.get("email", "").lower() == ident:
-                candidates.append(profile)
+            if not isinstance(profile, dict):
+                continue
+
+            profile_username = str(
+                profile.get("username_normalized")
+                or normalize_username(profile.get("username"))
+                or ""
+            )
+
+            # Temporary compatibility for profiles created by the old
+            # email-based development workflow. Removed after the dev reset.
+            legacy_email = str(profile.get("email") or "").strip().casefold()
+
+            if profile_username != normalized and legacy_email != normalized:
+                continue
+
+            teacher_id = str(profile.get("teacher_id") or "")
+
+            if teacher_id in seen_teacher_ids:
+                continue
+
+            candidates.append(profile)
+            seen_teacher_ids.add(teacher_id)
 
         for profile in candidates:
             if profile.get("status") != "active":
                 continue
+
             if verify_password_hash(password, profile.get("password_hash")):
                 return _public_teacher(profile)
+
     return None
 
 
 def update_teacher_profile(
     *,
     teacher_id: str,
+    username: str | None = None,
     subject: str | None = None,
     grading_prompt_extra: str | None = None,
     name: str | None = None,
@@ -479,6 +761,31 @@ def update_teacher_profile(
         profile = data.get("teachers", {}).get(teacher_id)
         if not isinstance(profile, dict):
             raise HTTPException(status_code=404, detail="Teacher profile not found.")
+
+        if username is not None:
+            display_username, normalized_username = _validate_username(username)
+
+            for other_teacher_id, other in data.get("teachers", {}).items():
+                if other_teacher_id == teacher_id or not isinstance(other, dict):
+                    continue
+
+                other_normalized = str(
+                    other.get("username_normalized")
+                    or normalize_username(other.get("username"))
+                    or ""
+                )
+
+                if other_normalized == normalized_username:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This username is already in use.",
+                    )
+
+            profile["username"] = display_username
+            profile["username_normalized"] = normalized_username
+
+            # Temporary compatibility mirror.
+            profile["name"] = display_username
 
         courses = _courses_list(profile)
         active_id = str(profile.get("active_course_id") or "").strip()
