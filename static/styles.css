@@ -4875,3 +4875,157 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     min-height: 455px;
   }
 }
+
+/* =========================================================
+   Student OCR review: original submission tab
+   ========================================================= */
+
+.mg-original-submission-preview {
+  min-height: 620px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243,154,30,.05),
+      transparent 36%
+    ),
+    rgba(255,255,255,.96);
+}
+
+.mg-original-submission-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-bottom: 1px solid #ece6dd;
+  background: #faf8f5;
+}
+
+.mg-original-submission-actions .secondary-btn {
+  width: auto;
+}
+
+.mg-original-submission-frame {
+  display: block;
+  width: 100%;
+  min-height: 760px;
+  border: 0;
+  background: #fff;
+}
+
+.mg-original-submission-image-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 560px;
+  max-height: 80vh;
+  padding: 22px;
+  overflow: auto;
+  background:
+    linear-gradient(
+      45deg,
+      #f7f3ee 25%,
+      transparent 25%
+    ),
+    linear-gradient(
+      -45deg,
+      #f7f3ee 25%,
+      transparent 25%
+    ),
+    linear-gradient(
+      45deg,
+      transparent 75%,
+      #f7f3ee 75%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 75%,
+      #f7f3ee 75%
+    ),
+    #fff;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+  background-size: 20px 20px;
+}
+
+.mg-original-submission-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  border: 1px solid #ddd5ca;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(79,79,82,.14);
+}
+
+.mg-original-submission-empty {
+  min-height: 615px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.mg-original-submission-empty-icon {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+  border: 1px solid #f1dcc0;
+  border-radius: 21px;
+  background: var(--primary-soft);
+  color: var(--primary-2);
+  font-size: 28px;
+}
+
+.mg-original-submission-empty strong {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.mg-original-submission-empty span {
+  max-width: 440px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .mg-original-submission-actions {
+    flex-direction: column;
+  }
+
+  .mg-original-submission-actions .secondary-btn {
+    width: 100%;
+  }
+
+  .mg-original-submission-preview {
+    min-height: 460px;
+  }
+
+  .mg-original-submission-frame {
+    min-height: 560px;
+  }
+
+  .mg-original-submission-image-wrap {
+    min-height: 420px;
+    padding: 12px;
+  }
+
+  .mg-original-submission-empty {
+    min-height: 455px;
+  }
+}
