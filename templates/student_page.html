@@ -148,15 +148,31 @@
       </div>
 
       <div id="ocrReviewPanel" class="mg-ocr-review" style="display:none;">
-          <div class="mg-ocr-review-head">
-            <div>
-              <div class="badge">OCR review</div>
-              <h2>Review before grading</h2>
-            </div>
-            <button id="useOcrTexBtn" class="secondary-btn small" type="button">
+        <div class="mg-ocr-review-head">
+          <div>
+            <div class="badge">OCR review</div>
+            <h2>Review before grading</h2>
+          </div>
+
+          <div class="mg-ocr-review-head-actions">
+            <button
+              id="reviewDownloadBtn"
+              class="secondary-btn secondary small"
+              type="button"
+              disabled
+            >
+              Download current file
+            </button>
+
+            <button
+              id="useOcrTexBtn"
+              class="secondary-btn small"
+              type="button"
+            >
               Use this as LaTeX answer
             </button>
           </div>
+        </div>
 
           <p class="hint mg-ocr-review-hint">
             Correct OCR mistakes here. Make sure the text has clear grading markers:
@@ -413,7 +429,12 @@
     const ocrReviewPanel = document.getElementById("ocrReviewPanel");
     const ocrTexReview = document.getElementById("ocrTexReview");
     const useOcrTexBtn = document.getElementById("useOcrTexBtn");
-    const refreshOcrPreviewBtn = document.getElementById("refreshOcrPreviewBtn");
+
+    const reviewDownloadBtn =
+      document.getElementById("reviewDownloadBtn");
+
+    const refreshOcrPreviewBtn =
+      document.getElementById("refreshOcrPreviewBtn");
     const ocrPreviewStatus = document.getElementById("ocrPreviewStatus");
     const ocrLatexPreview = document.getElementById("ocrLatexPreview");
 
@@ -474,32 +495,164 @@
     let originalSubmissionObjectUrl = "";
     let originalSubmissionFileKey = "";
 
-    function activateOcrReviewTab(tabName) {
-      const normalizedTab = String(tabName || "preview");
+    let activeOcrReviewTab = "preview";
+    let reviewOriginalDownload = null;
+    let reviewGradedDownload = null;
+    let reviewOcrFilename = "reviewed_ocr_answer.tex";
 
-      ocrReviewTabButtons.forEach((button) => {
-        const isActive =
-          button.dataset.ocrReviewTab === normalizedTab;
+    function normalizeReviewFilename(
+      value,
+      fallback = "download"
+    ) {
+      const filename = String(value || "")
+        .trim()
+        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
 
-        button.classList.toggle("active", isActive);
-        button.setAttribute(
-          "aria-selected",
-          isActive ? "true" : "false"
+      return filename || fallback;
+    }
+
+    function updateReviewDownloadButton() {
+      if (!reviewDownloadBtn) {
+        return;
+      }
+
+      let label = "Download current file";
+      let available = false;
+
+      if (activeOcrReviewTab === "original") {
+        label = "Download original";
+        available = !!(
+          reviewOriginalDownload &&
+          reviewOriginalDownload.blob
         );
-      });
+      } else if (
+        activeOcrReviewTab === "preview" ||
+        activeOcrReviewTab === "edit"
+      ) {
+        label = "Download OCR LaTeX";
+        available = !!(
+          ocrTexReview &&
+          ocrTexReview.value.trim()
+        );
+      } else if (activeOcrReviewTab === "graded") {
+        label = "Download graded result";
+        available = !!(
+          reviewGradedDownload &&
+          reviewGradedDownload.blob
+        );
+      }
 
-      ocrReviewTabPanels.forEach((panel) => {
-        const isActive =
-          panel.dataset.ocrReviewPanel === normalizedTab;
+      reviewDownloadBtn.textContent = label;
+      reviewDownloadBtn.disabled = !available;
+    }
 
-        panel.classList.toggle("active", isActive);
-        panel.hidden = !isActive;
-      });
+    function downloadReviewBlob(blob, filename) {
+      if (!blob) {
+        return;
+      }
 
-      if (normalizedTab === "preview") {
-        queueOcrLatexPreview(true);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = normalizeReviewFilename(
+        filename,
+        "download"
+      );
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+      }, 1000);
+    }
+
+    function downloadCurrentReviewFile() {
+      if (activeOcrReviewTab === "original") {
+        if (!reviewOriginalDownload) {
+          return;
+        }
+
+        downloadReviewBlob(
+          reviewOriginalDownload.blob,
+          reviewOriginalDownload.filename
+        );
+
+        return;
+      }
+
+      if (
+        activeOcrReviewTab === "preview" ||
+        activeOcrReviewTab === "edit"
+      ) {
+        const source =
+          ocrTexReview && ocrTexReview.value
+            ? ocrTexReview.value
+            : "";
+
+        if (!source.trim()) {
+          return;
+        }
+
+        const blob = new Blob(
+          [source],
+          { type: "application/x-tex;charset=utf-8" }
+        );
+
+        downloadReviewBlob(
+          blob,
+          reviewOcrFilename
+        );
+
+        return;
+      }
+
+      if (
+        activeOcrReviewTab === "graded" &&
+        reviewGradedDownload
+      ) {
+        downloadReviewBlob(
+          reviewGradedDownload.blob,
+          reviewGradedDownload.filename
+        );
       }
     }
+
+  function activateOcrReviewTab(tabName) {
+    const normalizedTab = String(
+      tabName || "preview"
+    );
+
+    activeOcrReviewTab = normalizedTab;
+
+    ocrReviewTabButtons.forEach((button) => {
+      const isActive =
+        button.dataset.ocrReviewTab === normalizedTab;
+
+      button.classList.toggle("active", isActive);
+
+      button.setAttribute(
+        "aria-selected",
+        isActive ? "true" : "false"
+      );
+    });
+
+    ocrReviewTabPanels.forEach((panel) => {
+      const isActive =
+        panel.dataset.ocrReviewPanel === normalizedTab;
+
+      panel.classList.toggle("active", isActive);
+      panel.hidden = !isActive;
+    });
+
+    if (normalizedTab === "preview") {
+      queueOcrLatexPreview(true);
+    }
+
+    updateReviewDownloadButton();
+  }
 
     function clearOriginalSubmissionObjectUrl() {
       if (!originalSubmissionObjectUrl) {
@@ -541,6 +694,9 @@
       message = "Upload handwritten work or open a saved OCR result."
     ) {
       clearOriginalSubmissionObjectUrl();
+
+      reviewOriginalDownload = null;
+      updateReviewDownloadButton();
 
       if (!originalSubmissionPreview) {
         return;
@@ -589,35 +745,22 @@
       originalSubmissionObjectUrl =
         URL.createObjectURL(blob);
 
+      reviewOriginalDownload = {
+        blob,
+        filename: normalizeReviewFilename(
+          filename,
+          "original_submission"
+        )
+      };
+
+      updateReviewDownloadButton();
+
       originalSubmissionPreview.replaceChildren();
 
       const resultType = inferOriginalSubmissionType(
         contentType || blob.type,
         filename
       );
-
-      const actions = document.createElement("div");
-      actions.className = "mg-original-submission-actions";
-
-      const openLink = document.createElement("a");
-      openLink.className = "secondary-btn small";
-      openLink.href = originalSubmissionObjectUrl;
-      openLink.target = "_blank";
-      openLink.rel = "noopener";
-      openLink.textContent = "Open original";
-
-      const downloadLink = document.createElement("a");
-      downloadLink.className = "secondary-btn small";
-      downloadLink.href = originalSubmissionObjectUrl;
-      downloadLink.download = filename;
-      downloadLink.textContent = "Download original";
-
-      actions.append(
-        openLink,
-        downloadLink
-      );
-
-      originalSubmissionPreview.appendChild(actions);
 
       if (resultType === "pdf") {
         const frame = document.createElement("iframe");
@@ -768,9 +911,52 @@
         return;
       }
 
-      URL.revokeObjectURL(gradedResultObjectUrl);
+      URL.revokeObjectURL(
+        gradedResultObjectUrl
+      );
+
       gradedResultObjectUrl = "";
     }
+
+    function resetGradedResultPreview() {
+      clearGradedResultObjectUrl();
+
+    reviewGradedDownload = null;
+    updateReviewDownloadButton();
+
+    if (!gradedResultPreview) {
+      return;
+    }
+
+    gradedResultPreview.replaceChildren();
+
+    const empty = document.createElement("div");
+    empty.className = "mg-graded-result-empty";
+
+    const icon = document.createElement("div");
+    icon.className = "mg-graded-result-empty-icon";
+    icon.textContent = "✓";
+
+    const title = document.createElement("strong");
+    title.textContent = "No graded result yet";
+
+    const text = document.createElement("span");
+    text.textContent =
+      "Grade the reviewed answer to display the result here.";
+
+    empty.append(
+      icon,
+      title,
+      text
+    );
+
+    gradedResultPreview.appendChild(empty);
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        "Grade the reviewed answer to display the result here.";
+    }
+  }
 
     function inferGradedResultType(contentType, filename) {
       const normalizedType =
@@ -805,239 +991,272 @@
 
       return "file";
     }
+async function showGradedResultBlob(
+  blob,
+  contentType = "",
+  filename = "graded_result",
+  activateTab = true
+) {
+  if (!gradedResultPreview || !blob) {
+    return;
+  }
 
-    async function showGradedResultBlob(
-      blob,
-      contentType = "",
-      filename = "graded_result"
-    ) {
-      if (!gradedResultPreview || !blob) {
-        return;
-      }
+  clearGradedResultObjectUrl();
 
-      clearGradedResultObjectUrl();
+  gradedResultObjectUrl =
+    URL.createObjectURL(blob);
 
-      gradedResultObjectUrl =
-        URL.createObjectURL(blob);
+  reviewGradedDownload = {
+    blob,
+    filename: normalizeReviewFilename(
+      filename,
+      "graded_result"
+    )
+  };
 
-      gradedResultPreview.replaceChildren();
+  updateReviewDownloadButton();
 
-      const resultType = inferGradedResultType(
-        contentType,
-        filename
-      );
+  gradedResultPreview.replaceChildren();
 
-      const actions = document.createElement("div");
-      actions.className = "mg-graded-result-actions";
+  const resultType = inferGradedResultType(
+    contentType,
+    filename
+  );
 
-      const downloadLink = document.createElement("a");
-      downloadLink.className = "secondary-btn small";
-      downloadLink.href = gradedResultObjectUrl;
-      downloadLink.download = filename;
-      downloadLink.textContent = "Download graded result";
+  if (resultType === "pdf") {
+    const frame = document.createElement("iframe");
+    frame.className = "mg-graded-result-frame";
+    frame.title = "Rendered graded PDF";
+    frame.src =
+      `${gradedResultObjectUrl}#toolbar=1&navpanes=0&view=FitH`;
 
-      actions.appendChild(downloadLink);
-      gradedResultPreview.appendChild(actions);
+    gradedResultPreview.appendChild(frame);
 
-      if (resultType === "pdf") {
-        const frame = document.createElement("iframe");
-        frame.className = "mg-graded-result-frame";
-        frame.title = "Rendered graded PDF";
-        frame.src =
-          `${gradedResultObjectUrl}#toolbar=1&navpanes=0&view=FitH`;
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        `Showing ${filename}.`;
+    }
 
-        gradedResultPreview.appendChild(frame);
-
-        if (gradedResultStatus) {
-          gradedResultStatus.textContent =
-            `Showing ${filename}.`;
-        }
-
-        activateOcrReviewTab("graded");
-        return;
-      }
-
-      if (resultType === "html") {
-        const frame = document.createElement("iframe");
-        frame.className = "mg-graded-result-frame";
-        frame.title = "Rendered graded result";
-        frame.src = gradedResultObjectUrl;
-        frame.setAttribute("sandbox", "");
-
-        gradedResultPreview.appendChild(frame);
-
-        if (gradedResultStatus) {
-          gradedResultStatus.textContent =
-            `Showing ${filename}.`;
-        }
-
-        activateOcrReviewTab("graded");
-        return;
-      }
-
-      if (resultType === "tex") {
-        const source = await blob.text();
-
-        const readableSource =
-          prepareLatexForBrowserPreview(source) || source;
-
-        const renderedText = document.createElement("div");
-        renderedText.className = "mg-graded-result-tex";
-        renderedText.dir = "auto";
-        renderedText.textContent = readableSource;
-
-        gradedResultPreview.appendChild(renderedText);
-
-        if (gradedResultStatus) {
-          gradedResultStatus.textContent =
-            "Rendering the graded LaTeX result…";
-        }
-
-        try {
-          const mathJax =
-            await ensureMathJaxForOcrPreview();
-
-          if (
-            typeof mathJax.typesetClear === "function"
-          ) {
-            mathJax.typesetClear([
-              gradedResultPreview
-            ]);
-          }
-
-          await mathJax.typesetPromise([
-            gradedResultPreview
-          ]);
-
-          if (gradedResultStatus) {
-            gradedResultStatus.textContent =
-              `Showing rendered ${filename}.`;
-          }
-        } catch (error) {
-          console.warn(
-            "Could not render graded LaTeX:",
-            error
-          );
-
-          if (gradedResultStatus) {
-            gradedResultStatus.textContent =
-              "The graded LaTeX is shown as readable text because equation rendering was unavailable.";
-          }
-        }
-
-        activateOcrReviewTab("graded");
-        return;
-      }
-
-      const genericFrame = document.createElement("iframe");
-      genericFrame.className = "mg-graded-result-frame";
-      genericFrame.title = "Graded result";
-      genericFrame.src = gradedResultObjectUrl;
-
-      gradedResultPreview.appendChild(genericFrame);
-
-      if (gradedResultStatus) {
-        gradedResultStatus.textContent =
-          `Showing ${filename}.`;
-      }
-
+    if (activateTab) {
       activateOcrReviewTab("graded");
     }
 
-    async function loadSavedGradedResult(
-      resultUrl,
-      title = "saved graded result"
-    ) {
-      if (!resultUrl) {
-        setStatusText(
-          [`[${nowTag()}] No saved graded result is available.`],
-          "err"
-        );
+    return;
+  }
 
-        return;
+  if (resultType === "html") {
+    const frame = document.createElement("iframe");
+    frame.className = "mg-graded-result-frame";
+    frame.title = "Rendered graded result";
+    frame.src = gradedResultObjectUrl;
+    frame.setAttribute("sandbox", "");
+
+    gradedResultPreview.appendChild(frame);
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        `Showing ${filename}.`;
+    }
+
+    if (activateTab) {
+      activateOcrReviewTab("graded");
+    }
+
+    return;
+  }
+
+  if (resultType === "tex") {
+    const source = await blob.text();
+
+    const readableSource =
+      prepareLatexForBrowserPreview(source) ||
+      source;
+
+    const renderedText =
+      document.createElement("div");
+
+    renderedText.className =
+      "mg-graded-result-tex";
+
+    renderedText.dir = "auto";
+    renderedText.textContent = readableSource;
+
+    gradedResultPreview.appendChild(
+      renderedText
+    );
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        "Rendering the graded LaTeX result…";
+    }
+
+    try {
+      const mathJax =
+        await ensureMathJaxForOcrPreview();
+
+      if (
+        typeof mathJax.typesetClear === "function"
+      ) {
+        mathJax.typesetClear([
+          gradedResultPreview
+        ]);
       }
 
-      try {
-        if (ocrReviewPanel) {
-          ocrReviewPanel.style.display = "block";
-        }
+      await mathJax.typesetPromise([
+        gradedResultPreview
+      ]);
 
-        activateOcrReviewTab("graded");
+      if (gradedResultStatus) {
+        gradedResultStatus.textContent =
+          `Showing rendered ${filename}.`;
+      }
+    } catch (error) {
+      console.warn(
+        "Could not render graded LaTeX:",
+        error
+      );
 
-        if (gradedResultStatus) {
-          gradedResultStatus.textContent =
-            `Loading ${title}…`;
-        }
-
-        const response = await authedFetch(
-          resultUrl,
-          { cache: "no-store" }
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `Could not load graded result (${response.status}).`
-          );
-        }
-
-        const blob = await response.blob();
-
-        const contentType =
-          response.headers.get("content-type") ||
-          blob.type ||
-          "";
-
-        const disposition =
-          response.headers.get("content-disposition") ||
-          "";
-
-        const filenameMatch = disposition.match(
-          /filename\*?=(?:UTF-8''|")?([^";]+)/i
-        );
-
-        let filename =
-          filenameMatch && filenameMatch[1]
-            ? decodeURIComponent(
-                filenameMatch[1].replaceAll('"', "")
-              )
-            : title;
-
-        if (
-          !filename.includes(".") &&
-          contentType.includes("pdf")
-        ) {
-          filename += ".pdf";
-        }
-
-        await showGradedResultBlob(
-          blob,
-          contentType,
-          filename
-        );
-
-        if (ocrReviewPanel) {
-          ocrReviewPanel.scrollIntoView({
-            behavior: "smooth",
-            block: "start"
-          });
-        }
-      } catch (error) {
-        if (gradedResultStatus) {
-          gradedResultStatus.textContent =
-            error?.message ||
-            "Could not load the graded result.";
-        }
-
-        setStatusText(
-          [
-            `[${nowTag()}] ERROR: ${
-              error?.message || String(error)
-            }`
-          ],
-          "err"
-        );
+      if (gradedResultStatus) {
+        gradedResultStatus.textContent =
+          "The graded LaTeX is shown as readable text because equation rendering was unavailable.";
       }
     }
+
+    if (activateTab) {
+      activateOcrReviewTab("graded");
+    }
+
+    return;
+  }
+
+  const genericFrame =
+    document.createElement("iframe");
+
+  genericFrame.className =
+    "mg-graded-result-frame";
+
+  genericFrame.title = "Graded result";
+  genericFrame.src = gradedResultObjectUrl;
+
+  gradedResultPreview.appendChild(
+    genericFrame
+  );
+
+  if (gradedResultStatus) {
+    gradedResultStatus.textContent =
+      `Showing ${filename}.`;
+  }
+
+  if (activateTab) {
+    activateOcrReviewTab("graded");
+  }
+}
+
+ async function loadSavedGradedResult(
+  resultUrl,
+  title = "saved graded result",
+  activateTab = true
+) {
+  if (!resultUrl) {
+    resetGradedResultPreview();
+    return;
+  }
+
+  try {
+    if (ocrReviewPanel) {
+      ocrReviewPanel.style.display = "block";
+    }
+
+    if (activateTab) {
+      activateOcrReviewTab("graded");
+    }
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        `Loading ${title}…`;
+    }
+
+    const response = await authedFetch(
+      resultUrl,
+      { cache: "no-store" }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Could not load graded result (${response.status}).`
+      );
+    }
+
+    const blob = await response.blob();
+
+    const contentType =
+      response.headers.get("content-type") ||
+      blob.type ||
+      "";
+
+    const disposition =
+      response.headers.get("content-disposition") ||
+      "";
+
+    const filenameMatch = disposition.match(
+      /filename\*?=(?:UTF-8''|")?([^";]+)/i
+    );
+
+    let filename =
+      filenameMatch && filenameMatch[1]
+        ? filenameMatch[1].replaceAll('"', "")
+        : title;
+
+    try {
+      filename = decodeURIComponent(filename);
+    } catch (_) {
+      // Keep the filename exactly as returned.
+    }
+
+    if (
+      !filename.includes(".") &&
+      contentType.includes("pdf")
+    ) {
+      filename += ".pdf";
+    }
+
+    await showGradedResultBlob(
+      blob,
+      contentType,
+      filename,
+      activateTab
+    );
+
+    if (
+      activateTab &&
+      ocrReviewPanel
+    ) {
+      ocrReviewPanel.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }
+  } catch (error) {
+    resetGradedResultPreview();
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        error?.message ||
+        "Could not load the graded result.";
+    }
+
+    if (activateTab) {
+      setStatusText(
+        [
+          `[${nowTag()}] ERROR: ${
+            error?.message || String(error)
+          }`
+        ],
+        "err"
+      );
+    }
+  }
+}
 
     function nowTag() {
       const d = new Date();
@@ -1552,6 +1771,86 @@ function parseStructuredOcrPreview(value) {
       );
     }
 
+    function lineContainsHebrew(value) {
+      return /[\u0590-\u05FF]/.test(
+        String(value || "")
+      );
+    }
+
+    function prepareHebrewPreviewLine(value) {
+      let text = String(value || "").trim();
+
+      // Remove surrounding math delimiters.
+      text = text
+        .replace(/^\s*\\\[\s*/, "")
+        .replace(/\s*\\\]\s*$/, "")
+        .replace(/^\s*\\\(\s*/, "")
+        .replace(/\s*\\\)\s*$/, "")
+        .replace(/^\s*\$\$\s*/, "")
+        .replace(/\s*\$\$\s*$/, "")
+        .replace(/^\s*\$\s*/, "")
+        .replace(/\s*\$\s*$/, "");
+
+      /*
+       * Remove LaTeX text-formatting wrappers while preserving their
+       * Hebrew content. Several passes support simple nested wrappers.
+       */
+      for (let pass = 0; pass < 6; pass += 1) {
+        const unwrapped = text.replace(
+          /\\(?:text|textnormal|textrm|mathrm|mathbf|textbf|textit|emph)\{([^{}]*)\}/g,
+          "$1"
+        );
+
+        if (unwrapped === text) {
+          break;
+        }
+
+        text = unwrapped;
+      }
+
+      // Convert common LaTeX notation into readable Unicode.
+      text = text
+        .replace(/\\mathbb\{R\}/g, "ℝ")
+        .replace(/\\mathbb\{Z\}/g, "ℤ")
+        .replace(/\\mathbb\{N\}/g, "ℕ")
+        .replace(/\\mathbb\{Q\}/g, "ℚ")
+        .replace(
+          /\\frac\{([^{}]+)\}\{([^{}]+)\}/g,
+          "($1)/($2)"
+        )
+        .replace(
+          /\\sqrt\{([^{}]+)\}/g,
+          "√($1)"
+        )
+        .replace(/\\Leftrightarrow\b/g, "⇔")
+        .replace(/\\Rightarrow\b/g, "⇒")
+        .replace(/\\Leftarrow\b/g, "⇐")
+        .replace(/\\Downarrow\b/g, "⇓")
+        .replace(/\\Uparrow\b/g, "⇑")
+        .replace(/\\(?:leq|le)\b/g, "≤")
+        .replace(/\\(?:geq|ge)\b/g, "≥")
+        .replace(/\\neq\b/g, "≠")
+        .replace(/\\approx\b/g, "≈")
+        .replace(/\\notin\b/g, "∉")
+        .replace(/\\in\b/g, "∈")
+        .replace(/\\land\b/g, "∧")
+        .replace(/\\lor\b/g, "∨")
+        .replace(/\\mid\b/g, "|")
+        .replace(/\\cdot\b/g, "·")
+        .replace(/\\times\b/g, "×")
+        .replace(/\\pm\b/g, "±")
+        .replace(/\\(?:qquad|quad)\b/g, " ")
+        .replace(/\\left\b|\\right\b/g, "")
+        .replace(/\\\{/g, "{")
+        .replace(/\\\}/g, "}")
+        .replace(/\\,/g, " ")
+        .replace(/\\!/g, "")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+
+      return text;
+    }
+
     function lineLooksLikeMath(line) {
       const text = String(line || "").trim();
 
@@ -1606,6 +1905,30 @@ function parseStructuredOcrPreview(value) {
       }
 
       lines.forEach((line) => {
+        /*
+         * MathJax can reverse Hebrew placed inside \text{...}.
+         * Render Hebrew lines as native RTL browser text instead.
+         */
+        if (lineContainsHebrew(line)) {
+          const hebrewText =
+            prepareHebrewPreviewLine(line);
+
+          const prose =
+            document.createElement("p");
+
+          prose.className =
+            "mg-ocr-preview-prose mg-ocr-preview-prose-hebrew";
+
+          prose.dir = "rtl";
+          prose.lang = "he";
+
+          prose.textContent =
+            hebrewText || line;
+
+          container.appendChild(prose);
+          return;
+        }
+
         if (
           lineAlreadyHasMathDelimiters(line) ||
           lineLooksLikeMath(line)
@@ -2072,55 +2395,52 @@ function parseStructuredOcrPreview(value) {
               ? `${escapeHtml(type)} feedback · ${escapeHtml(provider)} · ${escapeHtml(saved)}`
               : `Uploaded LaTeX · ${escapeHtml(saved)}`
           );
+const reviewButton = isOcr && ocrTexUrl
+  ? `
+      <button
+        type="button"
+        class="secondary-btn small mg-review-saved-work-btn"
+        data-ocr-url="${escapeHtml(ocrTexUrl)}"
+        data-ocr-title="${escapeHtml(sourceName || title)}"
+        data-work-id="${escapeHtml(workId)}"
+        data-original-url="${escapeHtml(result.original_download_url || "")}"
+        data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
+        data-feedback-url="${escapeHtml(result.feedback_download_url || "")}"
+        data-feedback-title="${escapeHtml(result.feedback_filename || "graded_result")}"
+      >
+        Review
+      </button>
+    `
+  : "";
 
-      const originalLink = isOcr && result.original_download_url
-        ? `<a class="secondary-btn small" href="${escapeHtml(result.original_download_url)}">Original upload</a>`
-        : "";
+const gradeAgainButton = isOcr && ocrTexUrl
+  ? `
+      <button
+        type="button"
+        class="primary-btn small mg-grade-again-saved-work-btn"
+        data-ocr-url="${escapeHtml(ocrTexUrl)}"
+        data-ocr-title="${escapeHtml(sourceName || title)}"
+        data-work-id="${escapeHtml(workId)}"
+        data-original-url="${escapeHtml(result.original_download_url || "")}"
+        data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
+        data-feedback-url="${escapeHtml(result.feedback_download_url || "")}"
+        data-feedback-title="${escapeHtml(result.feedback_filename || "graded_result")}"
+      >
+        Grade again
+      </button>
+    `
+  : "";
 
-      const feedbackLink = hasFeedback
-        ? `<a class="primary-btn small" href="${escapeHtml(result.feedback_download_url)}">Download feedback</a>`
-        : "";
-
-      const feedbackPreviewButton = hasFeedback
-        ? `
-            <button
-              type="button"
-              class="secondary-btn small mg-view-saved-feedback-btn"
-              data-feedback-url="${escapeHtml(result.feedback_download_url)}"
-              data-feedback-title="${escapeHtml(result.feedback_filename || result.filename || "graded_result.pdf")}"
-            >
-              View graded result
-            </button>
-          `
-        : "";
-
-        const editOcrButtons = isOcr && ocrTexUrl
-          ? `
-              <button
-                type="button"
-                class="secondary-btn small mg-edit-saved-ocr-btn"
-                data-ocr-url="${escapeHtml(ocrTexUrl)}"
-                data-ocr-title="${escapeHtml(sourceName || title)}"
-                data-work-id="${escapeHtml(workId)}"
-                data-original-url="${escapeHtml(result.original_download_url || "")}"
-                data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
-              >
-                Edit OCR
-              </button>
-
-              <button
-                type="button"
-                class="primary-btn small mg-use-saved-ocr-btn"
-                data-ocr-url="${escapeHtml(ocrTexUrl)}"
-                data-ocr-title="${escapeHtml(sourceName || title)}"
-                data-work-id="${escapeHtml(workId)}"
-                data-original-url="${escapeHtml(result.original_download_url || "")}"
-                data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
-              >
-                ${hasFeedback ? "Grade again" : "Use for grading"}
-              </button>
-            `
-          : "";
+const nonOcrDownloadButton = !isOcr
+  ? `
+      <a
+        class="secondary-btn small"
+        href="${escapeHtml(hasFeedback ? result.feedback_download_url : url)}"
+      >
+        ${hasFeedback ? "Download feedback" : "Download upload"}
+      </a>
+    `
+  : "";
 
       return `
         <div class="mg-student-result-item ${isOcr ? "mg-student-result-item-ocr" : ""}">
@@ -2132,134 +2452,202 @@ function parseStructuredOcrPreview(value) {
           </div>
 
           <div class="mg-student-result-actions">
-            ${feedbackPreviewButton}
-            ${feedbackLink}
-            ${editOcrButtons}
-            <a class="secondary-btn small" href="${escapeHtml(url)}">${isOcr ? "Download OCR" : "Download upload"}</a>
-            ${originalLink}
+            ${reviewButton}
+            ${gradeAgainButton}
+            ${nonOcrDownloadButton}
           </div>
         </div>
       `;
     }
 
-       async function loadSavedOcrIntoReviewBox(
-        ocrUrl,
-        title,
-        autoUseForGrading = false,
-        workId = "",
-        originalUrl = "",
-        originalTitle = "original_submission"
-      ) {
-      if (!ocrUrl) {
-        setStatusText([`[${nowTag()}] No OCR LaTeX file is available for this saved item.`], "err");
-        return;
-      }
+ async function loadSavedOcrIntoReviewBox(
+  ocrUrl,
+  title,
+  autoUseForGrading = false,
+  workId = "",
+  originalUrl = "",
+  originalTitle = "original_submission",
+  feedbackUrl = "",
+  feedbackTitle = "graded_result",
+  initialTab = "original"
+) {
+  if (!ocrUrl) {
+    setStatusText(
+      [
+        `[${nowTag()}] No OCR LaTeX file is available for this saved item.`
+      ],
+      "err"
+    );
 
-      try {
-        setStatusText([`[${nowTag()}] Loading saved OCR into the LaTeX review box…`], "work");
+    return;
+  }
 
-        const r = await authedFetch(ocrUrl, { cache: "no-store" });
-        if (!r.ok) {
-          throw new Error(`Could not load saved OCR (${r.status}).`);
-        }
+  try {
+    setStatusText(
+      [
+        `[${nowTag()}] Loading all available stages of this submission…`
+      ],
+      "work"
+    );
 
-        const tex = await r.text();
-        if (!tex.trim()) {
-          throw new Error("Saved OCR LaTeX file is empty.");
-        }
+    resetOriginalSubmissionPreview();
+    resetGradedResultPreview();
 
-        ocrCurrentWorkId = workId || "";
+    reviewOcrFilename =
+      "reviewed_ocr_answer.tex";
 
-        if (handwrittenFile) {
-          handwrittenFile.value = "";
-        }
+    const response = await authedFetch(
+      ocrUrl,
+      { cache: "no-store" }
+    );
 
-        originalSubmissionFileKey = "";
+    if (!response.ok) {
+      throw new Error(
+        `Could not load saved OCR (${response.status}).`
+      );
+    }
 
-        loadSavedOriginalSubmission(
-          originalUrl,
-          originalTitle
+    const tex = await response.text();
+
+    if (!tex.trim()) {
+      throw new Error(
+        "Saved OCR LaTeX file is empty."
+      );
+    }
+
+    ocrCurrentWorkId = workId || "";
+
+    if (handwrittenFile) {
+      handwrittenFile.value = "";
+    }
+
+    originalSubmissionFileKey = "";
+
+    if (ocrTexReview && ocrReviewPanel) {
+      ocrTexReview.value = tex;
+      ocrGeneratedOriginalTex = tex;
+      ocrGeneratedTexFile = null;
+      ocrGeneratedBundleFile = null;
+      ocrGeneratedBundleJson = "";
+
+      ocrReviewPanel.style.display = "block";
+      queueOcrLatexPreview(true);
+    }
+
+    if (studentTex) {
+      studentTex.value = "";
+    }
+
+    const stageLoads = [
+      loadSavedOriginalSubmission(
+        originalUrl,
+        originalTitle
+      )
+    ];
+
+    if (feedbackUrl) {
+      stageLoads.push(
+        loadSavedGradedResult(
+          feedbackUrl,
+          feedbackTitle,
+          false
+        )
+      );
+    } else {
+      resetGradedResultPreview();
+    }
+
+    await Promise.allSettled(stageLoads);
+
+    updateUI();
+
+    let tabToOpen = initialTab;
+
+    if (
+      tabToOpen === "original" &&
+      !reviewOriginalDownload
+    ) {
+      tabToOpen = "preview";
+    }
+
+    activateOcrReviewTab(tabToOpen);
+    updateReviewDownloadButton();
+
+    const label = title || "saved OCR";
+
+    setStatusText(
+      [
+        `[${nowTag()}] Loaded ${label}.`,
+        autoUseForGrading
+          ? "The OCR answer is ready for another grading run."
+          : "Use the tabs to compare the original submission, OCR, editable source, and graded result."
+      ],
+      "ok"
+    );
+
+    if (ocrReviewPanel) {
+      ocrReviewPanel.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }
+
+    if (autoUseForGrading) {
+      useReviewedOcrTex();
+    }
+  } catch (error) {
+    setStatusText(
+      [
+        `[${nowTag()}] ERROR: ${
+          error?.message || String(error)
+        }`
+      ],
+      "err"
+    );
+  }
+}
+
+function wireSavedOcrButtons() {
+  document
+    .querySelectorAll(".mg-review-saved-work-btn")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        loadSavedOcrIntoReviewBox(
+          button.dataset.ocrUrl || "",
+          button.dataset.ocrTitle || "",
+          false,
+          button.dataset.workId || "",
+          button.dataset.originalUrl || "",
+          button.dataset.originalTitle ||
+            "original_submission",
+          button.dataset.feedbackUrl || "",
+          button.dataset.feedbackTitle ||
+            "graded_result",
+          "original"
         );
-
-        if (ocrTexReview && ocrReviewPanel) {
-          ocrTexReview.value = tex;
-          ocrGeneratedOriginalTex = tex;
-          ocrGeneratedTexFile = null;
-          ocrGeneratedBundleFile = null;
-          ocrGeneratedBundleJson = "";
-          ocrReviewPanel.style.display = "block";
-          queueOcrLatexPreview(true);
-
-          activateOcrReviewTab(
-            autoUseForGrading ? "preview" : "edit"
-          );
-        }
-
-        if (studentTex) {
-          studentTex.value = "";
-        }
-
-        updateUI();
-
-        const label = title || "saved OCR";
-        setStatusText([
-          `[${nowTag()}] Loaded ${label} into the LaTeX review box.`,
-          autoUseForGrading
-            ? `Preparing it for grading…`
-            : `Edit it if needed, then click "Use this as LaTeX answer".`
-        ], "ok");
-
-        if (ocrReviewPanel) {
-          ocrReviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-
-        if (autoUseForGrading) {
-          useReviewedOcrTex();
-        }
-      } catch (e) {
-        setStatusText([`[${nowTag()}] ERROR: ${e?.message || String(e)}`], "err");
-      }
-    }
-
-    function wireSavedOcrButtons() {
-      document.querySelectorAll(".mg-edit-saved-ocr-btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          loadSavedOcrIntoReviewBox(
-            btn.dataset.ocrUrl || "",
-            btn.dataset.ocrTitle || "",
-            false,
-            btn.dataset.workId || "",
-            btn.dataset.originalUrl || "",
-            btn.dataset.originalTitle || "original_submission"
-          );
-        });
       });
+    });
 
-      document.querySelectorAll(".mg-use-saved-ocr-btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          loadSavedOcrIntoReviewBox(
-            btn.dataset.ocrUrl || "",
-            btn.dataset.ocrTitle || "",
-            true,
-            btn.dataset.workId || "",
-            btn.dataset.originalUrl || "",
-            btn.dataset.originalTitle || "original_submission"
-          );
-        });
+  document
+    .querySelectorAll(".mg-grade-again-saved-work-btn")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        loadSavedOcrIntoReviewBox(
+          button.dataset.ocrUrl || "",
+          button.dataset.ocrTitle || "",
+          true,
+          button.dataset.workId || "",
+          button.dataset.originalUrl || "",
+          button.dataset.originalTitle ||
+            "original_submission",
+          button.dataset.feedbackUrl || "",
+          button.dataset.feedbackTitle ||
+            "graded_result",
+          "preview"
+        );
       });
-
-      document
-      .querySelectorAll(".mg-view-saved-feedback-btn")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          loadSavedGradedResult(
-            button.dataset.feedbackUrl || "",
-            button.dataset.feedbackTitle ||
-              "graded_result.pdf"
-          );
-        });
-      });
-    }
+    });
+}
 
     async function loadStudentDashboard() {
       if (!studentDashboardPanel) return;
@@ -2545,7 +2933,10 @@ function parseStructuredOcrPreview(value) {
           finalName = downloadName.replace(/\.pdf$/i, ".tex");
         }
 
-        lines.push(`[${nowTag()}] Downloading ${finalName}…`);
+        lines.push(
+          `[${nowTag()}] Preparing ${finalName} for review…`
+        );
+
         setStatusText(lines, "work");
 
         const blob = await res.blob();
@@ -2553,17 +2944,9 @@ function parseStructuredOcrPreview(value) {
         await showGradedResultBlob(
           blob,
           contentType,
-          finalName
+          finalName,
+          true
         );
-
-        const objUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = objUrl;
-        a.download = finalName;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(objUrl);
 
         stopSignal.stopped = true;
         await pollPromise;
@@ -2634,10 +3017,16 @@ function parseStructuredOcrPreview(value) {
         if (data.confidence !== undefined && data.confidence !== null) lines.push(`[${nowTag()}] Confidence: ${data.confidence}`);
         if (data.line_count !== undefined && data.line_count !== null) lines.push(`[${nowTag()}] line_count: ${data.line_count}`);
 
-        if (ocrTexReview && ocrReviewPanel) {
-          await showOriginalSubmissionFile(hw);
+      if (ocrTexReview && ocrReviewPanel) {
+        resetGradedResultPreview();
 
-          ocrTexReview.value = data.student_tex || data.text || "";
+        reviewOcrFilename =
+          "reviewed_ocr_answer.tex";
+
+        await showOriginalSubmissionFile(hw);
+
+        ocrTexReview.value =
+          data.student_tex || data.text || "";
           ocrGeneratedOriginalTex = ocrTexReview.value || "";
           ocrReviewPanel.style.display = "block";
           ocrGeneratedTexFile = null;
@@ -2717,7 +3106,17 @@ function parseStructuredOcrPreview(value) {
     gradeGoogleBtn.addEventListener("click", () => postAndDownload(ENDPOINT_GRADE_GOOGLE, "graded_test_google.pdf", "Google (Gemini) grading"));
     gradeGptBtn.addEventListener("click", () => postAndDownload(ENDPOINT_GRADE_GPT, "graded_test_gpt.pdf", "GPT grading"));
     ocrBtn.addEventListener("click", runOcr);
-    useOcrTexBtn.addEventListener("click", useReviewedOcrTex);
+    useOcrTexBtn.addEventListener(
+      "click",
+      useReviewedOcrTex
+    );
+
+    if (reviewDownloadBtn) {
+      reviewDownloadBtn.addEventListener(
+        "click",
+        downloadCurrentReviewFile
+      );
+    }
 
     ocrReviewTabButtons.forEach((button) => {
       button.addEventListener("click", () => {
@@ -2736,6 +3135,7 @@ function parseStructuredOcrPreview(value) {
     if (ocrTexReview) {
       ocrTexReview.addEventListener("input", () => {
         queueOcrLatexPreview(false);
+        updateReviewDownloadButton();
       });
     }
 

@@ -4591,6 +4591,31 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   unicode-bidi: plaintext;
 }
 
+/*
+ * Hebrew OCR explanations are rendered as native browser text rather
+ * than MathJax SVG text, which prevents reversed Hebrew characters.
+ */
+.mg-ocr-preview-prose-hebrew {
+  padding: 12px 14px;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  background: #fff;
+
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+
+  font-family:
+    Arial,
+    "Noto Sans Hebrew",
+    "Rubik",
+    sans-serif;
+
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
 .mg-ocr-preview-warnings {
   display: grid;
   gap: 6px;
@@ -5027,5 +5052,60 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 
   .mg-original-submission-empty {
     min-height: 455px;
+  }
+}
+
+/* =========================================================
+   OCR review: consolidated actions
+   ========================================================= */
+
+.mg-ocr-review-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mg-ocr-review-head-actions .secondary-btn {
+  width: auto;
+}
+
+#reviewDownloadBtn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.mg-student-result-actions
+.mg-review-saved-work-btn,
+.mg-student-result-actions
+.mg-grade-again-saved-work-btn {
+  min-width: 150px;
+}
+
+@media (max-width: 700px) {
+  .mg-ocr-review-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mg-ocr-review-head-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .mg-ocr-review-head-actions .secondary-btn,
+  .mg-ocr-review-head-actions button {
+    width: 100%;
+  }
+
+  .mg-student-result-actions
+  .mg-review-saved-work-btn,
+  .mg-student-result-actions
+  .mg-grade-again-saved-work-btn {
+    width: 100%;
+    min-width: 0;
   }
 }
