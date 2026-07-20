@@ -60,7 +60,11 @@
         </p>
       </div>
     </div>
-    <div class="card mg-bank-big-card"><div class="cardInner"><div id="vouchersList" class="list"></div></div></div>
+    <div class="card mg-bank-big-card">
+      <div class="cardInner">
+        <div id="vouchersList" class="list mg-voucher-grid"></div>
+      </div>
+    </div>
   </section>
 </div>
 {% endblock %}
@@ -101,6 +105,39 @@ function formatNumber(value) {
   return Number.isFinite(n) ? n.toLocaleString() : "0";
 }
 
+function formatDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function tokenPercentage(value, total) {
+  const amount = Number(value || 0);
+  const maximum = Number(total || 0);
+
+  if (
+    !Number.isFinite(amount) ||
+    !Number.isFinite(maximum) ||
+    maximum <= 0
+  ) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, (amount / maximum) * 100));
+}
+
 function itemCard(title, rows, extra = "") {
   return `
     <div class="mg-bank-item">
@@ -126,32 +163,168 @@ function usageRows(usage) {
 
 function voucherCard(v) {
   const isUsed = v.status === "used";
-  const status = isUsed ? "✅ Used voucher" : "🎟️ Unused voucher";
-  const subject = escapeHtml(v.subject_label || v.subject || "");
-  const usedBy = escapeHtml(v.used_by_email || v.used_by_teacher_id || "—");
+  const statusClass = isUsed ? "is-used" : "is-unused";
+  const statusLabel = isUsed ? "Redeemed" : "Available";
+
+  const subject = escapeHtml(
+    v.subject_label || v.subject || "General course"
+  );
+
+  const usedBy = escapeHtml(
+    v.used_by_email || v.used_by_teacher_id || "Not redeemed"
+  );
+
+  const note = escapeHtml(v.note || "No admin note");
+  const created = escapeHtml(formatDate(v.created_at));
+  const hash = escapeHtml(
+    v.voucher_hash_short || v.voucher_hash || "—"
+  );
+
   const code = v.voucher_code || v.raw_code || "";
+  const usage = v.token_usage || {};
+
+  const totalTokens = Number(usage.total_tokens || 0);
+  const inputTokens = Number(usage.input_tokens || 0);
+  const outputTokens = Number(usage.output_tokens || 0);
+  const reasoningTokens = Number(usage.reasoning_tokens || 0);
+  const calls = Number(usage.calls || 0);
 
   const codeHtml = code
-    ? `<code style="font-size:1rem; font-weight:800;">${escapeHtml(code)}</code>`
-    : `<span class="muted">Not available for older vouchers created before code retention.</span>`;
+    ? `<code class="mg-voucher-code">${escapeHtml(code)}</code>`
+    : `
+      <span class="mg-voucher-code-unavailable">
+        Code unavailable for this older voucher
+      </span>
+    `;
 
   const copyButton = code
-    ? `<button type="button" class="secondary-btn small mg-copy-voucher-btn" data-code="${escapeHtml(code)}">Copy code</button>`
+    ? `
+      <button
+        type="button"
+        class="secondary-btn small mg-copy-voucher-btn"
+        data-code="${escapeHtml(code)}"
+      >
+        Copy code
+      </button>
+    `
     : "";
 
-  return itemCard(
-    `${status} · ${subject}`,
-    [
-      `<strong>Voucher code:</strong> ${codeHtml} ${copyButton}`,
-      `<strong>Assigned subject:</strong> ${subject || "—"}`,
-      `<strong>Status:</strong> ${escapeHtml(v.status || "")}`,
-      `<strong>Created:</strong> ${escapeHtml(v.created_at || "")}`,
-      `<strong>Note:</strong> ${escapeHtml(v.note || "—")}`,
-      `<strong>Used by:</strong> ${usedBy}`,
-      `<strong>Stored hash:</strong> <code>${escapeHtml(v.voucher_hash_short || v.voucher_hash || "")}</code>`,
-      ...usageRows(v.token_usage),
-    ]
-  );
+  return `
+    <article class="mg-voucher-card ${statusClass}">
+      <div class="mg-voucher-card-header">
+        <div class="mg-voucher-identity">
+          <div class="mg-voucher-icon">🎟️</div>
+
+          <div>
+            <div class="mg-voucher-title">${subject} voucher</div>
+            <div class="mg-voucher-created">
+              Created ${created}
+            </div>
+          </div>
+        </div>
+
+        <span class="mg-voucher-status ${statusClass}">
+          <span class="mg-voucher-status-dot"></span>
+          ${statusLabel}
+        </span>
+      </div>
+
+      <div class="mg-voucher-code-panel">
+        <div class="mg-voucher-eyebrow">Voucher code</div>
+
+        <div class="mg-voucher-code-row">
+          ${codeHtml}
+          ${copyButton}
+        </div>
+      </div>
+
+      <div class="mg-voucher-details">
+        <div class="mg-voucher-detail">
+          <span>Admin note</span>
+          <strong>${note}</strong>
+        </div>
+
+        <div class="mg-voucher-detail">
+          <span>Used by</span>
+          <strong>${usedBy}</strong>
+        </div>
+      </div>
+
+      <div class="mg-voucher-usage-panel">
+        <div class="mg-voucher-usage-heading">
+          <div>
+            <div class="mg-voucher-eyebrow">Token usage</div>
+            <div class="mg-voucher-usage-title">
+              AI and OCR consumption
+            </div>
+          </div>
+
+          <span class="mg-voucher-usage-icon">⚡</span>
+        </div>
+
+        <div class="mg-voucher-usage-summary">
+          <div class="mg-voucher-token-total">
+            <span>Total tokens</span>
+            <strong>${formatNumber(totalTokens)}</strong>
+          </div>
+
+          <div class="mg-voucher-call-total">
+            <span>AI/OCR calls</span>
+            <strong>${formatNumber(calls)}</strong>
+          </div>
+        </div>
+
+        <div class="mg-voucher-token-breakdown">
+          <div class="mg-voucher-token-row">
+            <div class="mg-voucher-token-label">
+              <span>Input</span>
+              <strong>${formatNumber(inputTokens)}</strong>
+            </div>
+
+            <div class="mg-voucher-token-track">
+              <span
+                class="mg-voucher-token-fill input"
+                style="width:${tokenPercentage(inputTokens, totalTokens)}%"
+              ></span>
+            </div>
+          </div>
+
+          <div class="mg-voucher-token-row">
+            <div class="mg-voucher-token-label">
+              <span>Output</span>
+              <strong>${formatNumber(outputTokens)}</strong>
+            </div>
+
+            <div class="mg-voucher-token-track">
+              <span
+                class="mg-voucher-token-fill output"
+                style="width:${tokenPercentage(outputTokens, totalTokens)}%"
+              ></span>
+            </div>
+          </div>
+
+          <div class="mg-voucher-token-row">
+            <div class="mg-voucher-token-label">
+              <span>Reasoning</span>
+              <strong>${formatNumber(reasoningTokens)}</strong>
+            </div>
+
+            <div class="mg-voucher-token-track">
+              <span
+                class="mg-voucher-token-fill reasoning"
+                style="width:${tokenPercentage(reasoningTokens, totalTokens)}%"
+              ></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mg-voucher-card-footer">
+        <span>Stored hash</span>
+        <code>${hash}</code>
+      </div>
+    </article>
+  `;
 }
 
 function teacherCard(t) {

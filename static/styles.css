@@ -3409,3 +3409,456 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   background: #fff1ef;
   color: #9f2f25;
 }
+
+/* =========================================================
+   Admin portal: visual voucher dashboard cards
+   ========================================================= */
+
+.mg-admin-page .mg-voucher-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 0;
+}
+
+.mg-voucher-card {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243, 154, 30, 0.08),
+      transparent 34%
+    ),
+    #ffffff;
+  box-shadow: 0 14px 38px rgba(79, 79, 82, 0.08);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.mg-voucher-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 6px;
+}
+
+.mg-voucher-card.is-unused::before {
+  background: linear-gradient(90deg, #49a655, #82c88a);
+}
+
+.mg-voucher-card.is-used::before {
+  background: linear-gradient(90deg, #f39a1e, #d97f08);
+}
+
+.mg-voucher-card:hover {
+  transform: translateY(-2px);
+  border-color: #e8c28a;
+  box-shadow: 0 20px 48px rgba(79, 79, 82, 0.12);
+}
+
+.mg-voucher-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.mg-voucher-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.mg-voucher-icon {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff3e3, #ffe3bd);
+  border: 1px solid #f1dcc0;
+  font-size: 25px;
+  box-shadow: 0 10px 22px rgba(243, 154, 30, 0.11);
+}
+
+.mg-voucher-title {
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.mg-voucher-created {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.mg-voucher-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.mg-voucher-status.is-unused {
+  color: #287331;
+  background: #edf8ef;
+  border: 1px solid #bfe0c3;
+}
+
+.mg-voucher-status.is-used {
+  color: #9a5a08;
+  background: #fff4e5;
+  border: 1px solid #f2d0a1;
+}
+
+.mg-voucher-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.mg-voucher-status.is-unused .mg-voucher-status-dot {
+  background: #42a34e;
+  box-shadow: 0 0 0 5px rgba(66, 163, 78, 0.13);
+}
+
+.mg-voucher-status.is-used .mg-voucher-status-dot {
+  background: #f39a1e;
+  box-shadow: 0 0 0 5px rgba(243, 154, 30, 0.14);
+}
+
+.mg-voucher-code-panel {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #eadfd1;
+  border-radius: 20px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243, 154, 30, 0.09),
+      transparent 44%
+    ),
+    #fffaf4;
+}
+
+.mg-voucher-eyebrow {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mg-voucher-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.mg-voucher-code {
+  min-width: 0;
+  color: var(--text);
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.mg-voucher-code-unavailable {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.mg-voucher-card .mg-copy-voucher-btn {
+  width: auto !important;
+  min-height: 38px !important;
+  padding: 8px 15px !important;
+  border-radius: 999px !important;
+  border: 1px solid #f0bd75 !important;
+  background: #ffffff !important;
+  color: #a65e00 !important;
+  box-shadow: 0 6px 14px rgba(243, 154, 30, 0.11) !important;
+}
+
+.mg-voucher-card .mg-copy-voucher-btn:hover {
+  border-color: var(--primary) !important;
+  background: #fff7eb !important;
+  color: #8a5000 !important;
+}
+
+.mg-voucher-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mg-voucher-detail {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #ece6dd;
+  border-radius: 17px;
+  background: #faf8f5;
+}
+
+.mg-voucher-detail span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mg-voucher-detail strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mg-voucher-usage-panel {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #e4e1dc;
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243, 154, 30, 0.10),
+      transparent 38%
+    ),
+    linear-gradient(180deg, #fffdfa, #f8f5f0);
+}
+
+.mg-voucher-usage-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.mg-voucher-usage-title {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.mg-voucher-usage-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--primary-soft);
+  border: 1px solid #f1dcc0;
+  font-size: 18px;
+}
+
+.mg-voucher-usage-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(120px, 0.6fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.mg-voucher-token-total,
+.mg-voucher-call-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 92px;
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.mg-voucher-token-total {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  box-shadow: 0 12px 26px rgba(243, 154, 30, 0.19);
+}
+
+.mg-voucher-call-total {
+  border: 1px solid #e4ddd3;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.mg-voucher-token-total span,
+.mg-voucher-call-total span {
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mg-voucher-token-total span {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.mg-voucher-call-total span {
+  color: var(--muted);
+}
+
+.mg-voucher-token-total strong {
+  margin-top: 5px;
+  color: #ffffff;
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 950;
+  letter-spacing: -0.045em;
+}
+
+.mg-voucher-call-total strong {
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 950;
+}
+
+.mg-voucher-token-breakdown {
+  display: grid;
+  gap: 11px;
+  margin-top: 16px;
+}
+
+.mg-voucher-token-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mg-voucher-token-label strong {
+  color: var(--text);
+  font-weight: 950;
+}
+
+.mg-voucher-token-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9e4dc;
+}
+
+.mg-voucher-token-fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+.mg-voucher-token-fill.input {
+  background: linear-gradient(90deg, #f6b85d, #f39a1e);
+}
+
+.mg-voucher-token-fill.output {
+  background: linear-gradient(90deg, #8ab7e8, #4d8fd2);
+}
+
+.mg-voucher-token-fill.reasoning {
+  background: linear-gradient(90deg, #b49ae4, #8164c5);
+}
+
+.mg-voucher-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #ddd5ca;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.mg-voucher-card-footer code {
+  max-width: 70%;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .mg-admin-page .mg-voucher-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 650px) {
+  .mg-voucher-card {
+    padding: 18px;
+    border-radius: 23px;
+  }
+
+  .mg-voucher-card-header {
+    flex-direction: column;
+  }
+
+  .mg-voucher-details,
+  .mg-voucher-usage-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-voucher-status {
+    align-self: flex-start;
+  }
+
+  .mg-voucher-code-row {
+    align-items: stretch;
+  }
+
+  .mg-voucher-card .mg-copy-voucher-btn {
+    width: 100% !important;
+  }
+
+  .mg-voucher-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mg-voucher-card-footer code {
+    max-width: 100%;
+  }
+}
