@@ -991,6 +991,1022 @@
 
       return "file";
     }
+
+
+   function normalizeGradedArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+
+  return [];
+}
+
+function recoverCompleteJsonBlocks(value) {
+  const source = extractLatexDocumentBody(value);
+  const blocks = [];
+
+  let objectStart = -1;
+  let objectDepth = 0;
+  let insideString = false;
+  let escaped = false;
+
+  for (
+    let index = 0;
+    index < source.length;
+    index += 1
+  ) {
+    const character = source[index];
+
+    if (insideString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (character === '"') {
+        insideString = false;
+      }
+
+      continue;
+    }
+
+    if (character === '"') {
+      insideString = true;
+      continue;
+    }
+
+    if (character === "{") {
+      if (objectDepth === 0) {
+        objectStart = index;
+      }
+
+      objectDepth += 1;
+      continue;
+    }
+
+    if (
+      character !== "}" ||
+      objectDepth <= 0
+    ) {
+      continue;
+    }
+
+    objectDepth -= 1;
+
+    if (
+      objectDepth !== 0 ||
+      objectStart < 0
+    ) {
+      continue;
+    }
+
+    const raw = source.slice(
+      objectStart,
+      index + 1
+    );
+
+    objectStart = -1;
+
+    if (!/"[^"]+"\s*:/.test(raw)) {
+      continue;
+    }
+
+    try {
+      blocks.push({
+        raw,
+        parsed: JSON.parse(raw)
+      });
+    } catch (_) {
+      // This was probably a normal LaTeX {...} block.
+    }
+  }
+
+  return blocks;
+}
+
+function collectGradingRecords(
+  node,
+  output,
+  inherited = {}
+) {
+  if (!node) {
+    return;
+  }
+
+  if (Array.isArray(node)) {
+    node.forEach((item) => {
+      collectGradingRecords(
+        item,
+        output,
+        inherited
+      );
+    });
+
+    return;
+  }
+
+  if (typeof node !== "object") {
+    return;
+  }
+
+  const questionId =
+    node.question_id ??
+    node.questionId ??
+    inherited.questionId ??
+    "";
+
+  const partKey =
+    node.part_key ??
+    node.partKey ??
+    node.part ??
+    node.part_label ??
+    inherited.partKey ??
+    "";
+
+  const gradingKeys = [
+    "score_awarded",
+    "max_score",
+    "score",
+    "verdict",
+    "feedback",
+    "major_errors",
+    "missing_elements",
+    "required_elements_found"
+  ];
+
+  const isGradingRecord =
+    gradingKeys.some((key) =>
+      Object.prototype.hasOwnProperty.call(
+        node,
+        key
+      )
+    );
+
+  if (isGradingRecord) {
+    const feedback =
+      typeof node.feedback === "string"
+        ? node.feedback.trim()
+        : (
+            typeof node.comment === "string"
+              ? node.comment.trim()
+              : ""
+          );
+
+    output.push({
+      questionId,
+      partKey,
+
+      scoreAwarded:
+        node.score_awarded ??
+        node.score ??
+        null,
+
+      maxScore:
+        node.max_score ??
+        node.points_possible ??
+        null,
+
+      verdict: String(
+        node.verdict ??
+        node.status ??
+        ""
+      ).trim(),
+
+      feedback,
+
+      confidence:
+        node.grading_confidence ??
+        node.confidence ??
+        "",
+
+      requiredElements:
+        normalizeGradedArray(
+          node.required_elements_found
+        ),
+
+      missingElements:
+        normalizeGradedArray(
+          node.missing_elements
+        ),
+
+      majorErrors:
+        normalizeGradedArray(
+          node.major_errors
+        )
+    });
+  }
+
+  const nextInherited = {
+    questionId,
+    partKey
+  };
+
+  Object.values(node).forEach((value) => {
+    if (
+      value &&
+      typeof value === "object"
+    ) {
+      collectGradingRecords(
+        value,
+        output,
+        nextInherited
+      );
+    }
+  });
+}
+
+function parseStructuredGradingPreview(value) {
+  const records = [];
+
+  recoverCompleteJsonBlocks(value).forEach(
+    (block) => {
+      collectGradingRecords(
+        block.parsed,
+        records
+      );
+    }
+  );
+
+  const seen = new Set();
+
+  return records.filter((record) => {
+    const signature = JSON.stringify([
+      record.questionId,
+      record.partKey,
+      record.scoreAwarded,
+      record.maxScore,
+      record.verdict,
+      record.feedback
+    ]);
+
+    if (seen.has(signature)) {
+      return false;
+    }
+
+    seen.add(signature);
+    return true;
+  });
+}
+
+function gradedRecordKey(questionId, partKey) {
+  return [
+    String(questionId ?? "")
+      .trim()
+      .toLowerCase(),
+
+    String(partKey ?? "")
+      .trim()
+      .toLowerCase()
+  ].join("::");
+}
+
+function gradedVerdictLabel(value) {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) =>
+      letter.toUpperCase()
+    );
+}
+
+function gradedVerdictClass(value) {
+  const verdict = String(value || "")
+    .toLowerCase();
+
+  if (
+    verdict.includes("excellent") ||
+    verdict.includes("strong") ||
+    verdict.includes("correct")
+  ) {
+    return "is-good";
+  }
+
+  if (
+    verdict.includes("partial") ||
+    verdict.includes("minimal") ||
+    verdict.includes("review")
+  ) {
+    return "is-partial";
+  }
+
+  if (
+    verdict.includes("no credit") ||
+    verdict.includes("no_credit") ||
+    verdict.includes("incorrect") ||
+    verdict.includes("wrong")
+  ) {
+    return "is-poor";
+  }
+
+  return "";
+}
+
+function prepareGradedNarrativeLines(value) {
+  let source = extractLatexDocumentBody(value);
+
+  source = source
+    .replace(
+      /\\(?:chapter|section|subsection|subsubsection)\*?\{([^{}]*)\}/g,
+      "\n@@heading@@$1\n"
+    )
+    .replace(
+      /\\paragraph\*?\{([^{}]*)\}/g,
+      "\n@@label@@$1\n"
+    )
+    .replace(
+      /\\textbf\{([^{}]*)\}/g,
+      "\n@@label@@$1\n"
+    )
+    .replace(
+      /\\(?:textit|emph|underline)\{([^{}]*)\}/g,
+      "$1"
+    )
+    .replace(
+      /\\begin\{(?:verbatim|lstlisting)\}/g,
+      "\n"
+    )
+    .replace(
+      /\\end\{(?:verbatim|lstlisting)\}/g,
+      "\n"
+    )
+    .replace(
+      /\\begin\{(?:itemize|enumerate)\}/g,
+      "\n"
+    )
+    .replace(
+      /\\end\{(?:itemize|enumerate)\}/g,
+      "\n"
+    )
+    .replace(
+      /\\item(?:\[[^\]]*\])?\s*/g,
+      "• "
+    )
+    .replace(
+      /\\(?:begin|end)\{(?:center|flushleft|flushright|hebrew|english)\}/g,
+      ""
+    )
+    .replace(
+      /\\(?:newpage|clearpage|pagebreak)\b/g,
+      "\n"
+    );
+
+  const jsonKeyPattern =
+    /^"(?:student_name|student_id|exam_id|answers|question_id|part_key|answer_text|page_numbers|confidence|needs_review|warnings|score_awarded|max_score|score|verdict|feedback|required_elements_found|missing_elements|major_errors)"\s*:/i;
+
+  return source
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) {
+        return false;
+      }
+
+      if (
+        line === "{" ||
+        line === "}" ||
+        line === "[" ||
+        line === "]" ||
+        line === "}," ||
+        line === "]," ||
+        line === ","
+      ) {
+        return false;
+      }
+
+      if (jsonKeyPattern.test(line)) {
+        return false;
+      }
+
+      const visibleLine = line
+        .replace(/^@@(?:heading|label)@@/, "")
+        .trim();
+
+      if (
+        /^(?:Q|Question|שאלה)\s*\d+$/i.test(
+          visibleLine
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        /^(?:Student answer|תשובת הסטודנט)$/i.test(
+          visibleLine
+        )
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+}
+
+function appendGradedFeedbackLines(
+  container,
+  lines
+) {
+  lines.forEach((line) => {
+    if (line.startsWith("@@heading@@")) {
+      const heading =
+        document.createElement("h3");
+
+      heading.className =
+        "mg-graded-feedback-heading";
+
+      heading.textContent = line
+        .replace("@@heading@@", "")
+        .trim();
+
+      container.appendChild(heading);
+      return;
+    }
+
+    if (line.startsWith("@@label@@")) {
+      const label =
+        document.createElement("div");
+
+      label.className =
+        "mg-graded-section-label";
+
+      label.textContent = line
+        .replace("@@label@@", "")
+        .trim();
+
+      container.appendChild(label);
+      return;
+    }
+
+    const fieldMatch = line.match(
+      /^(Score|Grade|Verdict|Result|Confidence)\s*:\s*(.+)$/i
+    );
+
+    if (fieldMatch) {
+      const row =
+        document.createElement("div");
+
+      row.className =
+        "mg-graded-feedback-field";
+
+      const label =
+        document.createElement("strong");
+
+      label.textContent = fieldMatch[1];
+
+      const value =
+        document.createElement("span");
+
+      value.textContent = fieldMatch[2];
+
+      row.append(label, value);
+      container.appendChild(row);
+      return;
+    }
+
+    const containsHebrew =
+      /[\u0590-\u05FF]/.test(line);
+
+    if (containsHebrew) {
+      const paragraph =
+        document.createElement("p");
+
+      paragraph.className =
+        "mg-graded-feedback-text is-hebrew";
+
+      paragraph.dir = "rtl";
+      paragraph.lang = "he";
+
+      paragraph.textContent =
+        typeof prepareHebrewPreviewLine ===
+        "function"
+          ? prepareHebrewPreviewLine(line)
+          : line;
+
+      container.appendChild(paragraph);
+      return;
+    }
+
+    if (
+      lineAlreadyHasMathDelimiters(line) ||
+      lineLooksLikeMath(line)
+    ) {
+      const equation =
+        document.createElement("div");
+
+      equation.className =
+        "mg-ocr-preview-equation";
+
+      equation.dir = "ltr";
+
+      equation.textContent =
+        lineAlreadyHasMathDelimiters(line)
+          ? line
+          : `\\[${line}\\]`;
+
+      container.appendChild(equation);
+      return;
+    }
+
+    const paragraph =
+      document.createElement("p");
+
+    paragraph.className =
+      "mg-graded-feedback-text";
+
+    paragraph.dir = "auto";
+    paragraph.textContent = line;
+
+    container.appendChild(paragraph);
+  });
+}
+
+function appendGradedList(
+  card,
+  title,
+  items,
+  kind = ""
+) {
+  if (!items.length) {
+    return;
+  }
+
+  const block = document.createElement("div");
+  block.className =
+    `mg-graded-list ${kind}`.trim();
+
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+
+  const list = document.createElement("ul");
+
+  items.forEach((item) => {
+    const listItem =
+      document.createElement("li");
+
+    listItem.textContent = item;
+    list.appendChild(listItem);
+  });
+
+  block.append(heading, list);
+  card.appendChild(block);
+}
+
+function renderGradedQuestionCard(
+  record,
+  answer,
+  fallbackIndex
+) {
+  const questionId =
+    record?.questionId ??
+    answer?.questionId ??
+    "";
+
+  const partKey =
+    record?.partKey ??
+    answer?.partKey ??
+    "";
+
+  const card =
+    document.createElement("article");
+
+  card.className =
+    "mg-graded-question-card";
+
+  const header =
+    document.createElement("div");
+
+  header.className =
+    "mg-graded-question-head";
+
+  const titleGroup =
+    document.createElement("div");
+
+  titleGroup.className =
+    "mg-ocr-preview-answer-title";
+
+  const title =
+    document.createElement("div");
+
+  title.className =
+    "mg-ocr-preview-question";
+
+  title.textContent =
+    questionId !== "" &&
+    questionId !== null
+      ? `Question ${questionId}`
+      : `Graded section ${fallbackIndex + 1}`;
+
+  titleGroup.appendChild(title);
+
+  const formattedPart =
+    formatOcrPart(partKey);
+
+  if (formattedPart) {
+    const part =
+      document.createElement("span");
+
+    part.className =
+      "mg-ocr-preview-part";
+
+    part.textContent =
+      `Part ${formattedPart}`;
+
+    titleGroup.appendChild(part);
+  }
+
+  const meta =
+    document.createElement("div");
+
+  meta.className =
+    "mg-graded-question-meta";
+
+  if (
+    record &&
+    record.scoreAwarded !== null &&
+    record.scoreAwarded !== undefined
+  ) {
+    const score =
+      document.createElement("span");
+
+    score.className =
+      "mg-graded-score-pill";
+
+    score.textContent =
+      record.maxScore !== null &&
+      record.maxScore !== undefined
+        ? `${record.scoreAwarded} / ${record.maxScore}`
+        : `${record.scoreAwarded} points`;
+
+    meta.appendChild(score);
+  }
+
+  if (record?.verdict) {
+    const verdict =
+      document.createElement("span");
+
+    verdict.className =
+      `mg-graded-verdict-pill ${gradedVerdictClass(record.verdict)}`;
+
+    verdict.textContent =
+      gradedVerdictLabel(record.verdict);
+
+    meta.appendChild(verdict);
+  }
+
+  if (
+    record?.confidence !== "" &&
+    record?.confidence !== null &&
+    record?.confidence !== undefined
+  ) {
+    const confidence =
+      document.createElement("span");
+
+    confidence.className =
+      "mg-ocr-preview-meta-pill";
+
+    confidence.textContent =
+      `Grading confidence: ${record.confidence}`;
+
+    meta.appendChild(confidence);
+  }
+
+  header.append(titleGroup, meta);
+  card.appendChild(header);
+
+  if (answer?.answerText) {
+    const answerSection =
+      document.createElement("section");
+
+    answerSection.className =
+      "mg-graded-content-section";
+
+    const answerLabel =
+      document.createElement("div");
+
+    answerLabel.className =
+      "mg-graded-section-label";
+
+    answerLabel.textContent =
+      "Student answer";
+
+    const answerBody =
+      document.createElement("div");
+
+    answerBody.className =
+      "mg-ocr-preview-answer-body";
+
+    appendStructuredAnswerText(
+      answerBody,
+      answer.answerText
+    );
+
+    answerSection.append(
+      answerLabel,
+      answerBody
+    );
+
+    card.appendChild(answerSection);
+  }
+
+  if (record?.feedback) {
+    const feedbackSection =
+      document.createElement("section");
+
+    feedbackSection.className =
+      "mg-graded-content-section mg-graded-feedback-section";
+
+    const feedbackLabel =
+      document.createElement("div");
+
+    feedbackLabel.className =
+      "mg-graded-section-label";
+
+    feedbackLabel.textContent =
+      "Feedback";
+
+    const feedback =
+      document.createElement("p");
+
+    const feedbackIsHebrew =
+      /[\u0590-\u05FF]/.test(
+        record.feedback
+      );
+
+    feedback.className =
+      feedbackIsHebrew
+        ? "mg-graded-feedback-text is-hebrew"
+        : "mg-graded-feedback-text";
+
+    feedback.dir =
+      feedbackIsHebrew
+        ? "rtl"
+        : "auto";
+
+    if (feedbackIsHebrew) {
+      feedback.lang = "he";
+    }
+
+    feedback.textContent =
+      record.feedback;
+
+    feedbackSection.append(
+      feedbackLabel,
+      feedback
+    );
+
+    card.appendChild(feedbackSection);
+  }
+
+  appendGradedList(
+    card,
+    "What was done well",
+    record?.requiredElements || [],
+    "is-good"
+  );
+
+  appendGradedList(
+    card,
+    "Missing or incomplete",
+    record?.missingElements || [],
+    "is-warning"
+  );
+
+  appendGradedList(
+    card,
+    "Major errors",
+    record?.majorErrors || [],
+    "is-error"
+  );
+
+  if (answer?.warnings?.length) {
+    appendGradedList(
+      card,
+      "OCR warnings",
+      answer.warnings,
+      "is-warning"
+    );
+  }
+
+  return card;
+}
+
+function renderStructuredGradedResult(source) {
+  const structuredAnswers =
+    parseStructuredOcrPreview(source);
+
+  const gradingRecords =
+    parseStructuredGradingPreview(source);
+
+  const answers =
+    structuredAnswers?.answers || [];
+
+  const narrativeLines =
+    prepareGradedNarrativeLines(source);
+
+  if (
+    !answers.length &&
+    !gradingRecords.length &&
+    !narrativeLines.length
+  ) {
+    return false;
+  }
+
+  const documentPreview =
+    document.createElement("div");
+
+  documentPreview.className =
+    "mg-graded-document";
+
+  const summary =
+    document.createElement("div");
+
+  summary.className =
+    "mg-graded-summary";
+
+  const summaryIcon =
+    document.createElement("div");
+
+  summaryIcon.className =
+    "mg-graded-summary-icon";
+
+  summaryIcon.textContent = "✓";
+
+  const summaryCopy =
+    document.createElement("div");
+
+  const summaryTitle =
+    document.createElement("strong");
+
+  if (gradingRecords.length) {
+    summaryTitle.textContent =
+      `${gradingRecords.length} graded section${
+        gradingRecords.length === 1
+          ? ""
+          : "s"
+      }`;
+  } else if (answers.length) {
+    summaryTitle.textContent =
+      `${answers.length} student answer section${
+        answers.length === 1
+          ? ""
+          : "s"
+      }`;
+  } else {
+    summaryTitle.textContent =
+      "Grading feedback";
+  }
+
+  const summaryText =
+    document.createElement("span");
+
+  summaryText.textContent =
+    gradingRecords.length
+      ? "Scores, student answers, and feedback are organized below."
+      : "The raw grading file has been converted into a readable review.";
+
+  summaryCopy.append(
+    summaryTitle,
+    summaryText
+  );
+
+  summary.append(
+    summaryIcon,
+    summaryCopy
+  );
+
+  documentPreview.appendChild(summary);
+
+  const answerMap = new Map();
+
+  answers.forEach((answer, index) => {
+    const key = gradedRecordKey(
+      answer.questionId,
+      answer.partKey
+    );
+
+    const bucket =
+      answerMap.get(key) || [];
+
+    bucket.push({
+      answer,
+      index
+    });
+
+    answerMap.set(key, bucket);
+  });
+
+  const usedAnswers = new Set();
+
+  gradingRecords.forEach(
+    (record, recordIndex) => {
+      const key = gradedRecordKey(
+        record.questionId,
+        record.partKey
+      );
+
+      const bucket =
+        answerMap.get(key) || [];
+
+      let matched = bucket.find(
+        (item) =>
+          !usedAnswers.has(item.index)
+      );
+
+      if (!matched) {
+        matched = answers
+          .map((answer, index) => ({
+            answer,
+            index
+          }))
+          .find(
+            (item) =>
+              !usedAnswers.has(item.index)
+          );
+      }
+
+      if (matched) {
+        usedAnswers.add(matched.index);
+      }
+
+      documentPreview.appendChild(
+        renderGradedQuestionCard(
+          record,
+          matched?.answer || null,
+          recordIndex
+        )
+      );
+    }
+  );
+
+  answers.forEach((answer, index) => {
+    if (usedAnswers.has(index)) {
+      return;
+    }
+
+    documentPreview.appendChild(
+      renderGradedQuestionCard(
+        null,
+        answer,
+        index
+      )
+    );
+  });
+
+  if (narrativeLines.length) {
+    const feedbackCard =
+      document.createElement("article");
+
+    feedbackCard.className =
+      "mg-graded-general-feedback";
+
+    const heading =
+      document.createElement("div");
+
+    heading.className =
+      "mg-graded-general-feedback-title";
+
+    heading.textContent =
+      gradingRecords.length
+        ? "Additional grading notes"
+        : "Grading feedback";
+
+    const body =
+      document.createElement("div");
+
+    body.className =
+      "mg-graded-general-feedback-body";
+
+    appendGradedFeedbackLines(
+      body,
+      narrativeLines
+    );
+
+    feedbackCard.append(
+      heading,
+      body
+    );
+
+    documentPreview.appendChild(
+      feedbackCard
+    );
+  }
+
+  gradedResultPreview.appendChild(
+    documentPreview
+  );
+
+  return true;
+}
+
 async function showGradedResultBlob(
   blob,
   contentType = "",
@@ -1065,70 +2081,75 @@ async function showGradedResultBlob(
     return;
   }
 
-  if (resultType === "tex") {
-    const source = await blob.text();
+if (resultType === "tex") {
+  const source = await blob.text();
 
+  const structuredRendered =
+    renderStructuredGradedResult(source);
+
+  if (!structuredRendered) {
     const readableSource =
       prepareLatexForBrowserPreview(source) ||
       source;
 
-    const renderedText =
+    const fallback =
       document.createElement("div");
 
-    renderedText.className =
+    fallback.className =
       "mg-graded-result-tex";
 
-    renderedText.dir = "auto";
-    renderedText.textContent = readableSource;
+    fallback.dir = "auto";
+    fallback.textContent = readableSource;
 
     gradedResultPreview.appendChild(
-      renderedText
+      fallback
+    );
+  }
+
+  if (gradedResultStatus) {
+    gradedResultStatus.textContent =
+      "Rendering the graded result…";
+  }
+
+  try {
+    const mathJax =
+      await ensureMathJaxForOcrPreview();
+
+    if (
+      typeof mathJax.typesetClear ===
+      "function"
+    ) {
+      mathJax.typesetClear([
+        gradedResultPreview
+      ]);
+    }
+
+    await mathJax.typesetPromise([
+      gradedResultPreview
+    ]);
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        `Showing rendered ${filename}.`;
+    }
+  } catch (error) {
+    console.warn(
+      "Could not render graded LaTeX:",
+      error
     );
 
     if (gradedResultStatus) {
       gradedResultStatus.textContent =
-        "Rendering the graded LaTeX result…";
+        "The graded result is readable, but equation rendering was unavailable.";
     }
-
-    try {
-      const mathJax =
-        await ensureMathJaxForOcrPreview();
-
-      if (
-        typeof mathJax.typesetClear === "function"
-      ) {
-        mathJax.typesetClear([
-          gradedResultPreview
-        ]);
-      }
-
-      await mathJax.typesetPromise([
-        gradedResultPreview
-      ]);
-
-      if (gradedResultStatus) {
-        gradedResultStatus.textContent =
-          `Showing rendered ${filename}.`;
-      }
-    } catch (error) {
-      console.warn(
-        "Could not render graded LaTeX:",
-        error
-      );
-
-      if (gradedResultStatus) {
-        gradedResultStatus.textContent =
-          "The graded LaTeX is shown as readable text because equation rendering was unavailable.";
-      }
-    }
-
-    if (activateTab) {
-      activateOcrReviewTab("graded");
-    }
-
-    return;
   }
 
+  if (activateTab) {
+    activateOcrReviewTab("graded");
+  }
+
+  return;
+}
   const genericFrame =
     document.createElement("iframe");
 
