@@ -4671,3 +4671,207 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   font-size: 15px;
   font-weight: 950;
 }
+
+/* =========================================================
+   Student OCR review tabs
+   ========================================================= */
+
+.mg-ocr-review-tabs {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 18px 0 16px;
+  padding: 6px;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #e7ded2;
+  border-radius: 999px;
+  background: rgba(255,255,255,.76);
+  box-shadow: 0 8px 22px rgba(79,79,82,.055);
+}
+
+.mg-ocr-review-tab {
+  width: auto !important;
+  min-height: 42px !important;
+  padding: 9px 18px !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--muted) !important;
+  box-shadow: none !important;
+  font-size: 14px !important;
+  font-weight: 950 !important;
+}
+
+.mg-ocr-review-tab:hover {
+  background: #fff8ef !important;
+  border-color: #f1dcc0 !important;
+  color: var(--primary-2) !important;
+}
+
+.mg-ocr-review-tab.active {
+  background: linear-gradient(
+    135deg,
+    var(--primary),
+    var(--primary-2)
+  ) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(243,154,30,.21) !important;
+}
+
+.mg-ocr-review-tab-panels {
+  min-width: 0;
+}
+
+.mg-ocr-review-tab-panel {
+  display: none;
+  min-width: 0;
+}
+
+.mg-ocr-review-tab-panel.active {
+  display: block;
+}
+
+.mg-ocr-review-tab-panel[hidden] {
+  display: none !important;
+}
+
+.mg-ocr-tab-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 10px;
+}
+
+.mg-ocr-tab-toolbar > div:first-child {
+  min-width: 0;
+}
+
+.mg-ocr-tab-textarea {
+  width: 100%;
+  min-height: 620px;
+  margin: 0;
+}
+
+.mg-graded-result-preview {
+  min-height: 620px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255,255,255,.96);
+}
+
+.mg-graded-result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #ece6dd;
+  background: #faf8f5;
+}
+
+.mg-graded-result-actions .secondary-btn {
+  width: auto;
+}
+
+.mg-graded-result-frame {
+  display: block;
+  width: 100%;
+  min-height: 720px;
+  border: 0;
+  background: #fff;
+}
+
+.mg-graded-result-tex {
+  min-height: 560px;
+  max-height: 75vh;
+  overflow: auto;
+  padding: 26px;
+  color: var(--text);
+  background: #fffdfa;
+  font-size: 16px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}
+
+.mg-graded-result-tex mjx-container {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.mg-graded-result-empty {
+  min-height: 615px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.mg-graded-result-empty-icon {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+  border: 1px solid #cfe7d1;
+  border-radius: 21px;
+  background: #edf7ee;
+  color: #2f7d32;
+  font-size: 29px;
+  font-weight: 950;
+}
+
+.mg-graded-result-empty strong {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.mg-graded-result-empty span {
+  max-width: 440px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .mg-ocr-review-tabs {
+    width: 100%;
+    border-radius: 22px;
+  }
+
+  .mg-ocr-review-tab {
+    flex: 1 1 100%;
+    width: 100% !important;
+  }
+
+  .mg-ocr-tab-toolbar {
+    flex-direction: column;
+  }
+
+  .mg-ocr-tab-toolbar .secondary-btn,
+  .mg-graded-result-actions .secondary-btn {
+    width: 100%;
+  }
+
+  .mg-ocr-tab-textarea,
+  .mg-graded-result-preview {
+    min-height: 460px;
+  }
+
+  .mg-graded-result-frame {
+    min-height: 560px;
+  }
+
+  .mg-graded-result-empty {
+    min-height: 455px;
+  }
+}

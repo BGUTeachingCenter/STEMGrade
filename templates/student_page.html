@@ -162,50 +162,160 @@
             Correct OCR mistakes here. Make sure the text has clear grading markers:
             <b>\subsection*{Question 1}</b>, <b>\textbf{(א)}</b>, <b>\textbf{(ב)}</b>, etc.
           </p>
+<div
+  class="mg-ocr-review-tabs"
+  role="tablist"
+  aria-label="OCR review views"
+>
+  <button
+    type="button"
+    class="mg-ocr-review-tab secondary active"
+    data-ocr-review-tab="preview"
+    role="tab"
+    aria-selected="true"
+    aria-controls="ocrReviewPreviewPanel"
+  >
+    Rendered OCR
+  </button>
 
-                    <div class="mg-ocr-review-workspace">
-            <div class="mg-ocr-review-column">
-              <div class="mg-ocr-review-column-head">
-                <span class="mg-ocr-review-column-label">Editable LaTeX source</span>
-                <span class="small">Make corrections here</span>
-              </div>
+  <button
+    type="button"
+    class="mg-ocr-review-tab secondary"
+    data-ocr-review-tab="edit"
+    role="tab"
+    aria-selected="false"
+    aria-controls="ocrReviewEditPanel"
+  >
+    Edit LaTeX
+  </button>
 
-              <textarea
-                id="ocrTexReview"
-                class="mg-ocr-textarea"
-                spellcheck="false"
-                aria-label="Editable OCR LaTeX source"
-              ></textarea>
-            </div>
+  <button
+    type="button"
+    class="mg-ocr-review-tab secondary"
+    data-ocr-review-tab="graded"
+    role="tab"
+    aria-selected="false"
+    aria-controls="ocrReviewGradedPanel"
+  >
+    Graded result
+  </button>
+</div>
 
-            <div class="mg-ocr-review-column">
-              <div class="mg-ocr-review-column-head">
-                <span class="mg-ocr-review-column-label">Rendered preview</span>
+<div class="mg-ocr-review-tab-panels">
+  <section
+    id="ocrReviewPreviewPanel"
+    class="mg-ocr-review-tab-panel active"
+    data-ocr-review-panel="preview"
+    role="tabpanel"
+  >
+    <div class="mg-ocr-tab-toolbar">
+      <div>
+        <div class="mg-ocr-review-column-label">
+          Rendered OCR preview
+        </div>
 
-                <button
-                  id="refreshOcrPreviewBtn"
-                  class="secondary-btn secondary small"
-                  type="button"
-                >
-                  Refresh preview
-                </button>
-              </div>
+        <div
+          id="ocrPreviewStatus"
+          class="small mg-ocr-preview-status"
+        >
+          The preview updates automatically while you edit.
+        </div>
+      </div>
 
-              <div id="ocrPreviewStatus" class="small mg-ocr-preview-status">
-                The preview updates automatically while you edit.
-              </div>
+      <button
+        id="refreshOcrPreviewBtn"
+        class="secondary-btn secondary small"
+        type="button"
+      >
+        Refresh preview
+      </button>
+    </div>
 
-              <div
-                id="ocrLatexPreview"
-                class="mg-ocr-latex-preview"
-                aria-live="polite"
-              >
-                <div class="mg-ocr-latex-preview-empty">
-                  Run OCR or load a saved OCR result to see the rendered preview.
-                </div>
-              </div>
-            </div>
-          </div>
+    <div
+      id="ocrLatexPreview"
+      class="mg-ocr-latex-preview"
+      aria-live="polite"
+    >
+      <div class="mg-ocr-latex-preview-empty">
+        Run OCR or load a saved OCR result to see the rendered preview.
+      </div>
+    </div>
+  </section>
+
+  <section
+    id="ocrReviewEditPanel"
+    class="mg-ocr-review-tab-panel"
+    data-ocr-review-panel="edit"
+    role="tabpanel"
+    hidden
+  >
+    <div class="mg-ocr-tab-toolbar">
+      <div>
+        <div class="mg-ocr-review-column-label">
+          Editable LaTeX source
+        </div>
+
+        <div class="small">
+          Make corrections here. The rendered preview updates automatically.
+        </div>
+      </div>
+
+      <button
+        type="button"
+        class="secondary-btn secondary small"
+        data-ocr-go-to-preview
+      >
+        Check rendered OCR
+      </button>
+    </div>
+
+    <textarea
+      id="ocrTexReview"
+      class="mg-ocr-textarea mg-ocr-tab-textarea"
+      spellcheck="false"
+      aria-label="Editable OCR LaTeX source"
+    ></textarea>
+  </section>
+
+  <section
+    id="ocrReviewGradedPanel"
+    class="mg-ocr-review-tab-panel"
+    data-ocr-review-panel="graded"
+    role="tabpanel"
+    hidden
+  >
+    <div class="mg-ocr-tab-toolbar">
+      <div>
+        <div class="mg-ocr-review-column-label">
+          Rendered graded result
+        </div>
+
+        <div
+          id="gradedResultStatus"
+          class="small mg-ocr-preview-status"
+        >
+          Grade the reviewed answer to display the result here.
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="gradedResultPreview"
+      class="mg-graded-result-preview"
+      aria-live="polite"
+    >
+      <div class="mg-graded-result-empty">
+        <div class="mg-graded-result-empty-icon">✓</div>
+
+        <strong>No graded result yet</strong>
+
+        <span>
+          Choose a grading model after reviewing the OCR.
+        </span>
+      </div>
+    </div>
+  </section>
+</div>
         </div>
 
         <div class="statusBox" id="status">Idle</div>
@@ -256,6 +366,25 @@
     const refreshOcrPreviewBtn = document.getElementById("refreshOcrPreviewBtn");
     const ocrPreviewStatus = document.getElementById("ocrPreviewStatus");
     const ocrLatexPreview = document.getElementById("ocrLatexPreview");
+
+    const ocrReviewTabButtons = Array.from(
+      document.querySelectorAll("[data-ocr-review-tab]")
+    );
+
+    const ocrReviewTabPanels = Array.from(
+      document.querySelectorAll("[data-ocr-review-panel]")
+    );
+
+    const ocrGoToPreviewButtons = Array.from(
+      document.querySelectorAll("[data-ocr-go-to-preview]")
+    );
+
+    const gradedResultStatus =
+      document.getElementById("gradedResultStatus");
+
+    const gradedResultPreview =
+      document.getElementById("gradedResultPreview");
+
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
     const gradeGptBtn = document.getElementById("gradeGptBtn");
@@ -285,6 +414,310 @@
     let ocrPreviewTimer = null;
     let ocrPreviewRenderToken = 0;
     let ocrMathJaxPromise = null;
+    let gradedResultObjectUrl = "";
+
+    function activateOcrReviewTab(tabName) {
+      const normalizedTab = String(tabName || "preview");
+
+      ocrReviewTabButtons.forEach((button) => {
+        const isActive =
+          button.dataset.ocrReviewTab === normalizedTab;
+
+        button.classList.toggle("active", isActive);
+        button.setAttribute(
+          "aria-selected",
+          isActive ? "true" : "false"
+        );
+      });
+
+      ocrReviewTabPanels.forEach((panel) => {
+        const isActive =
+          panel.dataset.ocrReviewPanel === normalizedTab;
+
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+
+      if (normalizedTab === "preview") {
+        queueOcrLatexPreview(true);
+      }
+    }
+
+    function clearGradedResultObjectUrl() {
+      if (!gradedResultObjectUrl) {
+        return;
+      }
+
+      URL.revokeObjectURL(gradedResultObjectUrl);
+      gradedResultObjectUrl = "";
+    }
+
+    function inferGradedResultType(contentType, filename) {
+      const normalizedType =
+        String(contentType || "").toLowerCase();
+
+      const normalizedName =
+        String(filename || "").toLowerCase();
+
+      if (
+        normalizedType.includes("application/pdf") ||
+        normalizedName.endsWith(".pdf")
+      ) {
+        return "pdf";
+      }
+
+      if (
+        normalizedType.includes("application/x-tex") ||
+        normalizedType.includes("text/x-tex") ||
+        normalizedType.includes("text/plain") ||
+        normalizedName.endsWith(".tex") ||
+        normalizedName.endsWith(".txt")
+      ) {
+        return "tex";
+      }
+
+      if (
+        normalizedType.includes("text/html") ||
+        normalizedName.endsWith(".html")
+      ) {
+        return "html";
+      }
+
+      return "file";
+    }
+
+    async function showGradedResultBlob(
+      blob,
+      contentType = "",
+      filename = "graded_result"
+    ) {
+      if (!gradedResultPreview || !blob) {
+        return;
+      }
+
+      clearGradedResultObjectUrl();
+
+      gradedResultObjectUrl =
+        URL.createObjectURL(blob);
+
+      gradedResultPreview.replaceChildren();
+
+      const resultType = inferGradedResultType(
+        contentType,
+        filename
+      );
+
+      const actions = document.createElement("div");
+      actions.className = "mg-graded-result-actions";
+
+      const downloadLink = document.createElement("a");
+      downloadLink.className = "secondary-btn small";
+      downloadLink.href = gradedResultObjectUrl;
+      downloadLink.download = filename;
+      downloadLink.textContent = "Download graded result";
+
+      actions.appendChild(downloadLink);
+      gradedResultPreview.appendChild(actions);
+
+      if (resultType === "pdf") {
+        const frame = document.createElement("iframe");
+        frame.className = "mg-graded-result-frame";
+        frame.title = "Rendered graded PDF";
+        frame.src =
+          `${gradedResultObjectUrl}#toolbar=1&navpanes=0&view=FitH`;
+
+        gradedResultPreview.appendChild(frame);
+
+        if (gradedResultStatus) {
+          gradedResultStatus.textContent =
+            `Showing ${filename}.`;
+        }
+
+        activateOcrReviewTab("graded");
+        return;
+      }
+
+      if (resultType === "html") {
+        const frame = document.createElement("iframe");
+        frame.className = "mg-graded-result-frame";
+        frame.title = "Rendered graded result";
+        frame.src = gradedResultObjectUrl;
+        frame.setAttribute("sandbox", "");
+
+        gradedResultPreview.appendChild(frame);
+
+        if (gradedResultStatus) {
+          gradedResultStatus.textContent =
+            `Showing ${filename}.`;
+        }
+
+        activateOcrReviewTab("graded");
+        return;
+      }
+
+      if (resultType === "tex") {
+        const source = await blob.text();
+
+        const readableSource =
+          prepareLatexForBrowserPreview(source) || source;
+
+        const renderedText = document.createElement("div");
+        renderedText.className = "mg-graded-result-tex";
+        renderedText.dir = "auto";
+        renderedText.textContent = readableSource;
+
+        gradedResultPreview.appendChild(renderedText);
+
+        if (gradedResultStatus) {
+          gradedResultStatus.textContent =
+            "Rendering the graded LaTeX result…";
+        }
+
+        try {
+          const mathJax =
+            await ensureMathJaxForOcrPreview();
+
+          if (
+            typeof mathJax.typesetClear === "function"
+          ) {
+            mathJax.typesetClear([
+              gradedResultPreview
+            ]);
+          }
+
+          await mathJax.typesetPromise([
+            gradedResultPreview
+          ]);
+
+          if (gradedResultStatus) {
+            gradedResultStatus.textContent =
+              `Showing rendered ${filename}.`;
+          }
+        } catch (error) {
+          console.warn(
+            "Could not render graded LaTeX:",
+            error
+          );
+
+          if (gradedResultStatus) {
+            gradedResultStatus.textContent =
+              "The graded LaTeX is shown as readable text because equation rendering was unavailable.";
+          }
+        }
+
+        activateOcrReviewTab("graded");
+        return;
+      }
+
+      const genericFrame = document.createElement("iframe");
+      genericFrame.className = "mg-graded-result-frame";
+      genericFrame.title = "Graded result";
+      genericFrame.src = gradedResultObjectUrl;
+
+      gradedResultPreview.appendChild(genericFrame);
+
+      if (gradedResultStatus) {
+        gradedResultStatus.textContent =
+          `Showing ${filename}.`;
+      }
+
+      activateOcrReviewTab("graded");
+    }
+
+    async function loadSavedGradedResult(
+      resultUrl,
+      title = "saved graded result"
+    ) {
+      if (!resultUrl) {
+        setStatusText(
+          [`[${nowTag()}] No saved graded result is available.`],
+          "err"
+        );
+
+        return;
+      }
+
+      try {
+        if (ocrReviewPanel) {
+          ocrReviewPanel.style.display = "block";
+        }
+
+        activateOcrReviewTab("graded");
+
+        if (gradedResultStatus) {
+          gradedResultStatus.textContent =
+            `Loading ${title}…`;
+        }
+
+        const response = await authedFetch(
+          resultUrl,
+          { cache: "no-store" }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Could not load graded result (${response.status}).`
+          );
+        }
+
+        const blob = await response.blob();
+
+        const contentType =
+          response.headers.get("content-type") ||
+          blob.type ||
+          "";
+
+        const disposition =
+          response.headers.get("content-disposition") ||
+          "";
+
+        const filenameMatch = disposition.match(
+          /filename\*?=(?:UTF-8''|")?([^";]+)/i
+        );
+
+        let filename =
+          filenameMatch && filenameMatch[1]
+            ? decodeURIComponent(
+                filenameMatch[1].replaceAll('"', "")
+              )
+            : title;
+
+        if (
+          !filename.includes(".") &&
+          contentType.includes("pdf")
+        ) {
+          filename += ".pdf";
+        }
+
+        await showGradedResultBlob(
+          blob,
+          contentType,
+          filename
+        );
+
+        if (ocrReviewPanel) {
+          ocrReviewPanel.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+        }
+      } catch (error) {
+        if (gradedResultStatus) {
+          gradedResultStatus.textContent =
+            error?.message ||
+            "Could not load the graded result.";
+        }
+
+        setStatusText(
+          [
+            `[${nowTag()}] ERROR: ${
+              error?.message || String(error)
+            }`
+          ],
+          "err"
+        );
+      }
+    }
 
     function nowTag() {
       const d = new Date();
@@ -1324,8 +1757,21 @@ function parseStructuredOcrPreview(value) {
         ? `<a class="secondary-btn small" href="${escapeHtml(result.original_download_url)}">Original upload</a>`
         : "";
 
-      const feedbackLink = isOcr && hasFeedback
+      const feedbackLink = hasFeedback
         ? `<a class="primary-btn small" href="${escapeHtml(result.feedback_download_url)}">Download feedback</a>`
+        : "";
+
+      const feedbackPreviewButton = hasFeedback
+        ? `
+            <button
+              type="button"
+              class="secondary-btn small mg-view-saved-feedback-btn"
+              data-feedback-url="${escapeHtml(result.feedback_download_url)}"
+              data-feedback-title="${escapeHtml(result.feedback_filename || result.filename || "graded_result.pdf")}"
+            >
+              View graded result
+            </button>
+          `
         : "";
 
       const editOcrButtons = isOcr && ocrTexUrl
@@ -1361,6 +1807,7 @@ function parseStructuredOcrPreview(value) {
           </div>
 
           <div class="mg-student-result-actions">
+            ${feedbackPreviewButton}
             ${feedbackLink}
             ${editOcrButtons}
             <a class="secondary-btn small" href="${escapeHtml(url)}">${isOcr ? "Download OCR" : "Download upload"}</a>
@@ -1399,6 +1846,10 @@ function parseStructuredOcrPreview(value) {
           ocrGeneratedBundleJson = "";
           ocrReviewPanel.style.display = "block";
           queueOcrLatexPreview(true);
+
+          activateOcrReviewTab(
+            autoUseForGrading ? "preview" : "edit"
+          );
         }
 
         if (studentTex) {
@@ -1446,6 +1897,18 @@ function parseStructuredOcrPreview(value) {
             btn.dataset.ocrTitle || "",
             true,
             btn.dataset.workId || ""
+          );
+        });
+      });
+
+      document
+      .querySelectorAll(".mg-view-saved-feedback-btn")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          loadSavedGradedResult(
+            button.dataset.feedbackUrl || "",
+            button.dataset.feedbackTitle ||
+              "graded_result.pdf"
           );
         });
       });
@@ -1727,6 +2190,13 @@ function parseStructuredOcrPreview(value) {
         setStatusText(lines, "work");
 
         const blob = await res.blob();
+
+        await showGradedResultBlob(
+          blob,
+          contentType,
+          finalName
+        );
+
         const objUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = objUrl;
@@ -1811,8 +2281,11 @@ function parseStructuredOcrPreview(value) {
           ocrReviewPanel.style.display = "block";
           ocrGeneratedTexFile = null;
           ocrGeneratedBundleFile = null;
-          ocrGeneratedBundleJson = data.student_answer_bundle_json || "";
+          ocrGeneratedBundleJson =
+            data.student_answer_bundle_json || "";
+
           queueOcrLatexPreview(true);
+          activateOcrReviewTab("preview");
         }
 
         if (data.stored_work && data.stored_work.work_id) {
@@ -1885,6 +2358,20 @@ function parseStructuredOcrPreview(value) {
     ocrBtn.addEventListener("click", runOcr);
     useOcrTexBtn.addEventListener("click", useReviewedOcrTex);
 
+    ocrReviewTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activateOcrReviewTab(
+          button.dataset.ocrReviewTab || "preview"
+        );
+      });
+    });
+
+    ocrGoToPreviewButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activateOcrReviewTab("preview");
+      });
+    });
+
     if (ocrTexReview) {
       ocrTexReview.addEventListener("input", () => {
         queueOcrLatexPreview(false);
@@ -1910,6 +2397,11 @@ function parseStructuredOcrPreview(value) {
       loadHealth();
       updateUI();
     }
+
+    window.addEventListener(
+      "beforeunload",
+      clearGradedResultObjectUrl
+    );
 
     initStudentPage();
   </script>
