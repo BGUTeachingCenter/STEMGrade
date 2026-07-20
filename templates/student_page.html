@@ -163,7 +163,49 @@
             <b>\subsection*{Question 1}</b>, <b>\textbf{(א)}</b>, <b>\textbf{(ב)}</b>, etc.
           </p>
 
-          <textarea id="ocrTexReview" class="mg-ocr-textarea" spellcheck="false"></textarea>
+                    <div class="mg-ocr-review-workspace">
+            <div class="mg-ocr-review-column">
+              <div class="mg-ocr-review-column-head">
+                <span class="mg-ocr-review-column-label">Editable LaTeX source</span>
+                <span class="small">Make corrections here</span>
+              </div>
+
+              <textarea
+                id="ocrTexReview"
+                class="mg-ocr-textarea"
+                spellcheck="false"
+                aria-label="Editable OCR LaTeX source"
+              ></textarea>
+            </div>
+
+            <div class="mg-ocr-review-column">
+              <div class="mg-ocr-review-column-head">
+                <span class="mg-ocr-review-column-label">Rendered preview</span>
+
+                <button
+                  id="refreshOcrPreviewBtn"
+                  class="secondary-btn secondary small"
+                  type="button"
+                >
+                  Refresh preview
+                </button>
+              </div>
+
+              <div id="ocrPreviewStatus" class="small mg-ocr-preview-status">
+                The preview updates automatically while you edit.
+              </div>
+
+              <div
+                id="ocrLatexPreview"
+                class="mg-ocr-latex-preview"
+                aria-live="polite"
+              >
+                <div class="mg-ocr-latex-preview-empty">
+                  Run OCR or load a saved OCR result to see the rendered preview.
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="statusBox" id="status">Idle</div>
@@ -211,6 +253,9 @@
     const ocrReviewPanel = document.getElementById("ocrReviewPanel");
     const ocrTexReview = document.getElementById("ocrTexReview");
     const useOcrTexBtn = document.getElementById("useOcrTexBtn");
+    const refreshOcrPreviewBtn = document.getElementById("refreshOcrPreviewBtn");
+    const ocrPreviewStatus = document.getElementById("ocrPreviewStatus");
+    const ocrLatexPreview = document.getElementById("ocrLatexPreview");
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
     const gradeGptBtn = document.getElementById("gradeGptBtn");
@@ -237,10 +282,884 @@
     let ocrGeneratedBundleJson = "";
     let ocrGeneratedOriginalTex = "";
     let ocrCurrentWorkId = "";
+    let ocrPreviewTimer = null;
+    let ocrPreviewRenderToken = 0;
+    let ocrMathJaxPromise = null;
 
     function nowTag() {
       const d = new Date();
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+    }
+
+    function ensureMathJaxForOcrPreview() {
+      if (
+        window.MathJax &&
+        typeof window.MathJax.typesetPromise === "function"
+      ) {
+        return Promise.resolve(window.MathJax);
+      }
+
+      if (ocrMathJaxPromise) {
+        return ocrMathJaxPromise;
+      }
+
+      ocrMathJaxPromise = new Promise((resolve, reject) => {
+        const waitForMathJax = () => {
+          if (
+            window.MathJax &&
+            typeof window.MathJax.typesetPromise === "function"
+          ) {
+            resolve(window.MathJax);
+            return true;
+          }
+
+          return false;
+        };
+
+        if (waitForMathJax()) {
+          return;
+        }
+
+        const existingScript = document.querySelector(
+          'script[src*="mathjax"], script[data-mg-ocr-mathjax="true"]'
+        );
+
+        if (existingScript) {
+          const startedAt = Date.now();
+
+          const timer = window.setInterval(() => {
+            if (waitForMathJax()) {
+              window.clearInterval(timer);
+              return;
+            }
+
+            if (Date.now() - startedAt > 15000) {
+              window.clearInterval(timer);
+              reject(new Error("MathJax did not finish loading."));
+            }
+          }, 100);
+
+          existingScript.addEventListener(
+            "error",
+            () => {
+              window.clearInterval(timer);
+              reject(new Error("MathJax could not be loaded."));
+            },
+            { once: true }
+          );
+
+          return;
+        }
+
+        window.MathJax = {
+          tex: {
+            inlineMath: [
+              ["\\(", "\\)"],
+              ["$", "$"]
+            ],
+            displayMath: [
+              ["\\[", "\\]"],
+              ["$$", "$$"]
+            ],
+            processEscapes: true,
+            processEnvironments: true
+          },
+          options: {
+            skipHtmlTags: [
+              "script",
+              "noscript",
+              "style",
+              "textarea",
+              "pre",
+              "code"
+            ]
+          },
+          startup: {
+            typeset: false
+          }
+        };
+
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js";
+        script.async = true;
+        script.dataset.mgOcrMathjax = "true";
+
+        script.onload = async () => {
+          try {
+            if (
+              window.MathJax &&
+              window.MathJax.startup &&
+              window.MathJax.startup.promise
+            ) {
+              await window.MathJax.startup.promise;
+            }
+
+            if (
+              window.MathJax &&
+              typeof window.MathJax.typesetPromise === "function"
+            ) {
+              resolve(window.MathJax);
+            } else {
+              reject(new Error("MathJax loaded without a renderer."));
+            }
+          } catch (error) {
+            reject(error);
+          }
+        };
+
+        script.onerror = () => {
+          ocrMathJaxPromise = null;
+          reject(new Error("MathJax could not be downloaded."));
+        };
+
+        document.head.appendChild(script);
+      });
+
+      return ocrMathJaxPromise;
+    }
+
+    function extractLatexDocumentBody(value) {
+      let source = String(value || "").replace(/\r\n?/g, "\n");
+
+      const beginDocument = "\\begin{document}";
+      const endDocument = "\\end{document}";
+
+      const beginIndex = source.indexOf(beginDocument);
+      if (beginIndex >= 0) {
+        source = source.slice(beginIndex + beginDocument.length);
+      }
+
+      const endIndex = source.lastIndexOf(endDocument);
+      if (endIndex >= 0) {
+        source = source.slice(0, endIndex);
+      }
+
+      // Full-line LaTeX comments do not belong in the visual preview.
+      source = source
+        .split("\n")
+        .filter((line) => !/^\s*%/.test(line))
+        .join("\n");
+
+      return source.trim();
+    }
+    function prepareLatexForBrowserPreview(value) {
+      let source = extractLatexDocumentBody(value);
+
+      // Convert document headings into readable lines.
+      source = source.replace(
+        /\\(?:chapter|section|subsection|subsubsection)\*?\{([^{}]*)\}/g,
+        "\n\n$1\n"
+      );
+
+      source = source.replace(
+        /\\paragraph\*?\{([^{}]*)\}/g,
+        "\n\n$1\n"
+      );
+
+      // Keep the content of common formatting commands.
+      source = source.replace(
+        /\\(?:textbf|textit|emph|underline)\{([^{}]*)\}/g,
+        "$1"
+      );
+
+      source = source
+        .replace(/\\begin\{(?:itemize|enumerate)\}/g, "\n")
+        .replace(/\\end\{(?:itemize|enumerate)\}/g, "\n")
+        .replace(/\\item(?:\[[^\]]*\])?\s*/g, "• ")
+        .replace(
+          /\\(?:begin|end)\{(?:center|flushleft|flushright|hebrew|english)\}/g,
+          ""
+        )
+        .replace(/\\(?:newpage|clearpage|pagebreak)\b/g, "\n\n")
+        .replace(/\n{3,}/g, "\n\n");
+
+      return source.trim();
+    }
+
+    function normalizeOcrWarnings(value) {
+      if (Array.isArray(value)) {
+        return value
+          .map((item) => String(item || "").trim())
+          .filter(Boolean);
+      }
+
+      if (typeof value === "string" && value.trim()) {
+        return [value.trim()];
+      }
+
+      return [];
+    }
+
+    function collectStructuredOcrAnswers(
+      node,
+      output,
+      inherited = {}
+    ) {
+      if (!node) {
+        return;
+      }
+
+      if (Array.isArray(node)) {
+        node.forEach((item) => {
+          collectStructuredOcrAnswers(item, output, inherited);
+        });
+        return;
+      }
+
+      if (typeof node !== "object") {
+        return;
+      }
+
+      const questionId =
+        node.question_id ??
+        node.questionId ??
+        inherited.questionId ??
+        "";
+
+      const partKey =
+        node.part_key ??
+        node.partKey ??
+        node.part ??
+        node.part_label ??
+        inherited.partKey ??
+        "";
+
+      const answerTextCandidates = [
+        node.answer_text,
+        node.student_answer_text,
+        node.student_answer,
+        node.answer_latex
+      ];
+
+      const answerText = answerTextCandidates.find(
+        (value) =>
+          typeof value === "string" &&
+          value.trim()
+      );
+
+      if (answerText) {
+        const confidenceNumber = Number(node.confidence);
+
+        output.push({
+          questionId,
+          partKey,
+          answerText,
+          pageNumbers: Array.isArray(node.page_numbers)
+            ? node.page_numbers
+            : [],
+          confidence: Number.isFinite(confidenceNumber)
+            ? confidenceNumber
+            : null,
+          needsReview:
+            node.needs_review === true ||
+            String(node.needs_review || "").toLowerCase() === "true",
+          warnings: normalizeOcrWarnings(node.warnings)
+        });
+      }
+
+      const ignoredKeys = new Set([
+        "answer_text",
+        "student_answer_text",
+        "student_answer",
+        "answer_latex",
+        "question_id",
+        "questionId",
+        "part_key",
+        "partKey",
+        "part",
+        "part_label",
+        "page_numbers",
+        "confidence",
+        "needs_review",
+        "warnings"
+      ]);
+
+      const nextInherited = {
+        questionId,
+        partKey
+      };
+
+      Object.entries(node).forEach(([key, value]) => {
+        if (
+          ignoredKeys.has(key) ||
+          value === null ||
+          typeof value !== "object"
+        ) {
+          return;
+        }
+
+        collectStructuredOcrAnswers(
+          value,
+          output,
+          nextInherited
+        );
+      });
+    }
+
+function parseStructuredOcrPreview(value) {
+  const source = extractLatexDocumentBody(value);
+
+  if (!source.trim()) {
+    return null;
+  }
+
+  /*
+   * OCR files may contain a structured JSON bundle inside a LaTeX
+   * document. They may also be truncated before the outer JSON object
+   * is closed. Instead of parsing the entire document, recover each
+   * complete answer object individually.
+   */
+  const answersMarkerIndex = source.search(/"answers"\s*:/i);
+
+  let scanStart = 0;
+
+  if (answersMarkerIndex >= 0) {
+    const answerArrayStart = source.indexOf(
+      "[",
+      answersMarkerIndex
+    );
+
+    scanStart =
+      answerArrayStart >= 0
+        ? answerArrayStart + 1
+        : answersMarkerIndex;
+  }
+
+  const scanSource = source.slice(scanStart);
+  const answers = [];
+
+  let objectStart = -1;
+  let objectDepth = 0;
+  let insideString = false;
+  let escaped = false;
+
+  for (let index = 0; index < scanSource.length; index += 1) {
+    const character = scanSource[index];
+
+    if (insideString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (character === '"') {
+        insideString = false;
+      }
+
+      continue;
+    }
+
+    if (character === '"') {
+      insideString = true;
+      continue;
+    }
+
+    if (character === "{") {
+      if (objectDepth === 0) {
+        objectStart = index;
+      }
+
+      objectDepth += 1;
+      continue;
+    }
+
+    if (character !== "}" || objectDepth <= 0) {
+      continue;
+    }
+
+    objectDepth -= 1;
+
+    if (objectDepth !== 0 || objectStart < 0) {
+      continue;
+    }
+
+    const candidate = scanSource.slice(
+      objectStart,
+      index + 1
+    );
+
+    objectStart = -1;
+
+    if (!candidate.includes('"answer_text"')) {
+      continue;
+    }
+
+    try {
+      const parsedObject = JSON.parse(candidate);
+
+      collectStructuredOcrAnswers(
+        parsedObject,
+        answers
+      );
+    } catch (error) {
+      console.warn(
+        "Could not recover one OCR answer object:",
+        error
+      );
+    }
+  }
+
+  if (!answers.length) {
+    /*
+     * Also support a normal, complete JSON response whose outer object
+     * can be parsed directly.
+     */
+    const trimmed = source.trim();
+
+    if (
+      trimmed.startsWith("{") ||
+      trimmed.startsWith("[")
+    ) {
+      try {
+        const parsed = JSON.parse(trimmed);
+
+        collectStructuredOcrAnswers(
+          parsed,
+          answers
+        );
+      } catch (_) {
+        // The recovery scanner already attempted partial parsing.
+      }
+    }
+  }
+
+  if (!answers.length) {
+    return null;
+  }
+
+  /*
+   * A positive depth means the file ended while an object was still
+   * open. This is exactly what happens in the supplied OCR file.
+   */
+  const isPartial = objectDepth > 0;
+
+  return {
+    answers,
+    isPartial
+  };
+}
+
+    function formatOcrPart(partKey) {
+      const raw = String(partKey ?? "").trim();
+
+      if (!raw) {
+        return "";
+      }
+
+      const hebrewParts = {
+        a: "א",
+        b: "ב",
+        c: "ג",
+        d: "ד",
+        e: "ה",
+        f: "ו",
+        g: "ז",
+        h: "ח"
+      };
+
+      return hebrewParts[raw.toLowerCase()] || raw;
+    }
+
+    function formatOcrConfidence(value) {
+      if (!Number.isFinite(value)) {
+        return "";
+      }
+
+      const percentage =
+        value <= 1
+          ? Math.round(value * 100)
+          : Math.round(value);
+
+      return `${Math.max(0, Math.min(100, percentage))}% confidence`;
+    }
+
+    function ocrConfidenceClass(value) {
+      if (!Number.isFinite(value)) {
+        return "";
+      }
+
+      const normalized = value > 1 ? value / 100 : value;
+
+      return normalized >= 0.85
+        ? "is-good"
+        : "is-review";
+    }
+
+    function lineAlreadyHasMathDelimiters(line) {
+      return (
+        line.includes("\\(") ||
+        line.includes("\\[") ||
+        line.includes("$$") ||
+        /^\s*\$.*\$\s*$/.test(line)
+      );
+    }
+
+    function lineLooksLikeMath(line) {
+      const text = String(line || "").trim();
+
+      if (!text) {
+        return false;
+      }
+
+      /*
+       * Lines using \text{...} still need MathJax. This includes Hebrew
+       * explanations containing embedded variables and equations.
+       */
+      return (
+        /\\(?:text|mathrm|operatorname|frac|sqrt|le|ge|neq|approx|in|notin|mathbb|mid|land|lor|Rightarrow|Leftarrow|Downarrow|Uparrow|swarrow|searrow|cdot|times|qquad|quad|left|right|begin|end)\b/.test(text) ||
+        /[=<>≤≥≠≈±√∈∉∩∪^_{}]/.test(text) ||
+        /\|[^|]+\|/.test(text) ||
+        /\b[a-zA-Z]\s*[+\-*/^=<>]/.test(text) ||
+        /\d+\s*[+\-*/=<>]/.test(text)
+      );
+    }
+
+    function appendStructuredAnswerText(
+      container,
+      answerText
+    ) {
+      let normalized = String(answerText || "")
+        .replace(/\r\n?/g, "\n")
+        .trim();
+
+      // Some OCR responses contain literal "\n" text rather than
+      // actual line breaks.
+      if (
+        !normalized.includes("\n") &&
+        normalized.includes("\\n")
+      ) {
+        normalized = normalized.replace(
+          /\\n(?![A-Za-z])/g,
+          "\n"
+        );
+      }
+
+      const lines = normalized
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (!lines.length) {
+        const empty = document.createElement("div");
+        empty.className = "mg-ocr-preview-prose";
+        empty.textContent = "No answer text was detected.";
+        container.appendChild(empty);
+        return;
+      }
+
+      lines.forEach((line) => {
+        if (
+          lineAlreadyHasMathDelimiters(line) ||
+          lineLooksLikeMath(line)
+        ) {
+          const equation = document.createElement("div");
+          equation.className = "mg-ocr-preview-equation";
+          equation.dir = "ltr";
+
+          equation.textContent =
+            lineAlreadyHasMathDelimiters(line)
+              ? line
+              : `\\[${line}\\]`;
+
+          container.appendChild(equation);
+          return;
+        }
+
+        const prose = document.createElement("p");
+        prose.className = "mg-ocr-preview-prose";
+        prose.dir = "auto";
+        prose.textContent = line;
+        container.appendChild(prose);
+      });
+    }
+
+    function renderStructuredOcrPreview(
+        answers,
+        isPartial = false
+      ) {
+      const documentPreview = document.createElement("div");
+      documentPreview.className = "mg-ocr-preview-document";
+
+      const summary = document.createElement("div");
+      summary.className = "mg-ocr-preview-summary";
+
+      const summaryTitle = document.createElement("strong");
+      summaryTitle.textContent =
+        `${answers.length} complete answer section${answers.length === 1 ? "" : "s"} recovered`;
+
+      const summaryText = document.createElement("span");
+
+      if (isPartial) {
+        summary.classList.add("is-warning");
+
+        summaryText.textContent =
+          "The OCR file ends unexpectedly. Complete answers are shown below, but the unfinished final section was skipped.";
+      } else {
+        summaryText.textContent =
+          "Technical JSON metadata is hidden. Review the equations and answer text below.";
+      }
+
+      summary.append(
+        summaryTitle,
+        summaryText
+      );
+
+      documentPreview.appendChild(summary);
+
+      answers.forEach((answer, index) => {
+        const card = document.createElement("article");
+        card.className = "mg-ocr-preview-answer";
+
+        const header = document.createElement("div");
+        header.className = "mg-ocr-preview-answer-head";
+
+        const titleGroup = document.createElement("div");
+        titleGroup.className = "mg-ocr-preview-answer-title";
+
+        const questionTitle = document.createElement("div");
+        questionTitle.className = "mg-ocr-preview-question";
+        questionTitle.textContent =
+          answer.questionId !== "" &&
+          answer.questionId !== null
+            ? `Question ${answer.questionId}`
+            : `Answer ${index + 1}`;
+
+        titleGroup.appendChild(questionTitle);
+
+        const formattedPart = formatOcrPart(
+          answer.partKey
+        );
+
+        if (formattedPart) {
+          const part = document.createElement("span");
+          part.className = "mg-ocr-preview-part";
+          part.textContent = `Part ${formattedPart}`;
+          titleGroup.appendChild(part);
+        }
+
+        const meta = document.createElement("div");
+        meta.className = "mg-ocr-preview-answer-meta";
+
+        const confidenceText = formatOcrConfidence(
+          answer.confidence
+        );
+
+        if (confidenceText) {
+          const confidence = document.createElement("span");
+          confidence.className =
+            `mg-ocr-preview-meta-pill mg-ocr-preview-confidence ${ocrConfidenceClass(answer.confidence)}`;
+          confidence.textContent = confidenceText;
+          meta.appendChild(confidence);
+        }
+
+        if (answer.pageNumbers.length) {
+          const pages = document.createElement("span");
+          pages.className = "mg-ocr-preview-meta-pill";
+          pages.textContent =
+            `Page${answer.pageNumbers.length === 1 ? "" : "s"} ${answer.pageNumbers.join(", ")}`;
+          meta.appendChild(pages);
+        }
+
+        if (answer.needsReview) {
+          const reviewFlag = document.createElement("span");
+          reviewFlag.className =
+            "mg-ocr-preview-meta-pill mg-ocr-preview-review-flag";
+          reviewFlag.textContent = "Needs review";
+          meta.appendChild(reviewFlag);
+        }
+
+        header.append(
+          titleGroup,
+          meta
+        );
+
+        const body = document.createElement("div");
+        body.className = "mg-ocr-preview-answer-body";
+        body.dir = "auto";
+
+        appendStructuredAnswerText(
+          body,
+          answer.answerText
+        );
+
+        card.append(
+          header,
+          body
+        );
+
+        if (answer.warnings.length) {
+          const warnings = document.createElement("div");
+          warnings.className = "mg-ocr-preview-warnings";
+
+          const warningTitle = document.createElement("strong");
+          warningTitle.textContent = "OCR warnings";
+
+          warnings.appendChild(warningTitle);
+
+          answer.warnings.forEach((warningText) => {
+            const warning = document.createElement("div");
+            warning.textContent = `• ${warningText}`;
+            warnings.appendChild(warning);
+          });
+
+          card.appendChild(warnings);
+        }
+
+        documentPreview.appendChild(card);
+      });
+
+      ocrLatexPreview.appendChild(
+        documentPreview
+      );
+    }
+
+    async function renderOcrLatexPreview() {
+      if (!ocrLatexPreview) {
+        return;
+      }
+
+      const renderToken = ++ocrPreviewRenderToken;
+      const source = ocrTexReview
+        ? ocrTexReview.value
+        : "";
+
+      const structuredPreview =
+        parseStructuredOcrPreview(source);
+
+      ocrLatexPreview.replaceChildren();
+
+      if (!source.trim()) {
+        const empty = document.createElement("div");
+        empty.className = "mg-ocr-latex-preview-empty";
+        empty.textContent =
+          "Run OCR or load a saved OCR result to see the rendered preview.";
+
+        ocrLatexPreview.appendChild(empty);
+
+        if (ocrPreviewStatus) {
+          ocrPreviewStatus.textContent =
+            "The preview updates automatically while you edit.";
+        }
+
+        return;
+      }
+
+      if (structuredPreview) {
+        renderStructuredOcrPreview(
+          structuredPreview.answers,
+          structuredPreview.isPartial
+        );
+
+        if (ocrPreviewStatus) {
+          ocrPreviewStatus.textContent =
+            structuredPreview.isPartial
+              ? "Rendering the complete answers recovered from a partially written OCR file…"
+              : "Rendering the detected answer equations…";
+        }
+      } else {
+        const previewSource =
+          prepareLatexForBrowserPreview(source);
+
+        if (!previewSource) {
+          const empty = document.createElement("div");
+          empty.className = "mg-ocr-latex-preview-empty";
+          empty.textContent =
+            "No previewable answer content was found.";
+
+          ocrLatexPreview.appendChild(empty);
+          return;
+        }
+
+        const previewText = document.createElement("div");
+        previewText.className = "mg-ocr-preview-text";
+        previewText.dir = "auto";
+        previewText.textContent = previewSource;
+
+        ocrLatexPreview.appendChild(
+          previewText
+        );
+
+        if (ocrPreviewStatus) {
+          ocrPreviewStatus.textContent =
+            "Rendering equations…";
+        }
+      }
+
+      try {
+        const mathJax =
+          await ensureMathJaxForOcrPreview();
+
+        // Ignore an older rendering operation after a new edit.
+        if (
+          renderToken !== ocrPreviewRenderToken
+        ) {
+          return;
+        }
+
+        if (
+          typeof mathJax.typesetClear === "function"
+        ) {
+          mathJax.typesetClear([
+            ocrLatexPreview
+          ]);
+        }
+
+        await mathJax.typesetPromise([
+          ocrLatexPreview
+        ]);
+
+        if (
+          renderToken === ocrPreviewRenderToken &&
+          ocrPreviewStatus
+        ) {
+        ocrPreviewStatus.textContent =
+          structuredPreview
+            ? (
+                structuredPreview.isPartial
+                  ? "Preview is ready, but the OCR file was incomplete. Check the recovered sections and rerun OCR if answers are missing."
+                  : "Preview is ready. Check every sign, number, equation step, and final answer."
+              )
+            : "Preview is ready. Check equations, signs, numbers, and question labels.";
+        }
+      } catch (error) {
+        if (
+          renderToken !== ocrPreviewRenderToken
+        ) {
+          return;
+        }
+
+        if (ocrPreviewStatus) {
+          ocrPreviewStatus.textContent =
+            "Equation rendering is unavailable. Readable answer text is shown instead.";
+        }
+
+        console.warn(
+          "OCR LaTeX preview error:",
+          error
+        );
+      }
+    }
+
+    function queueOcrLatexPreview(immediate = false) {
+      if (ocrPreviewTimer) {
+        window.clearTimeout(ocrPreviewTimer);
+        ocrPreviewTimer = null;
+      }
+
+      if (immediate) {
+        renderOcrLatexPreview();
+        return;
+      }
+
+      ocrPreviewTimer = window.setTimeout(() => {
+        ocrPreviewTimer = null;
+        renderOcrLatexPreview();
+      }, 250);
     }
 
     function setStatusText(lines, kind="idle") {
@@ -479,6 +1398,7 @@
           ocrGeneratedBundleFile = null;
           ocrGeneratedBundleJson = "";
           ocrReviewPanel.style.display = "block";
+          queueOcrLatexPreview(true);
         }
 
         if (studentTex) {
@@ -892,6 +1812,7 @@
           ocrGeneratedTexFile = null;
           ocrGeneratedBundleFile = null;
           ocrGeneratedBundleJson = data.student_answer_bundle_json || "";
+          queueOcrLatexPreview(true);
         }
 
         if (data.stored_work && data.stored_work.work_id) {
@@ -963,7 +1884,25 @@
     gradeGptBtn.addEventListener("click", () => postAndDownload(ENDPOINT_GRADE_GPT, "graded_test_gpt.pdf", "GPT grading"));
     ocrBtn.addEventListener("click", runOcr);
     useOcrTexBtn.addEventListener("click", useReviewedOcrTex);
-    if (teacherReferenceMode) teacherReferenceMode.addEventListener("change", updateTeacherReferenceUI);
+
+    if (ocrTexReview) {
+      ocrTexReview.addEventListener("input", () => {
+        queueOcrLatexPreview(false);
+      });
+    }
+
+    if (refreshOcrPreviewBtn) {
+      refreshOcrPreviewBtn.addEventListener("click", () => {
+        queueOcrLatexPreview(true);
+      });
+    }
+
+    if (teacherReferenceMode) {
+      teacherReferenceMode.addEventListener(
+        "change",
+        updateTeacherReferenceUI
+      );
+    }
 
     async function initStudentPage() {
       await ensureSession();

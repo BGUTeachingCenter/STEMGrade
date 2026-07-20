@@ -10,12 +10,22 @@ http://localhost:5173/
 
 ## Run locally
 
+### 0 Find python version for interpreter
+
+Windows PowerShell:
+
+```powershell
+where.exe python
+where.exe py
+py --version
+```
+
 ### 1 Create and activate a virtual environment
 
 Windows PowerShell:
 
 ```powershell
-python -m venv .venv
+py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
