@@ -135,8 +135,8 @@ def serve_teacher_profile(request: Request):
     return _render(request, "teacher_profile.html")
 
 
-@router.get("/teacher")
-def serve_teacher(request: Request):
+@router.get("/course-workspace")
+def serve_course_workspace(request: Request):
     session = get_session(request)
 
     if not session or session.get("role") != "teacher":
@@ -153,8 +153,6 @@ def serve_teacher(request: Request):
 
     profile = get_teacher(teacher_id)
 
-    # A newly created account has no courses yet. Keep it out of the
-    # course workspace until a voucher has been redeemed.
     if not profile:
         return RedirectResponse(
             url="/teacher-login",
@@ -164,21 +162,45 @@ def serve_teacher(request: Request):
     courses = profile.get("courses") or []
     active_course = profile.get("active_course") or {}
 
+    # Accounts without courses belong on the profile page, where they can
+    # redeem their first voucher.
     if not courses or not active_course.get("course_id"):
         return RedirectResponse(
             url="/teacher-profile",
             status_code=303,
         )
 
-    path = PROJECT_ROOT / "templates" / "teacher_page.html"
+    path = PROJECT_ROOT / "templates" / "course_workspace.html"
 
     if not path.exists():
         raise HTTPException(
             status_code=404,
-            detail="templates/teacher_page.html not found",
+            detail="templates/course_workspace.html not found",
         )
 
-    return _render(request, "teacher_page.html")
+    return _render(
+        request,
+        "course_workspace.html",
+    )
+
+
+@router.get("/teacher")
+def legacy_teacher_page_redirect(request: Request):
+    """
+    Temporary compatibility redirect for old bookmarks and links.
+    """
+    session = get_session(request)
+
+    if not session or session.get("role") != "teacher":
+        return RedirectResponse(
+            url="/teacher-login",
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        url="/teacher-profile",
+        status_code=303,
+    )
 
 
 @router.get("/teacher-login")

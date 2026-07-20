@@ -1,0 +1,2220 @@
+{% extends "base.html" %}
+{% block title %}Course Workspace · {{ app_name }}{% endblock %}
+{% block header_title %}Course Workspace{% endblock %}
+{% block header_subtitle %}Manage the active course, students, references, and grading{% endblock %}
+
+{% block header_actions %}
+  <a class="secondary-btn small" href="/teacher-profile">
+    ← Teacher Profile
+  </a>
+
+  <a class="primary-btn small mg-teacher-feedback-btn" href="/feedback">
+    <span class="mg-teacher-feedback-icon">🧪</span>
+    <span>Test feedback</span>
+  </a>
+
+  <button
+    id="logoutBtnTop"
+    class="secondary-btn small"
+    type="button"
+  >
+    Logout
+  </button>
+{% endblock %}
+{% block content %}
+<div class="mg-teacher-page mg-course-workspace-page">
+  <section class="mg-teacher-hero" id="overview">
+  <div>
+    <div class="badge">Active course workspace</div>
+
+    <h1 id="workspaceCourseTitle">
+      Loading course…
+    </h1>
+
+    <p class="lead" id="workspaceCourseSummary">
+      Loading the active course settings and workspace.
+    </p>
+  </div>
+
+  <div class="mg-teacher-hero-meta mg-workspace-hero-meta">
+    <span class="pill mg-workspace-course-pill" id="workspaceCoursePill">
+      Active course
+    </span>
+
+    <span class="pill mg-health-pill" id="healthPill">
+      Health: …
+    </span>
+  </div>
+</section>
+
+    <nav class="mg-teacher-tabs" aria-label="Course workspace sections">
+      <a href="#teacherStats">Overview</a>
+      <a href="#courseSettings">Course settings</a>
+      <a href="#studentCodes">Students & codes</a>
+      <a href="#teacherBank">{{ reference_bank_label }}</a>
+      <a href="#uploadReference">Upload to Bank</a>
+    </nav>
+
+
+<section
+  class="mg-teacher-section mg-course-settings-section"
+  id="courseSettings"
+>
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Course settings</h2>
+
+      <p>
+        These settings apply only to the active course. Account settings,
+        password changes, course creation, and course selection are managed
+        from the Teacher Profile page.
+      </p>
+    </div>
+
+    <a class="secondary-btn small" href="/teacher-profile">
+      Manage courses
+    </a>
+  </div>
+
+  <div class="card mg-bank-big-card">
+    <div class="cardInner">
+      <div class="mg-upload-reference-grid">
+        <div>
+          <label for="profileCourseLabel">
+            Course / group label
+          </label>
+
+          <input
+            id="profileCourseLabel"
+            type="text"
+            placeholder="e.g. Chemistry 2026"
+          />
+
+          <div class="small mg-field-help">
+            Used in student access codes, reports, and the workspace title.
+          </div>
+        </div>
+
+        <div>
+          <label for="profileSubject">
+            Course subject
+          </label>
+
+          <select id="profileSubject"></select>
+
+          <div class="small mg-field-help">
+            Used as the default subject for new reference solutions.
+          </div>
+        </div>
+
+        <div class="mg-workspace-course-identity">
+          <span>Active course</span>
+
+          <strong id="workspaceCourseIdentity">
+            Loading course identity…
+          </strong>
+        </div>
+      </div>
+
+      <label for="profilePromptExtra">
+        Base grading instructions
+      </label>
+
+      <textarea
+        id="profilePromptExtra"
+        rows="5"
+        placeholder="Course-specific grading priorities…"
+      ></textarea>
+
+      <div class="small mg-field-help">
+        These instructions are appended to the subject prompt during grading.
+      </div>
+
+      <div class="mg-upload-reference-actions">
+        <button id="saveCourseSettingsBtn" type="button">
+          Save course settings
+        </button>
+      </div>
+
+      <div
+        id="courseSettingsStatus"
+        class="statusBox"
+      >
+        Loading course settings…
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="mg-teacher-section mg-student-codes-section" id="studentCodes">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Students & access codes</h2>
+      <p>Student codes are created when the course is created. Here you can export current codes, import edited details, or add a student.</p>
+    </div>
+    <a id="downloadStudentCodesBtn" class="secondary-btn small" href="/routes/teacher/student_codes.xlsx">Download current codes</a>
+  </div>
+
+  <div class="card mg-bank-big-card">
+    <div class="cardInner">
+      <div class="mg-student-code-tools">
+        <div class="mg-student-code-toolbox">
+          <div class="mg-card-title">Import code edits</div>
+          <p class="small">Download the Excel file, edit <strong>student_name</strong>, <strong>student_email</strong>, <strong>course_label</strong>, <strong>note</strong>, or <strong>status</strong>, then upload it here. The code column is used only to match existing students.</p>
+          <div class="mg-student-code-upload-row">
+            <input id="studentCodesImportFile" type="file" accept=".xlsx" />
+            <button id="importStudentCodesBtn" type="button" class="secondary-btn">Upload Excel edits</button>
+          </div>
+        </div>
+
+        <div class="mg-student-code-toolbox">
+          <div class="mg-card-title">Add student</div>
+          <p class="small">Adds one active student code to the current course.</p>
+          <div class="mg-student-add-grid">
+            <div>
+              <label for="newStudentName">Student name</label>
+              <input id="newStudentName" type="text" placeholder="Optional name" />
+            </div>
+            <div>
+              <label for="newStudentEmail">Email</label>
+              <input id="newStudentEmail" type="email" placeholder="Optional email" />
+            </div>
+            <div>
+              <label for="newStudentNote">Note</label>
+              <input id="newStudentNote" type="text" placeholder="Optional note" />
+            </div>
+          </div>
+          <div class="mg-upload-reference-actions">
+            <button id="addStudentCodeBtn" type="button">Add student</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="newStudentCodesBox" class="statusBox" style="display:none;"></div>
+      <div id="studentCodesStatus" class="statusBox">Loading students…</div>
+      <div id="studentCodesList" class="list"></div>
+    </div>
+  </div>
+</section>
+
+  <!-- STATS ROW -->
+  <section class="mg-teacher-section" id="teacherStats">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Overview</h2>
+      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
+    </div>
+  </div>
+
+  <div class="mg-dashboard-tools">
+    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
+      <div class="mg-kpi-card">
+        <span>Active students</span>
+        <strong id="statsTotalStudents">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Recognized works</span>
+        <strong id="statsRecognizedWorks">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Total uploads</span>
+        <strong id="statsTotalUploads">…</strong>
+      </div>
+    </div>
+
+    <div class="mg-upload-log-download">
+      <label for="uploadLogVoucherSelect">Download upload log</label>
+      <div class="mg-upload-log-controls">
+        <select id="uploadLogVoucherSelect"></select>
+        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
+      </div>
+      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
+    </div>
+  </div>
+
+  <div class="card mg-work-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Submission progress by work</div>
+          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
+        </div>
+      </div>
+
+      <div id="workProgressGrid" class="mg-work-progress-grid">
+        <div class="emptyState">Loading upload progress…</div>
+      </div>
+
+      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card mg-student-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Current students</div>
+          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
+        </div>
+      </div>
+      <div id="studentProgressList" class="mg-student-progress-list">
+        <div class="emptyState">Loading current students…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statsLayout mg-stats-two">
+    <div class="card">
+      <div class="cardInner">
+        <div style="font-weight:900; margin-bottom:8px;">Uploads per day</div>
+        <canvas id="chartPerDay" width="520" height="220"></canvas>
+        <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardInner">
+        <div style="font-weight:900; margin-bottom:8px;">Gemini tokens per code</div>
+        <canvas id="chartTokens" width="520" height="220"></canvas>
+        <div class="small">Histogram of total Gemini tokens used per student code.</div>
+      </div>
+    </div>
+  </div>
+      </section>
+
+  <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>{{ reference_bank_label }}</h2>
+      <p>All saved reference solutions in one place. Preview, download, replace, or delete them.</p>
+    </div>
+
+    <button id="refreshExamsBtn" class="secondary" type="button">Refresh bank</button>
+  </div>
+
+  <div class="card mg-bank-big-card">
+    <div class="cardInner">
+      <div class="mg-bank-list-toolbar">
+        <div>
+          <div class="mg-bank-current-label">Saved solutions</div>
+          <div class="mg-bank-current-value" id="solutionBankCount">Loading…</div>
+        </div>
+
+        <div class="mg-bank-help-strip">
+          <span>Preview opens the parsed content.</span>
+          <span>Download opens the TeX file.</span>
+          <span>Edit / replace fills the upload form below.</span>
+        </div>
+      </div>
+
+      <div class="list mg-solution-list" id="itemsList"></div>
+
+      <div class="statusBox" id="examStatus">Loading solution bank…</div>
+    </div>
+  </div>
+</section>
+
+<section class="mg-teacher-section mg-upload-reference-section" id="uploadReference">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Upload to {{ reference_bank_label }}</h2>
+        <p>Add questions, answers, or a combined questions+answers solution file. You can upload TeX, PDF, or image files.</p>
+    </div>
+  </div>
+
+  <div class="card mg-bank-big-card">
+    <div class="cardInner">
+      <div class="mg-upload-busy-wrap">
+        <div id="uploadBusyOverlay" class="mg-busy-overlay" aria-hidden="true">
+          <div class="mg-busy-box">
+            <div class="mg-spinner"></div>
+            <div>
+              <div class="mg-busy-title" id="uploadBusyTitle">Uploading…</div>
+              <div class="mg-busy-text" id="uploadBusyText">Please wait while {{ app_name }} processes your file.</div>
+            </div>
+          </div>
+        </div>
+
+      <div class="mg-upload-reference-grid">
+        <div>
+          <label for="examId">Exam name / ID</label>
+          <input id="examId" type="text" placeholder="e.g. final_25" />
+          <div class="small mg-field-help">
+            Use the same ID as an existing exam to update its reference file.
+          </div>
+        </div>
+
+        <div>
+          <label for="contentType">Upload mode</label>
+          <select id="contentType">
+            <option value="questions_answers">One file: questions + answers</option>
+            <option value="questions_answers_separate">Two files: questions file + answers file</option>
+          </select>
+          <div class="small mg-field-help" id="contentTypeHelp">
+            Best option when one file includes both the exam questions and the official solutions.
+          </div>
+        </div>
+
+        <div>
+          <label for="ocrProvider">OCR engine</label>
+          <select id="ocrProvider">
+              <option value="mathpix">Mathpix OCR</option>
+              <option value="openai">OpenAI / GPT OCR</option>
+              <option value="google">Google / Gemini OCR</option>
+            </select>
+          <div class="small mg-field-help">
+            Used only for PDF/image uploads. TeX/TXT uploads skip OCR.
+          </div>
+        </div>
+
+        <div>
+          <label for="uploadSubject">Subject for this reference</label>
+          <select id="uploadSubject"></select>
+          <div class="small mg-field-help">Saved into the reference JSON and used to choose the grading prompt.</div>
+        </div>
+      </div>
+
+      <label for="solutionPromptComment">Extra grading comment for this reference</label>
+      <textarea id="solutionPromptComment" rows="4" placeholder="Optional: grading priorities or special instructions for this assessment…"></textarea>
+      <div class="small mg-field-help">This is added to the AI grading prompt only for this reference.</div>
+
+      <div id="singleUploadBox">
+        <div class="mg-doc-type-row">
+          <span class="small mg-field-help">Document type:</span>
+          <label class="mg-radio-pill"><input type="radio" name="singleDocumentType" value="printed" checked /> Printed / typed</label>
+          <label class="mg-radio-pill"><input type="radio" name="singleDocumentType" value="handwritten" /> Handwritten</label>
+        </div>
+        <div class="drop mg-upload-reference-drop" id="dropTex">
+          <div class="labelBig">📄 Upload questions + answers file</div>
+          <div class="hint">
+            Drag & drop a <b>.tex</b>, <b>.txt</b>, <b>.pdf</b>, <b>.png</b>, <b>.jpg</b>, <b>.jpeg</b>, or <b>.webp</b> file here, or click to choose.
+          </div>
+          <div class="chip" id="texChip" style="display:none;">
+            <span>Selected:</span> <span id="texName" style="color:var(--text)"></span>
+          </div>
+          <input id="texFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+        </div>
+      </div>
+
+      <div id="separateUploadBox" class="mg-separated-upload-grid" style="display:none;">
+        <div>
+          <div class="mg-doc-type-row">
+            <span class="small mg-field-help">Questions document type:</span>
+            <label class="mg-radio-pill"><input type="radio" name="questionsDocumentType" value="printed" checked /> Printed / typed</label>
+            <label class="mg-radio-pill"><input type="radio" name="questionsDocumentType" value="handwritten" /> Handwritten</label>
+          </div>
+          <div class="drop mg-upload-reference-drop" id="dropQuestions">
+            <div class="labelBig">📘 Upload questions file</div>
+            <div class="hint">Drag & drop the exam/questions file here, or click to choose.</div>
+            <div class="chip" id="questionsChip" style="display:none;">
+              <span>Selected:</span> <span id="questionsName" style="color:var(--text)"></span>
+            </div>
+            <input id="questionsFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+          </div>
+        </div>
+
+        <div>
+          <div class="mg-doc-type-row">
+            <span class="small mg-field-help">Answers document type:</span>
+            <label class="mg-radio-pill"><input type="radio" name="answersDocumentType" value="printed" checked /> Printed / typed</label>
+            <label class="mg-radio-pill"><input type="radio" name="answersDocumentType" value="handwritten" /> Handwritten</label>
+          </div>
+          <div class="drop mg-upload-reference-drop" id="dropAnswers">
+            <div class="labelBig">🧾 Upload answers / solution file</div>
+            <div class="hint">Drag & drop the official answers/solutions file here, or click to choose.</div>
+            <div class="chip" id="answersChip" style="display:none;">
+              <span>Selected:</span> <span id="answersName" style="color:var(--text)"></span>
+            </div>
+            <input id="answersFile" type="file" accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+          </div>
+        </div>
+      </div>
+
+      <div class="mg-upload-reference-actions">
+        <button id="uploadBtn" type="button">Upload to {{ reference_bank_label }}</button>
+      </div>
+      </div><!-- end mg-upload-busy-wrap -->
+
+      <div class="statusBox mg-upload-status-visible" id="uploadStatus">
+        Choose an exam ID, select the file type, and upload a TeX, PDF, or image file.
+      </div>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+  // Same-origin: the FastAPI server serves this page, so relative URLs
+  // keep the auth cookie first-party.
+  const API_BASE = "";
+  const APP_NAME = {{ app_name|tojson }};
+  const $ = (id)=>document.getElementById(id);
+
+  const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
+
+  function nowTag() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  function mkJobId() {
+    return "job_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+  }
+
+  function setUploadStatus(lines, kind) {
+    const el = $("uploadStatus");
+    if (!el) return;
+    el.textContent = Array.isArray(lines) ? lines.join("\n") : lines;
+    el.classList.remove("ok", "err", "work");
+    if (kind === "ok") el.classList.add("ok");
+    if (kind === "err") el.classList.add("err");
+    if (kind === "work") el.classList.add("work");
+  }
+
+  function showBusy(title, text) {
+    const overlay = $("uploadBusyOverlay");
+    if ($("uploadBusyTitle")) $("uploadBusyTitle").textContent = title || "Uploading…";
+    if ($("uploadBusyText")) $("uploadBusyText").textContent = text || "Please wait while {{ app_name }} processes your file.";
+    if (overlay) { overlay.classList.add("show"); overlay.setAttribute("aria-hidden", "false"); }
+  }
+
+  function hideBusy() {
+    const overlay = $("uploadBusyOverlay");
+    if (overlay) { overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true"); }
+  }
+
+  function updateBusyText(text) {
+    if ($("uploadBusyText")) $("uploadBusyText").textContent = text || "";
+  }
+
+  async function pollProgress(jobId, lines, stopSignal) {
+    let lastSeq = 0;
+    let idleSecs = 0;
+    while (!stopSignal.stopped) {
+      try {
+        const r = await authedFetch(ENDPOINT_PROGRESS(jobId), { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          const steps = Array.isArray(j.steps) ? j.steps : [];
+          let gotNew = false;
+          for (const s of steps) {
+            const seq = Number(s.seq || 0);
+            if (seq > lastSeq) {
+              lastSeq = seq;
+              lines.push(`[${s.ts || nowTag()}] ${s.msg || ""}`);
+              gotNew = true;
+            }
+          }
+          if (gotNew) {
+            idleSecs = 0;
+            const lastMsg = lines[lines.length - 1] || "";
+            updateBusyText(lastMsg.replace(/^\[[^\]]+\]\s*/, ""));
+          } else {
+            idleSecs += 0.5;
+          }
+          if (j.error) {
+            lines.push(`[${nowTag()}] FAILED: ${j.error}`);
+            setUploadStatus(lines, "err");
+            break;
+          }
+          // Show a live "still working" pulse when idle >3s so the user knows we're alive
+          const displayLines = [...lines];
+          if (!j.done && idleSecs >= 3) {
+            const elapsed = Math.round(idleSecs);
+            displayLines.push(`[${nowTag()}] ⏳ Still working… (${elapsed}s)`);
+          }
+          setUploadStatus(displayLines, "work");
+          if (j.done) break;
+        }
+      } catch (e) {
+        lines.push(`[${nowTag()}] ERROR: ${e?.message || String(e)}`);
+        setUploadStatus(lines, "err");
+      }
+      await new Promise(res => setTimeout(res, 500));
+    }
+  }
+
+  // Auth comes from the httpOnly session cookie — no password in the URL,
+  // no header, no localStorage.
+  let _redirectingToLogin = false;
+  async function authedFetch(url, options = {}){
+    const res = await fetch(url, { credentials: "same-origin", ...options });
+    // Session expired (TTL) or missing: send the teacher back to log in
+    // instead of surfacing a raw "Not authenticated" error.
+    if (res.status === 401 && !_redirectingToLogin) {
+      _redirectingToLogin = true;
+      window.location.href = "/teacher-login";
+    }
+    return res;
+  }
+
+  // --- LOGOUT ---
+    const logoutBtnTop = $("logoutBtnTop");
+
+    if (logoutBtnTop) {
+      logoutBtnTop.addEventListener("click", async () => {
+        try {
+          await fetch("/routes/logout", { method: "POST", credentials: "same-origin" });
+        } catch(_) {}
+
+        window.location.href = "/";
+      });
+    }
+
+  function configuredModelLabel(model, configured) {
+    const name = model || "unknown";
+    if (configured === false) return `${name} (key missing)`;
+    return name;
+  }
+
+  async function getHealth(){
+    try{
+      const r = await fetch(API_BASE + "/health");
+      const j = await r.json();
+      const parts = [
+        `Health: ${j.status || "unknown"}`,
+        `Ollama: ${j.ollama_model || "unknown"}`,
+        `GPT: ${configuredModelLabel(j.gpt_model, j.gpt_configured)}`,
+        `GPT OCR: ${configuredModelLabel(j.gpt_ocr_model, j.gpt_configured)}`,
+        `Gemini: ${configuredModelLabel(j.google_model, j.google_configured)}`,
+        `Gemini OCR: ${configuredModelLabel(j.google_ocr_model, j.google_configured)}`,
+        `Mathpix OCR: ${j.mathpix_configured ? "configured" : "key missing"}`,
+      ];
+      $("healthPill").textContent = parts.join(" | ");
+    }catch(e){
+      $("healthPill").textContent = "Health: error";
+    }
+  }
+  getHealth();
+let CURRENT_TEACHER_PROFILE = null;
+let SUBJECTS = [];
+let ACTIVE_COURSE = null;
+
+function renderSubjectSelect(selectId, selected) {
+  const select = $(selectId);
+
+  if (!select) return;
+
+  select.innerHTML = SUBJECTS.map((subject) => (
+    `<option value="${escapeHtml(subject.value || "")}">` +
+      `${escapeHtml(subject.label || subject.value || "")}` +
+    `</option>`
+  )).join("");
+
+  if (selected) {
+    select.value = selected;
+  }
+}
+
+function setCourseSettingsStatus(message, kind = "") {
+  const element = $("courseSettingsStatus");
+
+  if (!element) return;
+
+  element.textContent = message;
+  element.classList.remove("ok", "err", "work");
+
+  if (kind) {
+    element.classList.add(kind);
+  }
+}
+
+function applyWorkspaceCourseToPage() {
+  const course = ACTIVE_COURSE || {};
+  const profile = CURRENT_TEACHER_PROFILE || {};
+
+  const courseLabel =
+    course.course_label ||
+    profile.course_label ||
+    "Course Workspace";
+
+  const subject =
+    course.subject ||
+    profile.subject ||
+    "math";
+
+  const subjectLabel =
+    course.subject_label ||
+    profile.subject_label ||
+    subject;
+
+  const gradingInstructions =
+    course.grading_prompt_extra ||
+    profile.grading_prompt_extra ||
+    "";
+
+  const username =
+    profile.username ||
+    profile.name ||
+    "Teacher";
+
+  if ($("workspaceCourseTitle")) {
+    $("workspaceCourseTitle").textContent = courseLabel;
+  }
+
+  if ($("workspaceCourseSummary")) {
+    $("workspaceCourseSummary").textContent =
+      `${subjectLabel} course workspace · Teacher: ${username}`;
+  }
+
+  if ($("workspaceCoursePill")) {
+    $("workspaceCoursePill").textContent = subjectLabel;
+  }
+
+  if ($("profileCourseLabel")) {
+    $("profileCourseLabel").value = courseLabel;
+  }
+
+  renderSubjectSelect("profileSubject", subject);
+  renderSubjectSelect("uploadSubject", subject);
+
+  if ($("profilePromptExtra")) {
+    $("profilePromptExtra").value = gradingInstructions;
+  }
+
+  if (
+    $("solutionPromptComment") &&
+    !$("solutionPromptComment").value.trim()
+  ) {
+    $("solutionPromptComment").value = gradingInstructions;
+  }
+
+  if ($("workspaceCourseIdentity")) {
+    const courseId =
+      course.course_id ||
+      profile.active_course_id ||
+      "—";
+
+    const voucherId =
+      course.voucher_id ||
+      course.voucher_code ||
+      course.voucher_hash ||
+      "—";
+
+    $("workspaceCourseIdentity").textContent =
+      `Course ID: ${courseId} · Voucher: ${voucherId}`;
+  }
+}
+
+async function loadWorkspaceContext() {
+  setCourseSettingsStatus(
+    "Loading course settings…",
+    "work"
+  );
+
+  try {
+    const response = await authedFetch(
+      API_BASE + "/routes/teacher/profile",
+      {
+        cache: "no-store",
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not load the active course."
+      );
+    }
+
+    CURRENT_TEACHER_PROFILE = data.teacher || {};
+    SUBJECTS = data.subjects || [];
+
+    ACTIVE_COURSE =
+      data.active_course ||
+      CURRENT_TEACHER_PROFILE.active_course ||
+      {};
+
+    if (!ACTIVE_COURSE.course_id) {
+      window.location.replace("/teacher-profile");
+      return;
+    }
+
+    applyWorkspaceCourseToPage();
+
+    setCourseSettingsStatus(
+      "Course settings loaded.",
+      "ok"
+    );
+  } catch (error) {
+    setCourseSettingsStatus(
+      "Course settings failed to load: " +
+      (
+        error && error.message
+          ? error.message
+          : String(error)
+      ),
+      "err"
+    );
+  }
+}
+
+
+    function studentCodeTable(codes) {
+    if (!codes.length) return `<div class="emptyState">No students yet.</div>`;
+
+    const rows = codes.map(c => `
+      <tr>
+        <td>
+          <div class="mg-student-name-cell">
+            <strong>${escapeHtml(c.student_name || "Unnamed student")}</strong>
+            ${c.student_email ? `<span>${escapeHtml(c.student_email)}</span>` : ""}
+          </div>
+        </td>
+        <td><code>${escapeHtml(c.code || "")}</code></td>
+        <td>${escapeHtml(c.course_label || "—")}</td>
+        <td>${escapeHtml(c.status || "")}</td>
+        <td>${Number(c.uses || 0).toLocaleString()}</td>
+        <td>${escapeHtml(c.last_used_at || "—")}</td>
+        <td>${escapeHtml(c.note || "—")}</td>
+        <td>
+          <button type="button" class="secondary small mg-copy-student-code" data-code="${escapeHtml(c.code || "")}">Copy</button>
+        </td>
+      </tr>
+    `).join("");
+
+    return `
+      <div class="mg-work-table-wrap mg-student-code-table-wrap">
+        <table class="mg-work-detail-table mg-student-code-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Code</th>
+              <th>Course</th>
+              <th>Status</th>
+              <th>Logins</th>
+              <th>Last login</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function loadStudentCodes() {
+    const status = $("studentCodesStatus");
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/student_codes", { cache: "no-store" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not load student codes.");
+
+      const codes = j.codes || [];
+      if ($("studentCodesList")) {
+        $("studentCodesList").innerHTML = studentCodeTable(codes);
+      }
+
+      const downloadBtn = $("downloadStudentCodesBtn");
+      if (downloadBtn) downloadBtn.href = `${API_BASE}/routes/teacher/student_codes.xlsx`;
+
+      if (status) {
+        status.textContent = `${codes.length} current student${codes.length === 1 ? "" : "s"} for this teacher.`;
+        status.classList.remove("err", "work");
+        status.classList.add("ok");
+      }
+
+      document.querySelectorAll(".mg-copy-student-code").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(btn.dataset.code || "");
+            btn.textContent = "Copied";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+          } catch (_) {
+            btn.textContent = "Copy failed";
+          }
+        });
+      });
+    } catch (e) {
+      if (status) {
+        status.textContent = "Student list load failed: " + (e && e.message ? e.message : String(e));
+        status.classList.remove("ok", "work");
+        status.classList.add("err");
+      }
+    }
+  }
+
+  async function addStudentCode() {
+    const student_name = $("newStudentName") ? $("newStudentName").value.trim() : "";
+    const student_email = $("newStudentEmail") ? $("newStudentEmail").value.trim() : "";
+    const note = $("newStudentNote") ? $("newStudentNote").value.trim() : "";
+
+    const box = $("newStudentCodesBox");
+    if (box) {
+      box.style.display = "block";
+      box.textContent = "Adding student…";
+      box.classList.remove("ok", "err");
+      box.classList.add("work");
+    }
+
+    try {
+      const r = await authedFetch(API_BASE + "/routes/teacher/student_codes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ count: 1, student_name, student_email, note }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not add student.");
+
+      const code = (j.codes || [])[0]?.code || "";
+      if (box) {
+        box.innerHTML = `<strong>Student added.</strong> New code: <code style="font-weight:900;">${escapeHtml(code)}</code>`;
+        box.classList.remove("work", "err");
+        box.classList.add("ok");
+      }
+
+      ["newStudentName", "newStudentEmail", "newStudentNote"].forEach(id => { if ($(id)) $(id).value = ""; });
+      await loadStudentCodes();
+      await loadStatsAndRender();
+    } catch (e) {
+      if (box) {
+        box.textContent = "Add student failed: " + (e && e.message ? e.message : String(e));
+        box.classList.remove("work", "ok");
+        box.classList.add("err");
+      }
+    }
+  }
+
+  async function importStudentCodesExcel() {
+    const input = $("studentCodesImportFile");
+    const file = input && input.files ? input.files[0] : null;
+    const status = $("studentCodesStatus");
+    if (!file) {
+      if (status) {
+        status.textContent = "Choose an .xlsx file first.";
+        status.classList.remove("ok", "work");
+        status.classList.add("err");
+      }
+      return;
+    }
+
+    if (status) {
+      status.textContent = "Importing student-code edits…";
+      status.classList.remove("ok", "err");
+      status.classList.add("work");
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const r = await authedFetch(API_BASE + "/routes/teacher/student_codes/import", {
+        method: "POST",
+        body: formData,
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || !j.ok) throw new Error((j && j.detail) || "Could not import student-code edits.");
+
+      if (status) {
+        const errors = (j.errors || []).length ? ` Warnings: ${(j.errors || []).slice(0, 3).join(" ")}` : "";
+        status.textContent = `Imported edits. Updated ${j.updated || 0}; skipped ${j.skipped || 0}.${errors}`;
+        status.classList.remove("work", "err");
+        status.classList.add("ok");
+      }
+      if (input) input.value = "";
+      await loadStudentCodes();
+      await loadStatsAndRender();
+    } catch (e) {
+      if (status) {
+        status.textContent = "Import failed: " + (e && e.message ? e.message : String(e));
+        status.classList.remove("work", "ok");
+        status.classList.add("err");
+      }
+    }
+  }
+
+  if ($("addStudentCodeBtn")) {
+    $("addStudentCodeBtn").addEventListener("click", addStudentCode);
+  }
+  if ($("importStudentCodesBtn")) {
+    $("importStudentCodesBtn").addEventListener("click", importStudentCodesExcel);
+  }
+  loadStudentCodes();
+async function saveCourseSettings() {
+  const payload = {
+    course_label: $("profileCourseLabel")
+      ? $("profileCourseLabel").value.trim()
+      : "",
+
+    subject: $("profileSubject")
+      ? $("profileSubject").value
+      : "math",
+
+    grading_prompt_extra: $("profilePromptExtra")
+      ? $("profilePromptExtra").value.trim()
+      : "",
+  };
+
+  $("saveCourseSettingsBtn").disabled = true;
+
+  setCourseSettingsStatus(
+    "Saving course settings…",
+    "work"
+  );
+
+  try {
+    const response = await authedFetch(
+      API_BASE + "/routes/teacher/profile",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not save the course settings."
+      );
+    }
+
+    CURRENT_TEACHER_PROFILE =
+      data.teacher ||
+      CURRENT_TEACHER_PROFILE ||
+      {};
+
+    ACTIVE_COURSE =
+      data.active_course ||
+      CURRENT_TEACHER_PROFILE.active_course ||
+      ACTIVE_COURSE ||
+      {};
+
+    applyWorkspaceCourseToPage();
+
+    setCourseSettingsStatus(
+      "Course settings saved.",
+      "ok"
+    );
+
+    await loadStudentCodes();
+    await loadStatsAndRender();
+  } catch (error) {
+    setCourseSettingsStatus(
+      "Course settings could not be saved: " +
+      (
+        error && error.message
+          ? error.message
+          : String(error)
+      ),
+      "err"
+    );
+  } finally {
+    $("saveCourseSettingsBtn").disabled = false;
+  }
+}
+
+if ($("saveCourseSettingsBtn")) {
+  $("saveCourseSettingsBtn").addEventListener(
+    "click",
+    saveCourseSettings
+  );
+}
+
+loadWorkspaceContext();
+
+
+  function setExamStatus(msg){ $("examStatus").textContent = msg; }
+  function examId(){ return ($("examId").value || "").trim(); }
+
+  function escapeHtml(s){
+    return (s||"")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  // --------- STATS CHARTS (simple canvas, no external libs) ----------
+  function drawBars(canvasId, labels, values) {
+    const c = $(canvasId);
+    if (!c) return;
+    const ctx = c.getContext("2d");
+
+    const W = c.width, H = c.height;
+    ctx.clearRect(0,0,W,H);
+
+    const padL = 44, padR = 10, padT = 12, padB = 34;
+    const maxV = Math.max(1, ...values);
+    const n = Math.max(1, values.length);
+
+    // axes
+    ctx.strokeStyle = "rgba(79,79,82,.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, H - padB);
+    ctx.lineTo(W - padR, H - padB);
+    ctx.stroke();
+
+    // bars
+    const gap = 6;
+    const barW = Math.max(4, ((W - padL - padR) - gap*(n-1)) / n);
+    ctx.fillStyle = "rgba(245,158,11,.65)";
+
+    for (let i=0;i<n;i++){
+      const v = values[i] || 0;
+      const bh = (H - padT - padB) * (v / maxV);
+      const x = padL + i*(barW+gap);
+      const y = (H - padB) - bh;
+      ctx.fillRect(x, y, barW, bh);
+    }
+
+    // y labels
+    ctx.fillStyle = "rgba(79,79,82,.70)";
+    ctx.font = "11px ui-sans-serif, system-ui";
+    ctx.fillText(String(maxV), 8, padT+10);
+    ctx.fillText("0", 22, H - padB + 12);
+
+    // x labels (sampled)
+    ctx.fillStyle = "rgba(79,79,82,.62)";
+    ctx.font = "11px ui-sans-serif, system-ui";
+    const step = Math.max(1, Math.ceil(n / 6));
+    for (let i=0;i<n;i+=step){
+      const lbl = labels[i] ?? "";
+      const x = padL + i*(barW+gap);
+      ctx.save();
+      ctx.translate(x + barW/2, H - 8);
+      ctx.rotate(-0.4);
+      ctx.textAlign = "center";
+      ctx.fillText(String(lbl).slice(0, 12), 0, 0);
+      ctx.restore();
+    }
+
+    if (!values.length){
+      ctx.fillStyle = "rgba(79,79,82,.55)";
+      ctx.fillText("No data", padL + 8, padT + 18);
+    }
+  }
+
+  function drawHistogram(canvasId, values, binCount=8) {
+    const vals = values.filter(v => Number.isFinite(v));
+    if (!vals.length) {
+      drawBars(canvasId, ["no data"], [0]);
+      return;
+    }
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const span = Math.max(1, maxV - minV);
+    const bins = new Array(binCount).fill(0);
+
+    for (const v of vals){
+      let idx = Math.floor(((v - minV) / span) * binCount);
+      if (idx === binCount) idx = binCount - 1;
+      bins[idx] += 1;
+    }
+
+    const labels = bins.map((_,i) => {
+      const a = Math.round(minV + (span/binCount)*i);
+      const b = Math.round(i === binCount-1 ? maxV : (minV + (span/binCount)*(i+1)));
+      return `${a}-${b}`;
+    });
+
+    drawBars(canvasId, labels, bins);
+  }
+
+  let latestTeacherStats = null;
+
+  function formatInt(n) {
+    return Number(n || 0).toLocaleString();
+  }
+
+  function formatPct(n) {
+    const value = Number(n || 0);
+    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
+  }
+
+  function formatDateTime(value) {
+    const s = String(value || "").trim();
+    if (!s) return "—";
+    return s.replace("T", " ").slice(0, 16);
+  }
+
+  function currentVoucherFilter() {
+    const el = $("uploadLogVoucherSelect");
+    return el ? (el.value || "__all__") : "__all__";
+  }
+
+  function updateUploadLogHref() {
+    const btn = $("downloadUploadLogBtn");
+    if (!btn) return;
+
+    const voucher = currentVoucherFilter();
+    btn.href = `${API_BASE}/routes/teacher_upload_log.xlsx?voucher_id=${encodeURIComponent(voucher)}`;
+  }
+
+  function renderStatsKpis(data) {
+    const totalStudents = Number(data?.roster?.total_students || 0);
+    const matchedWorks = (data?.work_progress || []).filter(x => x.is_matched_exam).length;
+    const totalUploads = (data?.recent_uploads || []).length;
+
+    if ($("statsTotalStudents")) $("statsTotalStudents").textContent = formatInt(totalStudents);
+    if ($("statsRecognizedWorks")) $("statsRecognizedWorks").textContent = formatInt(matchedWorks);
+    if ($("statsTotalUploads")) $("statsTotalUploads").textContent = formatInt(totalUploads);
+  }
+
+  function renderVoucherOptions(data) {
+    const select = $("uploadLogVoucherSelect");
+    if (!select) return;
+
+    const previous = select.value || "__all__";
+    const vouchers = data?.vouchers || [];
+
+    const options = [
+      `<option value="__all__">All courses / vouchers</option>`,
+      ...vouchers.map(v => {
+        const label = `${v.course_label || "Course"} · ${v.total_students || 0} students · ${v.upload_count || 0} uploads`;
+        return `<option value="${escapeHtml(v.voucher_id || "")}">${escapeHtml(label)}</option>`;
+      })
+    ];
+
+    select.innerHTML = options.join("");
+
+    const values = Array.from(select.options).map(o => o.value);
+    select.value = values.includes(previous) ? previous : "__all__";
+
+    updateUploadLogHref();
+  }
+
+  function filteredWorkProgress() {
+    const all = latestTeacherStats?.work_progress || [];
+    const voucher = currentVoucherFilter();
+
+    if (!voucher || voucher === "__all__") return all;
+    return all.filter(x => x.voucher_id === voucher);
+  }
+
+  function workProgressCard(item, index) {
+    const pct = Math.max(0, Math.min(100, Number(item.completion_pct || 0)));
+    const uploaded = Number(item.uploaded_students || 0);
+    const total = Number(item.total_students || 0);
+    const attempts = Number(item.upload_count || 0);
+    const missing = Math.max(0, total - uploaded);
+    const unmatched = item.is_matched_exam ? "" : `<span class="mg-work-tag muted">Needs grading match</span>`;
+
+    return `
+      <div class="mg-work-progress-item" role="button" tabindex="0" data-work-index="${index}">
+        <div class="mg-work-progress-top">
+          <div>
+            <div class="mg-work-title">${escapeHtml(item.exam_id || "Unknown work")}</div>
+            <div class="mg-work-subtitle">${escapeHtml(item.voucher_id || "course")} · Last upload ${formatDateTime(item.last_upload_at)}</div>
+          </div>
+          <div class="mg-work-percent">${formatPct(pct)}</div>
+        </div>
+
+        <div class="mg-work-meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
+
+        <div class="mg-work-footer">
+          <span><strong>${formatInt(uploaded)}/${formatInt(total)}</strong> uploaded</span>
+          <span>${formatInt(attempts)} attempt${attempts === 1 ? "" : "s"}</span>
+          <span>${formatInt(missing)} missing</span>
+          ${unmatched}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderWorkProgress() {
+    const grid = $("workProgressGrid");
+    const panel = $("workDetailPanel");
+    if (!grid) return;
+
+    const works = filteredWorkProgress();
+
+    if (!works.length) {
+      grid.innerHTML = `<div class="emptyState">No student uploads found for this course yet.</div>`;
+      if (panel) panel.style.display = "none";
+      return;
+    }
+
+    grid.innerHTML = works.map((item, index) => workProgressCard(item, index)).join("");
+
+    grid.querySelectorAll(".mg-work-progress-item").forEach(card => {
+      const activate = () => {
+        const idx = Number(card.dataset.workIndex || 0);
+
+        grid.querySelectorAll(".mg-work-progress-item").forEach(x => x.classList.remove("active"));
+        card.classList.add("active");
+
+        renderWorkDetail(works[idx]);
+      };
+
+      card.addEventListener("click", activate);
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activate();
+        }
+      });
+    });
+  }
+
+  function renderWorkDetail(item) {
+    const panel = $("workDetailPanel");
+    if (!panel || !item) return;
+
+    const uploaded = item.students_uploaded || [];
+    const missing = item.students_missing || [];
+
+    const uploadedRows = uploaded.length
+      ? uploaded.map(s => `
+          <tr>
+            <td><code>${escapeHtml(s.code || "")}</code></td>
+            <td>${formatDateTime(s.first_uploaded_at)}</td>
+            <td>${formatDateTime(s.last_uploaded_at)}</td>
+            <td>${formatInt(s.attempts || 0)}</td>
+            <td>${escapeHtml(s.status || "—")}</td>
+            <td>${escapeHtml(s.source_filename || "—")}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="6">No uploaded students yet.</td></tr>`;
+
+    const missingHtml = missing.length
+      ? missing.map(code => `<span class="mg-missing-chip"><code>${escapeHtml(code)}</code></span>`).join("")
+      : `<span class="mg-complete-chip">No missing students</span>`;
+
+    panel.style.display = "block";
+    panel.innerHTML = `
+      <div class="mg-work-detail-head">
+        <div>
+          <div class="mg-card-title">${escapeHtml(item.exam_id || "Unknown work")}</div>
+          <div class="small">${formatInt(item.uploaded_students || 0)}/${formatInt(item.total_students || 0)} uploaded · ${formatPct(item.completion_pct || 0)} complete · ${formatInt(item.upload_count || 0)} total upload attempts</div>
+        </div>
+        <button type="button" class="secondary small" id="closeWorkDetailBtn">Close</button>
+      </div>
+
+      <div class="mg-work-table-wrap">
+        <table class="mg-work-detail-table">
+          <thead>
+            <tr>
+              <th>Student code</th>
+              <th>First upload</th>
+              <th>Latest upload</th>
+              <th>Attempts</th>
+              <th>Status</th>
+              <th>Latest source file</th>
+            </tr>
+          </thead>
+          <tbody>${uploadedRows}</tbody>
+        </table>
+      </div>
+
+      <div class="mg-missing-box">
+        <div class="mg-missing-title">Missing students</div>
+        <div class="mg-missing-list">${missingHtml}</div>
+      </div>
+    `;
+
+    const closeBtn = $("closeWorkDetailBtn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        panel.style.display = "none";
+        document.querySelectorAll(".mg-work-progress-item").forEach(x => x.classList.remove("active"));
+      });
+    }
+  }
+
+    function filteredStudentProgress() {
+    const rows = latestTeacherStats?.student_progress || [];
+    const voucher = currentVoucherFilter();
+    if (!voucher || voucher === "__all__") return rows;
+    return rows.filter(row => {
+      if (row.voucher_id === voucher) return true;
+      return (row.works || []).some(w => w.voucher_id === voucher);
+    });
+  }
+
+  function renderStudentProgress() {
+    const list = $("studentProgressList");
+    if (!list) return;
+
+    const rows = filteredStudentProgress();
+    if (!rows.length) {
+      list.innerHTML = `<div class="emptyState">No current students found.</div>`;
+      return;
+    }
+
+    list.innerHTML = rows.map(row => {
+      const works = row.works || [];
+      const worksHtml = works.length
+        ? works.map(w => `
+            <div class="mg-student-work-chip">
+              <strong>${escapeHtml(w.exam_id || "Unknown work")}</strong>
+              <span>${formatInt(w.attempts || 0)} attempt${Number(w.attempts || 0) === 1 ? "" : "s"}</span>
+              <span>Latest: ${formatDateTime(w.last_uploaded_at)}</span>
+            </div>
+          `).join("")
+        : `<span class="mg-missing-chip">No uploads yet</span>`;
+
+      return `
+        <div class="mg-student-progress-item">
+          <div class="mg-student-progress-main">
+            <div class="mg-student-progress-title">
+              ${escapeHtml(row.student_name || "Unnamed student")}
+              <code>${escapeHtml(row.code || "")}</code>
+            </div>
+            <div class="small">
+              ${escapeHtml(row.student_email || "")}${row.student_email ? " · " : ""}
+              ${escapeHtml(row.course_label || "Course")}
+              · ${formatInt(row.uploaded_work_count || 0)} uploaded work${Number(row.uploaded_work_count || 0) === 1 ? "" : "s"}
+              · ${formatInt(row.total_attempts || 0)} total attempt${Number(row.total_attempts || 0) === 1 ? "" : "s"}
+              · ${formatInt(row.uses || 0)} login${Number(row.uses || 0) === 1 ? "" : "s"}
+            </div>
+            ${row.note ? `<div class="small"><strong>Note:</strong> ${escapeHtml(row.note)}</div>` : ""}
+          </div>
+          <div class="mg-student-work-chip-list">${worksHtml}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+
+  async function loadStatsAndRender(){
+    try{
+      const r = await authedFetch(API_BASE + "/routes/teacher_dashboard", { cache: "no-store" });
+
+      if(!r.ok){
+        console.log("Stats error:", await r.text());
+        drawBars("chartPerDay", ["unauthorized"], [0]);
+        drawBars("chartTokens", ["unauthorized"], [0]);
+
+        if ($("workProgressGrid")) {
+          $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
+        }
+        if ($("studentProgressList")) {
+          $("studentProgressList").innerHTML = `<div class="emptyState">Could not load current students.</div>`;
+        }
+
+        return;
+      }
+
+      const j = await r.json();
+      latestTeacherStats = j;
+
+      renderStatsKpis(j);
+      renderVoucherOptions(j);
+      renderWorkProgress();
+      renderStudentProgress();
+
+      const perDay = j.uploads_per_day || j.usage_per_day || [];
+      drawBars(
+        "chartPerDay",
+        perDay.map(x => x.day),
+        perDay.map(x => x.count)
+      );
+
+      const tokens = (j.gemini_tokens_per_code || []).map(x => Number(x.tokens || 0));
+      drawHistogram("chartTokens", tokens, 8);
+
+    }catch(e){
+      console.log("Stats exception:", e);
+
+      if ($("workProgressGrid")) {
+        $("workProgressGrid").innerHTML = `<div class="emptyState">Stats failed to load.</div>`;
+      }
+      if ($("studentProgressList")) {
+        $("studentProgressList").innerHTML = `<div class="emptyState">Current student list failed to load.</div>`;
+      }
+    }
+  }
+
+  if ($("uploadLogVoucherSelect")) {
+    $("uploadLogVoucherSelect").addEventListener("change", () => {
+      updateUploadLogHref();
+      renderWorkProgress();
+      renderStudentProgress();
+    });
+  }
+
+  // load once when the teacher page opens
+  loadStatsAndRender();
+
+  // --------- Upload mode + drop zones ----------
+  const dropTex = $("dropTex");
+  const texFile = $("texFile");
+  const texChip = $("texChip");
+  const texName = $("texName");
+  const dropQuestions = $("dropQuestions");
+  const questionsFile = $("questionsFile");
+  const questionsChip = $("questionsChip");
+  const questionsName = $("questionsName");
+  const dropAnswers = $("dropAnswers");
+  const answersFile = $("answersFile");
+  const answersChip = $("answersChip");
+  const answersName = $("answersName");
+
+  function isAllowedBankUploadFile(f) {
+    const n = String(f?.name || "").toLowerCase();
+    return (
+      n.endsWith(".tex") ||
+      n.endsWith(".txt") ||
+      n.endsWith(".pdf") ||
+      n.endsWith(".png") ||
+      n.endsWith(".jpg") ||
+      n.endsWith(".jpeg") ||
+      n.endsWith(".webp")
+    );
+  }
+
+  function updateNamedFileChip(input, chip, nameEl){
+    if (!input || !chip || !nameEl) return;
+    const f = input.files && input.files[0];
+    if (f){ chip.style.display="inline-flex"; nameEl.textContent = f.name; }
+    else { chip.style.display="none"; nameEl.textContent=""; }
+  }
+
+  function updateFileChip(){
+    updateNamedFileChip(texFile, texChip, texName);
+    updateNamedFileChip(questionsFile, questionsChip, questionsName);
+    updateNamedFileChip(answersFile, answersChip, answersName);
+  }
+
+  function selectedRadioValue(name, fallback="printed") {
+    const el = document.querySelector(`input[name="${name}"]:checked`);
+    return el ? el.value : fallback;
+  }
+
+  function updateContentTypeHelp() {
+      const type = $("contentType") ? $("contentType").value : "";
+      const help = $("contentTypeHelp");
+      if (!help) return;
+
+      if (type === "questions_answers") {
+        help.textContent =
+          "Use this when one file contains both the exam questions and the official solutions. This creates full_solution_bundle.json in one upload.";
+      } else if (type === "questions_answers_separate") {
+        help.textContent =
+          "Use this when questions and official answers are in two files. {{ app_name }} runs one job: questions first, answers second, then generates the full solution JSON.";
+      } else {
+        help.textContent = "";
+      }
+
+      if ($("singleUploadBox")) $("singleUploadBox").style.display = type === "questions_answers" ? "block" : "none";
+      if ($("separateUploadBox")) $("separateUploadBox").style.display = type === "questions_answers_separate" ? "grid" : "none";
+    }
+
+    if ($("contentType")) {
+      $("contentType").addEventListener("change", updateContentTypeHelp);
+      updateContentTypeHelp();
+    }
+
+  function wireDropZone(zone, input, afterChange) {
+    if (!zone || !input) return;
+    zone.addEventListener("click", () => input.click());
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault(); zone.classList.remove("drag");
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      if (!isAllowedBankUploadFile(file)) {
+          setUploadStatus("Wrong file type. Upload .tex, .txt, .pdf, .png, .jpg, .jpeg, or .webp", "err");
+          return;
+        }
+      const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
+      if (afterChange) afterChange();
+      updateFileChip();
+    });
+    input.addEventListener("change", () => {
+      if (afterChange) afterChange();
+      updateFileChip();
+    });
+  }
+
+  wireDropZone(dropTex, texFile);
+  wireDropZone(dropQuestions, questionsFile);
+  wireDropZone(dropAnswers, answersFile);
+  updateFileChip();
+
+// --------- Solution bank: show all solutions ----------
+let activeExamId = "";
+
+function setActiveExam(id) {
+  activeExamId = id || "";
+
+  if ($("examId")) {
+    $("examId").value = activeExamId;
+  }
+}
+
+// Token usage per exam, aggregated from data/ai_usage_logs via
+// /routes/bank/token_usage. Keyed by exam_id.
+let tokenUsageByExam = {};
+
+function formatTokenLine(examId) {
+  // Tokens spent on OCR + AI structuring to decipher this solution, summed
+  // from the usage logs. Absent for solutions deciphered before usage
+  // attribution existed.
+  const usage = tokenUsageByExam[examId];
+
+  if (!usage || usage.total_tokens == null) {
+    return `🔢 Tokens to decipher: <b>n/a</b>`;
+  }
+
+  const total = Number(usage.total_tokens || 0);
+  const ocr = Number(usage.ocr_tokens || 0);
+  const ai = Number(usage.ai_tokens || 0);
+
+  return (
+    `🔢 Tokens to decipher: <b>${total.toLocaleString()}</b> ` +
+    `<span class="mg-token-breakdown">(OCR ${ocr.toLocaleString()} · AI ${ai.toLocaleString()})</span>`
+  );
+}
+
+async function loadTokenUsage() {
+  try {
+    const r = await authedFetch(API_BASE + "/routes/bank/token_usage");
+    if (!r.ok) {
+      tokenUsageByExam = {};
+      return;
+    }
+    const j = await r.json();
+    tokenUsageByExam = j.by_exam || {};
+  } catch (e) {
+    console.log("Token usage load failed:", e);
+    tokenUsageByExam = {};
+  }
+}
+
+function readableContentType(type) {
+  if (type === "questions_answers") return "One file: questions + answers";
+  if (type === "questions_answers_separate") return "Two files: questions + answers";
+  if (type === "questions_only") return "Questions only";
+  if (type === "answers_only") return "Answers only";
+  if (type === "reference") return "Official reference solution";
+  if (type === "full_solution") return "Full solution";
+  return "Saved TeX file";
+}
+
+function solutionFileRole(item) {
+  const filename = String(item?.filename || "");
+
+  if (filename === "reference_current.tex") return "full_solution";
+  if (filename === "questions_only_current.tex") return "questions_only";
+  if (filename === "answers_only_current.tex") return "answers_only";
+  if (filename === "questions_answers_current.tex") return "questions_answers";
+
+  if (item?.content_type === "questions_only") return "questions_only";
+  if (item?.content_type === "answers_only") return "answers_only";
+  if (item?.content_type === "questions_answers") return "questions_answers";
+  if (item?.content_type === "reference") return "full_solution";
+
+  return "other";
+}
+
+function readableSolutionRole(role) {
+  if (role === "full_solution") return "Full solution";
+  if (role === "questions_answers") return "Questions + answers";
+  if (role === "questions_only") return "Questions only";
+  if (role === "answers_only") return "Answers only";
+  return "Other file";
+}
+
+function rolePriority(role) {
+  if (role === "full_solution") return 1;
+  if (role === "questions_answers") return 2;
+  if (role === "questions_only") return 3;
+  if (role === "answers_only") return 4;
+  return 9;
+}
+
+function groupSolutionItemsByExam(items) {
+  const groups = new Map();
+
+  for (const item of items || []) {
+    const exam = item.exam_id || "unknown_exam";
+
+    if (!groups.has(exam)) {
+      groups.set(exam, {
+        exam_id: exam,
+        items: [],
+        byRole: {},
+        latestCreatedAt: "",
+        subject: "",
+        grading_prompt_extra: "",
+        full_solution_available: false,
+        reference_tex_available: false,
+        q_count: null,
+        part_count: null,
+        exam_structure_question_count: null,
+        exam_structure_part_count: null,
+        ocr_providers: new Set(),
+        validation_status: "ok",
+        gradeable_status: "not_gradeable",
+        empty_solution_keys: [],
+        review_item_keys: [],
+        empty_solution_count: 0,
+        review_item_count: 0,
+        bundle_warning_count: 0,
+        structure_correction_count: 0,
+      });
+    }
+
+    const group = groups.get(exam);
+    const role = solutionFileRole(item);
+    if (item.subject && !group.subject) group.subject = item.subject;
+    if (item.grading_prompt_extra && !group.grading_prompt_extra) group.grading_prompt_extra = item.grading_prompt_extra;
+
+    group.items.push({ ...item, role });
+
+    if (!group.byRole[role]) {
+      group.byRole[role] = [];
+    }
+    group.byRole[role].push({ ...item, role });
+
+    if (item.created_at && String(item.created_at) > String(group.latestCreatedAt || "")) {
+      group.latestCreatedAt = item.created_at;
+    }
+
+    group.full_solution_available = group.full_solution_available || !!item.full_solution_available || role === "full_solution";
+    group.reference_tex_available = group.reference_tex_available || !!item.reference_tex_available || item.filename === "reference_current.tex";
+
+    if (item.gradeable_status && item.gradeable_status !== "not_gradeable") {
+      group.gradeable_status = item.gradeable_status;
+    }
+    if (item.validation_status === "error") {
+      group.validation_status = "error";
+    } else if (item.validation_status === "warning" && group.validation_status !== "error") {
+      group.validation_status = "warning";
+    }
+
+    group.empty_solution_count = Math.max(group.empty_solution_count, Number(item.empty_solution_count || 0));
+    group.review_item_count = Math.max(group.review_item_count, Number(item.review_item_count || 0));
+    group.bundle_warning_count = Math.max(group.bundle_warning_count, Number(item.bundle_warning_count || 0));
+    group.structure_correction_count = Math.max(group.structure_correction_count, Number(item.structure_correction_count || 0));
+
+    for (const key of (item.empty_solution_keys || [])) {
+      if (!group.empty_solution_keys.includes(key)) group.empty_solution_keys.push(key);
+    }
+    for (const key of (item.review_item_keys || [])) {
+      if (!group.review_item_keys.includes(key)) group.review_item_keys.push(key);
+    }
+
+    if (item.q_count != null) group.q_count = item.q_count;
+    if (item.part_count != null) group.part_count = item.part_count;
+    if (item.exam_structure_question_count != null) group.exam_structure_question_count = item.exam_structure_question_count;
+    if (item.exam_structure_part_count != null) group.exam_structure_part_count = item.exam_structure_part_count;
+
+    if (item.ocr_used && (item.ocr_provider || item.source_kind)) {
+      group.ocr_providers.add(item.ocr_provider || item.source_kind);
+    }
+  }
+
+  return Array.from(groups.values()).map(group => {
+    group.items.sort((a, b) => {
+      const p = rolePriority(solutionFileRole(a)) - rolePriority(solutionFileRole(b));
+      if (p !== 0) return p;
+      return String(a.filename || "").localeCompare(String(b.filename || ""));
+    });
+
+    group.primaryItem =
+      group.byRole.full_solution?.[0] ||
+      group.byRole.questions_answers?.[0] ||
+      group.byRole.questions_only?.[0] ||
+      group.byRole.answers_only?.[0] ||
+      group.items[0];
+
+    return group;
+  });
+}
+
+function startEditReference(item) {
+  const id = item.exam_id || activeExamId || "";
+
+  if ($("examId")) $("examId").value = id;
+
+  if ($("contentType") && item && item.content_type) {
+    $("contentType").value = item.content_type;
+    if ($("uploadSubject") && item.subject) $("uploadSubject").value = item.subject;
+    if ($("solutionPromptComment")) $("solutionPromptComment").value = item.grading_prompt_extra || "";
+  }
+
+  setUploadStatus(
+    `Editing / replacing: ${item.filename}\n` +
+    `Exam: ${id}\n\n` +
+    `Choose the correct upload type, select an updated file below, and click “Upload to {{ reference_bank_label }}”.`
+  );
+
+  document.getElementById("uploadReference")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+}
+
+function renderEmptySolutionBank(message) {
+  $("itemsList").innerHTML = `
+    <div class="mg-empty-bank">
+      <div class="mg-empty-bank-icon">📁</div>
+      <div>
+        <strong>No saved solutions</strong>
+        <p>${escapeHtml(message || "Upload a reference file below to add the first solution.")}</p>
+      </div>
+    </div>
+  `;
+
+  if ($("solutionBankCount")) {
+    $("solutionBankCount").textContent = "0 solutions";
+  }
+}
+
+async function loadExams() {
+  setExamStatus("Loading solution bank…");
+  $("itemsList").innerHTML = "";
+
+  if ($("solutionBankCount")) {
+    $("solutionBankCount").textContent = "Loading…";
+  }
+
+  const r = await authedFetch(API_BASE + "/routes/bank/exams");
+
+  if (r.status === 401) {
+    setExamStatus("Unauthorized. Please log in again as teacher.");
+    return;
+  }
+
+  if (!r.ok) {
+      const errorText = await r.text();
+      setExamStatus(`Could not load solution bank.\nStatus: ${r.status}\n\n${errorText}`);
+      if ($("solutionBankCount")) {
+        $("solutionBankCount").textContent = "Load failed";
+      }
+      return;
+    }
+
+  const j = await r.json();
+  const ids = j.exam_ids || [];
+
+  if (!ids.length) {
+    setExamStatus("No reference solutions yet.");
+    renderEmptySolutionBank("Use the upload card below to add questions, answers, or a complete solution file.");
+    return;
+  }
+
+  await loadAllSolutionFiles(ids);
+}
+
+async function loadAllSolutionFiles(examIds) {
+  const allItems = [];
+
+  setExamStatus(`Loading saved files for ${examIds.length} exam(s)…`);
+
+  for (const id of examIds) {
+    const r = await authedFetch(API_BASE + `/routes/bank/list?exam_id=${encodeURIComponent(id)}`);
+
+    if (!r.ok) {
+      console.log(`Could not load files for ${id}:`, await r.text());
+      continue;
+    }
+
+    const j = await r.json();
+    const items = j.items || [];
+
+    for (const item of items) {
+      allItems.push({
+        ...item,
+        exam_id: id,
+      });
+    }
+  }
+
+  // Pull per-solution token usage from the AI usage logs before rendering.
+  await loadTokenUsage();
+
+  renderSolutionList(allItems);
+}
+
+function renderSolutionList(items) {
+  $("itemsList").innerHTML = "";
+
+  if (!items.length) {
+    setExamStatus("No saved reference files found.");
+    renderEmptySolutionBank("The bank has exam folders, but no TeX files inside them.");
+    return;
+  }
+
+  const groups = groupSolutionItemsByExam(items);
+
+  groups.sort((a, b) => {
+    return String(a.exam_id || "").localeCompare(String(b.exam_id || ""));
+  });
+
+  if ($("solutionBankCount")) {
+    $("solutionBankCount").textContent =
+      `${groups.length} exam${groups.length === 1 ? "" : "s"} · ` +
+      `${items.length} file${items.length === 1 ? "" : "s"}`;
+  }
+
+  setExamStatus(`Showing ${groups.length} solution-bank exam item(s).`);
+
+  for (const group of groups) {
+    const primary = group.primaryItem || {};
+    const div = document.createElement("div");
+    div.className = "mg-solution-row mg-solution-group-row";
+
+    const roleTabs = group.items.map((it, idx) => {
+      const role = solutionFileRole(it);
+      const active = idx === 0 ? " active" : "";
+      return `
+        <button
+          class="secondary mg-solution-tab${active}"
+          data-tab-index="${idx}"
+          type="button"
+        >
+          ${escapeHtml(readableSolutionRole(role))}
+        </button>
+      `;
+    }).join("");
+
+    const validationClass =
+      group.validation_status === "error" ? " err" :
+      group.validation_status === "warning" ? " warn" :
+      " ok";
+    const missingPreview = group.empty_solution_keys.slice(0, 6).join(", ");
+
+    const statusTags = [
+      group.subject ? `<span class="tag">Subject: ${escapeHtml(group.subject)}</span>` : "",
+      group.full_solution_available ? `<span class="tag ok">Grading JSON ready</span>` : `<span class="tag warn">Waiting for full-solution JSON</span>`,
+      group.reference_tex_available ? `<span class="tag">Display TeX ready</span>` : "",
+      group.gradeable_status === "clean" ? `<span class="tag ok">Clean reference</span>` : "",
+      group.gradeable_status === "draft_review_required" ? `<span class="tag warn">Teacher review needed</span>` : "",
+      `<span class="tag${validationClass}">Validation: ${escapeHtml(group.validation_status || "unknown")}</span>`,
+      group.empty_solution_count ? `<span class="tag err">Missing solutions: ${escapeHtml(missingPreview)}${group.empty_solution_keys.length > 6 ? "…" : ""}</span>` : "",
+      group.review_item_count ? `<span class="tag warn">Review items: ${group.review_item_count}</span>` : "",
+      group.bundle_warning_count ? `<span class="tag warn">Bundle warnings: ${group.bundle_warning_count}</span>` : "",
+      group.structure_correction_count ? `<span class="tag warn">Structure corrections: ${group.structure_correction_count}</span>` : "",
+      group.ocr_providers.size ? `<span class="tag">OCR: ${escapeHtml(Array.from(group.ocr_providers).join(", "))}</span>` : "",
+      (group.exam_structure_question_count != null) ? `<span class="tag">Structure Q: ${group.exam_structure_question_count}</span>` : "",
+      (group.exam_structure_part_count != null) ? `<span class="tag">Structure parts: ${group.exam_structure_part_count}</span>` : "",
+      (group.q_count != null) ? `<span class="tag">JSON Q: ${group.q_count}</span>` : "",
+      (group.part_count != null) ? `<span class="tag">JSON parts: ${group.part_count}</span>` : "",
+    ].join("");
+
+    div.innerHTML = `
+      <div class="mg-solution-row-main">
+        <div class="mg-solution-icon">Σ</div>
+
+        <div class="mg-solution-info">
+          <div class="mg-solution-type">Solution bank item</div>
+          <div class="mg-solution-title">${escapeHtml(group.exam_id)}</div>
+          <div class="mg-solution-file" data-role="active-file">
+            ${escapeHtml(primary.filename || "No file selected")}
+          </div>
+          <div class="mg-solution-meta">
+            Updated: ${escapeHtml(group.latestCreatedAt || primary.created_at || "unknown date")}
+            ${group.grading_prompt_extra ? `<br>Prompt comment: ${escapeHtml(group.grading_prompt_extra).slice(0, 160)}${group.grading_prompt_extra.length > 160 ? "…" : ""}` : ""}
+          </div>
+          <div class="mg-solution-tokens">
+            ${formatTokenLine(group.exam_id)}
+          </div>
+          <div class="mg-solution-tags">${statusTags}</div>
+          <div class="mg-solution-tabs">${roleTabs}</div>
+        </div>
+      </div>
+
+      <div class="mg-solution-actions">
+        <button class="secondary" data-action="preview" type="button">Preview selected</button>
+        <button class="secondary" data-action="download" type="button">Download selected</button>
+        <button class="secondary" data-action="edit" type="button">Edit / replace selected</button>
+        <button class="danger" data-action="delete" type="button">Delete exam</button>
+      </div>
+
+      <div class="preview mono mg-solution-preview"></div>
+    `;
+
+    let selectedIndex = 0;
+
+    const previewEl = div.querySelector(".preview");
+    const activeFileEl = div.querySelector('[data-role="active-file"]');
+
+    function selectedItem() {
+      return group.items[selectedIndex] || group.primaryItem || group.items[0];
+    }
+
+    function updateSelectedTab() {
+      const selected = selectedItem();
+
+      if (activeFileEl) {
+        activeFileEl.textContent = selected?.filename || "No file selected";
+      }
+
+      div.querySelectorAll(".mg-solution-tab").forEach(btn => {
+        const idx = Number(btn.getAttribute("data-tab-index") || 0);
+        btn.classList.toggle("active", idx === selectedIndex);
+      });
+
+      if (previewEl) {
+        previewEl.style.display = "none";
+        previewEl.textContent = "";
+      }
+    }
+
+    div.querySelectorAll(".mg-solution-tab").forEach(btn => {
+      btn.onclick = () => {
+        selectedIndex = Number(btn.getAttribute("data-tab-index") || 0);
+        updateSelectedTab();
+      };
+    });
+
+    div.querySelector('[data-action="preview"]').onclick = async () => {
+      const it = selectedItem();
+      if (!it) return;
+
+      if (previewEl.style.display === "block") {
+        previewEl.style.display = "none";
+        return;
+      }
+
+      previewEl.style.display = "block";
+      previewEl.textContent = "Loading preview…";
+
+      const r2 = await authedFetch(
+        API_BASE + `/routes/bank/preview?exam_id=${encodeURIComponent(group.exam_id)}&filename=${encodeURIComponent(it.filename)}`
+      );
+
+      if (!r2.ok) {
+        previewEl.textContent = await r2.text();
+        return;
+      }
+
+      const j2 = await r2.json();
+
+      const keyLabel =
+        j2.content_type === "questions_only" ? "Detected question structure" :
+        j2.content_type === "answers_only" ? "Detected answer structure" :
+        j2.content_type === "questions_answers" ? "Detected full solution structure" :
+        solutionFileRole(it) === "full_solution" ? "Gradeable full solution" :
+        "Parsed keys";
+
+      const sourceTags = [
+        j2.document_type ? `Document: ${j2.document_type}` : "",
+        j2.detected_document_type ? `Detected: ${j2.detected_document_type}` : "",
+        j2.pdf_text_layer_used ? "PDF text layer" : "",
+        j2.ocr_used ? "OCR" : "",
+        j2.ocr_path ? String(j2.ocr_path) : "",
+        j2.subject ? `Subject: ${j2.subject}` : "",
+        j2.source_kind ? String(j2.source_kind) : "",
+        j2.full_solution_available ? "Full solution ready" : "",
+        j2.reference_tex_available ? "Display TeX ready" : "",
+      ].filter(Boolean).join(" · ");
+
+      const validationLines = [];
+      if (j2.validation_status) {
+        validationLines.push(`Validation: ${j2.validation_status}`);
+      }
+      if (j2.gradeable_status) {
+        validationLines.push(`Gradeable status: ${j2.gradeable_status}`);
+      }
+      if (Number(j2.empty_solution_count || 0)) {
+        validationLines.push(`Missing solutions: ${(j2.empty_solution_keys || []).join(", ")}`);
+      }
+      if (Number(j2.review_item_count || 0)) {
+        validationLines.push(`Review items: ${j2.review_item_count}`);
+      }
+      if (Number(j2.structure_correction_count || 0)) {
+        validationLines.push(`Structure corrections: ${j2.structure_correction_count}`);
+      }
+      for (const w of (j2.validation_warnings || []).slice(0, 5)) {
+        validationLines.push(`Warning: ${w}`);
+      }
+
+      previewEl.innerHTML =
+        `<div class="mg-preview-meta-row">` +
+          `<b>${escapeHtml(keyLabel)}:</b> ` +
+          `${escapeHtml((j2.keys || []).join(", ") || "No keys detected")}` +
+        `</div>` +
+        (sourceTags ? `<div class="mg-preview-source">${escapeHtml(sourceTags)}</div>` : "") +
+        (validationLines.length ? `<div class="mg-preview-validation">${escapeHtml(validationLines.join("\n"))}</div>` : "") +
+        `<div style="height:10px"></div>` +
+        `<div><b>Preview:</b></div>` +
+        `<pre class="mg-hebrew-preview-text">${escapeHtml(j2.preview_text || "")}</pre>`;
+    };
+
+    div.querySelector('[data-action="download"]').onclick = async () => {
+      const it = selectedItem();
+      if (!it) return;
+
+      const r2 = await authedFetch(
+        API_BASE + `/routes/bank/raw?exam_id=${encodeURIComponent(group.exam_id)}&filename=${encodeURIComponent(it.filename)}`
+      );
+
+      if (!r2.ok) {
+        alert(await r2.text());
+        return;
+      }
+
+      const text = await r2.text();
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    };
+
+    div.querySelector('[data-action="edit"]').onclick = () => {
+      const it = selectedItem();
+      if (!it) return;
+      startEditReference(it);
+    };
+
+    div.querySelector('[data-action="delete"]').onclick = async () => {
+      if (!confirm(
+        `Delete the entire solution-bank item for "${group.exam_id}"?\n\n` +
+        `This will remove all files for this exam, including questions, answers, generated full solution, OCR files, and JSON bundles.`
+      )) return;
+
+      const r3 = await authedFetch(
+        API_BASE + "/routes/bank/exam/delete",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            exam_id: group.exam_id,
+          }),
+        }
+      );
+
+      if (!r3.ok) {
+        alert(await r3.text());
+        return;
+      }
+
+      await loadExams();
+    };
+
+    updateSelectedTab();
+    $("itemsList").appendChild(div);
+  }
+}
+
+async function refreshFiles() {
+  await loadExams();
+}
+  async function upload(){
+    const id = examId();
+    const type = $("contentType").value;
+    const isSeparate = type === "questions_answers_separate";
+    const f = texFile && texFile.files ? texFile.files[0] : null;
+    const qf = questionsFile && questionsFile.files ? questionsFile.files[0] : null;
+    const af = answersFile && answersFile.files ? answersFile.files[0] : null;
+    const ocrProvider = $("ocrProvider") ? $("ocrProvider").value : "mathpix";
+    const ocrLabel =
+      ocrProvider === "openai" ? "OpenAI / GPT" :
+      ocrProvider === "google" ? "Google / Gemini" :
+      "Mathpix";
+
+    if(!id){ setUploadStatus("Please select or type an exam_id.", "err"); return; }
+
+    if (isSeparate) {
+      if(!qf){ setUploadStatus("Please select the questions file.", "err"); return; }
+      if(!af){ setUploadStatus("Please select the answers/solutions file.", "err"); return; }
+    } else {
+      if(!f){ setUploadStatus("Please select a .tex, .txt, .pdf, or image file.", "err"); return; }
+    }
+
+    const jobId = mkJobId();
+    const files = isSeparate ? [qf, af] : [f];
+    const hasOcrFile = files.some(file => /\.(pdf|png|jpg|jpeg|webp)$/i.test(file.name));
+    const readableType = readableContentType(type);
+
+    const lines = [
+      `[${nowTag()}] Started upload for ${id}`,
+      `[${nowTag()}] Upload mode: ${readableType}`,
+      isSeparate
+        ? `[${nowTag()}] Questions: ${qf.name} (${selectedRadioValue("questionsDocumentType")}); Answers: ${af.name} (${selectedRadioValue("answersDocumentType")})`
+        : `[${nowTag()}] File: ${f.name} (${selectedRadioValue("singleDocumentType")})`,
+      hasOcrFile
+        ? `[${nowTag()}] OCR file detected — OCR via ${ocrLabel} may take a few minutes…`
+        : `[${nowTag()}] TeX/TXT upload detected — OCR will be skipped.`,
+    ];
+    setUploadStatus(lines, "work");
+    showBusy(
+      hasOcrFile ? "Processing OCR…" : "Uploading…",
+      isSeparate
+        ? `${APP_NAME} is running one job: questions first, answers second, then full_solution_bundle.json.`
+        : (hasOcrFile ? `OCR via ${ocrLabel} is running. This may take a few minutes.` : `Uploading ${f.name}…`)
+    );
+
+    if ($("uploadBtn")) $("uploadBtn").disabled = true;
+
+    const stopSignal = { stopped: false };
+    const pollPromise = pollProgress(jobId, lines, stopSignal);
+
+    try {
+      const fd = new FormData();
+      fd.append("exam_id", id);
+      fd.append("job_id", jobId);
+      fd.append("ocr_provider", ocrProvider);
+      fd.append("subject", $("uploadSubject") ? $("uploadSubject").value : (CURRENT_TEACHER_PROFILE && CURRENT_TEACHER_PROFILE.subject) || "math");
+      fd.append("grading_prompt_extra", $("solutionPromptComment") ? $("solutionPromptComment").value.trim() : "");
+
+      let endpoint = API_BASE + "/routes/bank/upload";
+
+      if (isSeparate) {
+        endpoint = API_BASE + "/routes/bank/upload_pair";
+        fd.append("questions_file", qf);
+        fd.append("answers_file", af);
+        fd.append("questions_document_type", selectedRadioValue("questionsDocumentType"));
+        fd.append("answers_document_type", selectedRadioValue("answersDocumentType"));
+      } else {
+        fd.append("content_type", "questions_answers");
+        fd.append("tex_file", f);
+        fd.append("document_type", selectedRadioValue("singleDocumentType"));
+      }
+
+      const r = await authedFetch(endpoint, { method:"POST", body: fd });
+
+      stopSignal.stopped = true;
+      await pollPromise;
+
+      if (!r.ok) {
+        const text = await r.text();
+        lines.push(`[${nowTag()}] Upload failed: ${text}`);
+        setUploadStatus(lines, "err");
+        return;
+      }
+
+      const result = await r.json();
+      const warn = result.validation_status && result.validation_status !== "ok";
+      lines.push(warn ? `[${nowTag()}] Upload complete with warnings ⚠️` : `[${nowTag()}] Upload complete ✅`);
+      if (result.full_solution_available === false) {
+        lines.push(`[${nowTag()}] Warning: full_solution_bundle.json was not generated.`);
+      }
+      setUploadStatus(lines, warn ? "work" : "ok");
+
+      if (texFile) texFile.value = "";
+      if (questionsFile) questionsFile.value = "";
+      if (answersFile) answersFile.value = "";
+      updateFileChip();
+
+      setActiveExam(id);
+      await loadExams();
+    } catch(e) {
+      stopSignal.stopped = true;
+      try { await pollPromise; } catch(_) {}
+      lines.push(`[${nowTag()}] ERROR: ${e?.message || e}`);
+      setUploadStatus(lines, "err");
+    } finally {
+      hideBusy();
+      if ($("uploadBtn")) $("uploadBtn").disabled = false;
+    }
+  }
+
+  const uploadBtn = $("uploadBtn");
+    const refreshFilesBtn = $("refreshFilesBtn");
+    const refreshExamsBtn = $("refreshExamsBtn");
+
+    if (uploadBtn) uploadBtn.onclick = upload;
+    if (refreshFilesBtn) refreshFilesBtn.onclick = refreshFiles;
+    if (refreshExamsBtn) refreshExamsBtn.onclick = loadExams;
+
+    window.addEventListener("load", () => loadExams());
+</script>
+{% endblock %}

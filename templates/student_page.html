@@ -4,15 +4,15 @@
 {% block header_title %}{{ app_name }}{% endblock %}
 {% block header_subtitle %}Upload your work and receive feedback{% endblock %}
 {% block header_actions %}
-  <a
-    id="backToTeacherBtn"
-    class="primary-btn small mg-feedback-teacher-back"
-    href="/teacher"
-    style="display:none;"
-  >
-    <span class="mg-feedback-teacher-back-icon">←</span>
-    <span>Back to teacher page</span>
-  </a>
+<a
+  id="backToTeacherBtn"
+  class="primary-btn small mg-feedback-teacher-back"
+  href="/course-workspace"
+  style="display:none;"
+>
+  <span class="mg-feedback-teacher-back-icon">←</span>
+  <span>Back to course workspace</span>
+</a>
 
   <button id="logoutBtnTop" class="secondary-btn small mg-feedback-logout-btn" type="button">
     Logout
@@ -693,8 +693,23 @@
 }, "Wrong file type. Please upload PNG, JPG, JPEG, WEBP, or PDF.");
 
     async function doLogout() {
-      try { await authedFetch(ENDPOINT_LOGOUT, { method: "POST" }); } catch (_) {}
-      window.location.href = "/student-login";
+      const logoutRole = currentRole;
+
+      try {
+        await authedFetch(
+          ENDPOINT_LOGOUT,
+          {
+            method: "POST",
+          }
+        );
+      } catch (_) {
+        // Redirect even if logout returns an error.
+      }
+
+      window.location.href =
+        logoutRole === "teacher"
+          ? "/teacher-login"
+          : "/student-login";
     }
 
     logoutBtnTop.addEventListener("click", doLogout);

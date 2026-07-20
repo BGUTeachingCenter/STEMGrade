@@ -4286,3 +4286,84 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     padding: 22px;
   }
 }
+
+/* =========================================================
+   Course workspace separation
+   ========================================================= */
+
+.mg-course-workspace-page .mg-workspace-hero-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.mg-course-workspace-page .mg-workspace-course-pill {
+  border-color: #b9dbbd;
+  background: #edf8ef;
+  color: #287331;
+}
+
+.mg-course-workspace-page .mg-workspace-course-pill::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #42a34e;
+  box-shadow: 0 0 0 5px rgba(66, 163, 78, 0.13);
+}
+
+.mg-course-settings-section {
+  scroll-margin-top: 180px;
+}
+
+.mg-workspace-course-identity {
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(47, 125, 50, 0.07),
+      transparent 42%
+    ),
+    #fffdfa;
+}
+
+.mg-workspace-course-identity span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mg-workspace-course-identity strong {
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.mg-course-workspace-page #courseSettingsStatus {
+  min-height: 0;
+}
+
+@media (max-width: 700px) {
+  .mg-course-workspace-page .mg-workspace-hero-meta {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .mg-course-workspace-page .mg-workspace-course-pill,
+  .mg-course-workspace-page .mg-health-pill {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
