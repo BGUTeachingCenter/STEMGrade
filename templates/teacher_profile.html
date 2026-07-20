@@ -1,0 +1,965 @@
+{% extends "base.html" %}
+
+{% block title %}Teacher Profile · {{ app_name }}{% endblock %}
+{% block header_title %}Teacher Profile{% endblock %}
+{% block header_subtitle %}Manage your account and courses{% endblock %}
+
+{% block header_actions %}
+  <a class="secondary-btn small" href="/">Home</a>
+
+  <button
+    id="teacherProfileLogoutBtn"
+    class="secondary-btn small"
+    type="button"
+  >
+    Logout
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="mg-teacher-page mg-teacher-profile-page">
+  <section class="mg-teacher-hero">
+    <div>
+      <div class="badge">Teacher account</div>
+
+      <h1 id="profileWelcomeTitle">Teacher Profile</h1>
+
+      <p class="lead">
+        Manage your account, create courses using vouchers,
+        and open any of your existing course workspaces.
+      </p>
+    </div>
+
+    <div class="mg-teacher-hero-meta">
+      <span class="pill" id="profileCourseCount">
+        Loading courses…
+      </span>
+    </div>
+  </section>
+
+  <section class="mg-teacher-section">
+    <div class="mg-teacher-section-head">
+      <div>
+        <h2>Your account</h2>
+        <p>
+          Your username is used both for login and as your displayed
+          teacher name.
+        </p>
+      </div>
+    </div>
+
+    <div class="card mg-bank-big-card">
+      <div class="cardInner">
+        <div class="mg-profile-account-grid">
+          <div>
+            <label for="profileUsername">Username</label>
+
+            <input
+              id="profileUsername"
+              type="text"
+              minlength="3"
+              maxlength="40"
+              autocomplete="username"
+              dir="auto"
+            />
+
+            <div class="small mg-field-help">
+              Changing this also changes the username used at login.
+            </div>
+          </div>
+
+          <div class="mg-profile-identity-card">
+            <span>Internal teacher ID</span>
+            <code id="profileTeacherId">Loading…</code>
+          </div>
+        </div>
+
+        <div class="mg-upload-reference-actions">
+          <button id="saveUsernameBtn" type="button">
+            Save username
+          </button>
+        </div>
+
+        <div
+          id="accountStatus"
+          class="statusBox mg-profile-status"
+          style="display:none;"
+        ></div>
+
+        <details class="mg-password-details mg-profile-password-details">
+          <summary>Change password</summary>
+
+          <div class="mg-profile-password-grid">
+            <div>
+              <label for="currentPassword">Current password</label>
+
+              <input
+                id="currentPassword"
+                type="password"
+                autocomplete="current-password"
+              />
+            </div>
+
+            <div>
+              <label for="newPassword">New password</label>
+
+              <input
+                id="newPassword"
+                type="password"
+                autocomplete="new-password"
+              />
+            </div>
+
+            <div>
+              <label for="confirmNewPassword">
+                Confirm new password
+              </label>
+
+              <input
+                id="confirmNewPassword"
+                type="password"
+                autocomplete="new-password"
+              />
+            </div>
+          </div>
+
+          <div class="small mg-field-help">
+            Use at least 10 characters with uppercase, lowercase,
+            and a number.
+          </div>
+
+          <div class="mg-upload-reference-actions">
+            <button
+              id="changePasswordBtn"
+              class="secondary-btn"
+              type="button"
+            >
+              Change password
+            </button>
+          </div>
+
+          <div
+            id="passwordStatus"
+            class="statusBox mg-profile-status"
+            style="display:none;"
+          ></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="mg-teacher-section" id="profileCoursesSection">
+    <div class="mg-teacher-section-head">
+      <div>
+        <h2>Your courses</h2>
+
+        <p>
+          Select a course to make it active and open its grading workspace.
+        </p>
+      </div>
+
+      <a class="primary-btn small" href="#createCourseSection">
+        Add course
+      </a>
+    </div>
+
+    <div id="profileCoursesGrid" class="mg-profile-course-grid">
+      <div class="emptyState">Loading your courses…</div>
+    </div>
+  </section>
+
+  <section
+    class="mg-teacher-section mg-profile-create-course-section"
+    id="createCourseSection"
+  >
+    <div class="mg-teacher-section-head">
+      <div>
+        <h2>Create a course</h2>
+
+        <p>
+          Redeem one unused voucher and attach the new course to this
+          teacher profile.
+        </p>
+      </div>
+    </div>
+
+    <div class="card mg-bank-big-card">
+      <div class="cardInner">
+        <form id="createCourseForm">
+          <div class="mg-profile-course-form-grid">
+            <div>
+              <label for="courseVoucherCode">Voucher code</label>
+
+              <input
+                id="courseVoucherCode"
+                type="text"
+                required
+                placeholder="STEM-…"
+                autocomplete="off"
+              />
+            </div>
+
+            <div>
+              <label for="newCourseLabel">Course / group label</label>
+
+              <input
+                id="newCourseLabel"
+                type="text"
+                required
+                placeholder="e.g. Linear Algebra 2026"
+              />
+            </div>
+
+            <div>
+              <label for="newCourseSubject">Subject</label>
+
+              <select id="newCourseSubject">
+                <option value="">Use voucher default</option>
+              </select>
+
+              <div class="small mg-field-help">
+                Leave this on voucher default unless the course needs
+                a different subject.
+              </div>
+            </div>
+
+            <div>
+              <label for="initialStudentCount">
+                Initial student codes
+              </label>
+
+              <input
+                id="initialStudentCount"
+                type="number"
+                min="0"
+                max="200"
+                value="0"
+              />
+
+              <div class="small mg-field-help">
+                More student codes can be added later inside the workspace.
+              </div>
+            </div>
+          </div>
+
+          <label for="newCoursePrompt">
+            Additional grading instructions
+          </label>
+
+          <textarea
+            id="newCoursePrompt"
+            rows="5"
+            placeholder="Optional course-specific grading priorities…"
+          ></textarea>
+
+          <div class="small mg-field-help">
+            Leave blank to use the subject's default grading instructions.
+          </div>
+
+          <div class="mg-upload-reference-actions">
+            <button id="createCourseBtn" type="submit">
+              Create course
+            </button>
+          </div>
+        </form>
+
+        <div
+          id="createCourseStatus"
+          class="statusBox mg-profile-status"
+          style="display:none;"
+        ></div>
+
+        <div
+          id="createdStudentCodes"
+          class="mg-profile-created-codes"
+          style="display:none;"
+        ></div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = (id) => document.getElementById(id);
+
+let TEACHER_PROFILE = {};
+let TEACHER_COURSES = [];
+let SUBJECT_OPTIONS = [];
+
+const DEFAULT_PROMPTS = {
+  math:
+    "Grade mathematical reasoning, notation, algebra/calculus steps, " +
+    "final answer, and justification. Do not give credit for an " +
+    "unsupported final answer when the method is required.",
+
+  physics:
+    "Grade physical reasoning, formula selection, unit consistency, " +
+    "substitution, signs/directions, significant figures, and " +
+    "interpretation of the result.",
+
+  chemistry:
+    "Grade chemical notation, balanced equations, units, " +
+    "stoichiometry, charges, states/phases when relevant, and " +
+    "conceptual explanation.",
+
+  biology:
+    "Grade biological terminology, process accuracy, evidence, " +
+    "diagrams/labels when relevant, and whether the explanation " +
+    "answers the requested mechanism or comparison.",
+
+  cs:
+    "Grade algorithmic reasoning, code correctness, edge cases, " +
+    "complexity, outputs, syntax/indentation when relevant, and " +
+    "whether the answer matches the required programming task.",
+
+  engineering:
+    "Grade modeling assumptions, equations, units, constraints, " +
+    "calculations, safety factors, diagrams, and interpretation " +
+    "of engineering results.",
+
+  general_stem:
+    "Grade the STEM reasoning, correct use of domain concepts, " +
+    "units/notation where relevant, evidence, and clarity of explanation.",
+};
+
+let redirectingToLogin = false;
+
+async function authedFetch(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+  });
+
+  if (
+    (response.status === 401 || response.status === 403) &&
+    !redirectingToLogin
+  ) {
+    redirectingToLogin = true;
+    window.location.href = "/teacher-login";
+  }
+
+  return response;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatDate(value) {
+  if (!value) return "Unknown date";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function setStatus(elementId, message, kind = "") {
+  const element = $(elementId);
+
+  if (!element) return;
+
+  element.style.display = "block";
+  element.textContent = message;
+  element.classList.remove("ok", "err", "work");
+
+  if (kind) {
+    element.classList.add(kind);
+  }
+}
+
+function hideStatus(elementId) {
+  const element = $(elementId);
+
+  if (!element) return;
+
+  element.style.display = "none";
+  element.textContent = "";
+  element.classList.remove("ok", "err", "work");
+}
+
+function renderSubjectOptions() {
+  const select = $("newCourseSubject");
+
+  if (!select) return;
+
+  select.innerHTML = [
+    '<option value="">Use voucher default</option>',
+    ...SUBJECT_OPTIONS.map((subject) => (
+      `<option value="${escapeHtml(subject.value)}">` +
+      `${escapeHtml(subject.label)}</option>`
+    )),
+  ].join("");
+}
+
+function courseCard(course) {
+  const courseId = String(course.course_id || "");
+  const activeCourseId = String(
+    TEACHER_PROFILE.active_course_id ||
+    TEACHER_PROFILE.active_course?.course_id ||
+    ""
+  );
+
+  const isActive = courseId === activeCourseId;
+  const courseLabel = escapeHtml(
+    course.course_label || "Untitled course"
+  );
+
+  const subject = escapeHtml(
+    course.subject_label ||
+    course.subject ||
+    "General STEM"
+  );
+
+  const status = escapeHtml(course.status || "active");
+  const createdAt = escapeHtml(formatDate(course.created_at));
+
+  return `
+    <article
+      class="mg-profile-course-card ${isActive ? "is-active" : ""}"
+    >
+      <div class="mg-profile-course-card-head">
+        <div class="mg-profile-course-icon">📚</div>
+
+        <div class="mg-profile-course-heading">
+          <div class="mg-profile-course-title">${courseLabel}</div>
+          <div class="mg-profile-course-subject">${subject}</div>
+        </div>
+
+        <span
+          class="mg-profile-course-state ${isActive ? "active" : ""}"
+        >
+          ${isActive ? "Active course" : status}
+        </span>
+      </div>
+
+      <div class="mg-profile-course-meta-grid">
+        <div>
+          <span>Created</span>
+          <strong>${createdAt}</strong>
+        </div>
+
+        <div>
+          <span>Course ID</span>
+          <code>${escapeHtml(courseId)}</code>
+        </div>
+      </div>
+
+      <div class="mg-profile-course-actions">
+        <button
+          type="button"
+          class="primary-btn mg-open-course-btn"
+          data-course-id="${escapeHtml(courseId)}"
+        >
+          ${isActive ? "Open workspace" : "Select and open"}
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderCourses() {
+  const grid = $("profileCoursesGrid");
+  const count = TEACHER_COURSES.length;
+
+  $("profileCourseCount").textContent =
+    `${count} course${count === 1 ? "" : "s"}`;
+
+  if (!grid) return;
+
+  if (!count) {
+    grid.innerHTML = `
+      <div class="mg-profile-empty-courses">
+        <div class="mg-profile-empty-icon">🎟️</div>
+
+        <div>
+          <strong>No courses yet</strong>
+
+          <p>
+            Create your first course below by entering a voucher
+            supplied by the administrator.
+          </p>
+
+          <a class="primary-btn small" href="#createCourseSection">
+            Create first course
+          </a>
+        </div>
+      </div>
+    `;
+
+    return;
+  }
+
+  grid.innerHTML = TEACHER_COURSES.map(courseCard).join("");
+
+  document
+    .querySelectorAll(".mg-open-course-btn")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        openCourse(button.dataset.courseId || "");
+      });
+    });
+}
+
+async function loadTeacherProfile() {
+  try {
+    const response = await authedFetch(
+      "/routes/teacher/profile",
+      {
+        cache: "no-store",
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not load the teacher profile."
+      );
+    }
+
+    TEACHER_PROFILE = data.teacher || {};
+    TEACHER_COURSES =
+      data.courses ||
+      TEACHER_PROFILE.courses ||
+      [];
+
+    SUBJECT_OPTIONS = data.subjects || [];
+
+    const username =
+      TEACHER_PROFILE.username ||
+      TEACHER_PROFILE.name ||
+      "Teacher";
+
+    $("profileWelcomeTitle").textContent = `${username}'s Profile`;
+    $("profileUsername").value = username;
+    $("profileTeacherId").textContent =
+      TEACHER_PROFILE.teacher_id || "—";
+
+    renderSubjectOptions();
+    renderCourses();
+  } catch (error) {
+    $("profileCoursesGrid").innerHTML = `
+      <div class="emptyState">
+        Profile load failed:
+        ${escapeHtml(
+          error && error.message
+            ? error.message
+            : String(error)
+        )}
+      </div>
+    `;
+  }
+}
+
+async function saveUsername() {
+  const username = ($("profileUsername").value || "").trim();
+
+  if (!username) {
+    setStatus(
+      "accountStatus",
+      "Enter a username.",
+      "err"
+    );
+
+    return;
+  }
+
+  $("saveUsernameBtn").disabled = true;
+
+  setStatus(
+    "accountStatus",
+    "Saving username…",
+    "work"
+  );
+
+  try {
+    const response = await authedFetch(
+      "/routes/teacher/profile",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          username,
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not save the username."
+      );
+    }
+
+    TEACHER_PROFILE = data.teacher || TEACHER_PROFILE;
+
+    const savedUsername =
+      TEACHER_PROFILE.username ||
+      TEACHER_PROFILE.name ||
+      username;
+
+    $("profileUsername").value = savedUsername;
+    $("profileWelcomeTitle").textContent =
+      `${savedUsername}'s Profile`;
+
+    setStatus(
+      "accountStatus",
+      "Username saved.",
+      "ok"
+    );
+  } catch (error) {
+    setStatus(
+      "accountStatus",
+      error && error.message
+        ? error.message
+        : String(error),
+      "err"
+    );
+  } finally {
+    $("saveUsernameBtn").disabled = false;
+  }
+}
+
+async function changePassword() {
+  const currentPassword = $("currentPassword").value || "";
+  const newPassword = $("newPassword").value || "";
+  const confirmPassword = $("confirmNewPassword").value || "";
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    setStatus(
+      "passwordStatus",
+      "Complete all three password fields.",
+      "err"
+    );
+
+    return;
+  }
+
+  $("changePasswordBtn").disabled = true;
+
+  setStatus(
+    "passwordStatus",
+    "Changing password…",
+    "work"
+  );
+
+  try {
+    const response = await authedFetch(
+      "/routes/teacher/change_password",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          old_password: currentPassword,
+          new_password: newPassword,
+          new_password_confirm: confirmPassword,
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not change the password."
+      );
+    }
+
+    $("currentPassword").value = "";
+    $("newPassword").value = "";
+    $("confirmNewPassword").value = "";
+
+    setStatus(
+      "passwordStatus",
+      "Password changed successfully.",
+      "ok"
+    );
+  } catch (error) {
+    setStatus(
+      "passwordStatus",
+      error && error.message
+        ? error.message
+        : String(error),
+      "err"
+    );
+  } finally {
+    $("changePasswordBtn").disabled = false;
+  }
+}
+
+async function openCourse(courseId) {
+  if (!courseId) return;
+
+  const currentCourseId = String(
+    TEACHER_PROFILE.active_course_id ||
+    TEACHER_PROFILE.active_course?.course_id ||
+    ""
+  );
+
+  try {
+    if (courseId !== currentCourseId) {
+      const response = await authedFetch(
+        "/routes/teacher/active_course",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            course_id: courseId,
+          }),
+        }
+      );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data || !data.ok) {
+        throw new Error(
+          (data && data.detail) ||
+          "Could not select the course."
+        );
+      }
+    }
+
+    // Phase 4 will rename this to /course-workspace.
+    window.location.href = "/teacher";
+  } catch (error) {
+    setStatus(
+      "accountStatus",
+      error && error.message
+        ? error.message
+        : String(error),
+      "err"
+    );
+  }
+}
+
+function renderCreatedStudentCodes(codes) {
+  const box = $("createdStudentCodes");
+
+  if (!box) return;
+
+  if (!codes.length) {
+    box.style.display = "none";
+    box.innerHTML = "";
+    return;
+  }
+
+  box.style.display = "block";
+
+  box.innerHTML = `
+    <div class="mg-profile-created-codes-head">
+      <div>
+        <strong>
+          ${codes.length} student code${codes.length === 1 ? "" : "s"}
+          created
+        </strong>
+
+        <p>
+          Copy these now, or download them later from the course workspace.
+        </p>
+      </div>
+    </div>
+
+    <div class="mg-profile-created-code-list">
+      ${codes.map((item) => `
+        <button
+          type="button"
+          class="mg-profile-created-code mg-copy-created-code"
+          data-code="${escapeHtml(item.code || "")}"
+        >
+          <code>${escapeHtml(item.code || "")}</code>
+          <span>Copy</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+
+  document
+    .querySelectorAll(".mg-copy-created-code")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(
+            button.dataset.code || ""
+          );
+
+          const label = button.querySelector("span");
+
+          if (label) {
+            label.textContent = "Copied";
+            setTimeout(() => {
+              label.textContent = "Copy";
+            }, 1200);
+          }
+        } catch (_) {
+          const label = button.querySelector("span");
+
+          if (label) {
+            label.textContent = "Copy failed";
+          }
+        }
+      });
+    });
+}
+
+async function createCourse(event) {
+  event.preventDefault();
+  hideStatus("createCourseStatus");
+
+  const voucherCode =
+    ($("courseVoucherCode").value || "").trim();
+
+  const courseLabel =
+    ($("newCourseLabel").value || "").trim();
+
+  const subject = $("newCourseSubject").value || "";
+
+  const initialStudentCount = Number(
+    $("initialStudentCount").value || 0
+  );
+
+  const gradingPromptExtra =
+    ($("newCoursePrompt").value || "").trim();
+
+  if (!voucherCode || !courseLabel) {
+    setStatus(
+      "createCourseStatus",
+      "Enter both a voucher code and course label.",
+      "err"
+    );
+
+    return;
+  }
+
+  $("createCourseBtn").disabled = true;
+
+  setStatus(
+    "createCourseStatus",
+    "Creating course…",
+    "work"
+  );
+
+  try {
+    const response = await authedFetch(
+      "/routes/teacher/courses",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          voucher_code: voucherCode,
+          course_label: courseLabel,
+          subject,
+          grading_prompt_extra: gradingPromptExtra,
+          initial_student_count: initialStudentCount,
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not create the course."
+      );
+    }
+
+    $("courseVoucherCode").value = "";
+    $("newCourseLabel").value = "";
+    $("newCourseSubject").value = "";
+    $("initialStudentCount").value = "0";
+    $("newCoursePrompt").value = "";
+
+    renderCreatedStudentCodes(data.initial_codes || []);
+
+    setStatus(
+      "createCourseStatus",
+      "Course created and added to your profile.",
+      "ok"
+    );
+
+    await loadTeacherProfile();
+
+    document
+      .getElementById("profileCoursesSection")
+      ?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+  } catch (error) {
+    setStatus(
+      "createCourseStatus",
+      error && error.message
+        ? error.message
+        : String(error),
+      "err"
+    );
+  } finally {
+    $("createCourseBtn").disabled = false;
+  }
+}
+
+$("newCourseSubject").addEventListener("change", (event) => {
+  const prompt = $("newCoursePrompt");
+  const selectedSubject = event.target.value || "";
+
+  if (!selectedSubject) {
+    return;
+  }
+
+  const currentValue = (prompt.value || "").trim();
+
+  if (
+    !currentValue ||
+    Object.values(DEFAULT_PROMPTS).includes(currentValue)
+  ) {
+    prompt.value = DEFAULT_PROMPTS[selectedSubject] || "";
+  }
+});
+
+$("saveUsernameBtn").addEventListener("click", saveUsername);
+$("changePasswordBtn").addEventListener("click", changePassword);
+$("createCourseForm").addEventListener("submit", createCourse);
+
+$("teacherProfileLogoutBtn").addEventListener("click", async () => {
+  try {
+    await fetch("/routes/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch (_) {
+    // Redirect regardless.
+  }
+
+  window.location.href = "/";
+});
+
+loadTeacherProfile();
+</script>
+{% endblock %}

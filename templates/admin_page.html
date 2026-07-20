@@ -171,8 +171,10 @@ function voucherCard(v) {
   );
 
   const usedBy = escapeHtml(
-    v.used_by_email || v.used_by_teacher_id || "Not redeemed"
-  );
+      v.used_by_username ||
+      v.used_by_teacher_id ||
+      "Not redeemed"
+    );
 
   const note = escapeHtml(v.note || "No admin note");
   const created = escapeHtml(formatDate(v.created_at));
@@ -336,9 +338,9 @@ function teacherCard(t) {
     : `Active: ${escapeHtml(t.course_label || "Course")}`;
 
   return itemCard(
-    `${escapeHtml(t.name || t.teacher_id)} · ${courseLine}`,
+    `${escapeHtml(t.username || t.name || t.teacher_id)} · ${courseLine}`,
     [
-      `<strong>Email:</strong> ${escapeHtml(t.email || "")}`,
+      `<strong>Username:</strong> ${escapeHtml(t.username || t.name || "—")}`,
       `<strong>Teacher ID:</strong> <code>${escapeHtml(t.teacher_id || "")}</code>`,
       `<strong>Status:</strong> ${escapeHtml(t.status || "")}`,
       `<strong>Created:</strong> ${escapeHtml(t.created_at || "")}`,

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 
-{% block title %}Create Course · {{ app_name }}{% endblock %}
-{% block header_title %}Create Course{% endblock %}
-{% block header_subtitle %}Redeem a voucher to create a new course under your teacher account{% endblock %}
+{% block title %}Create Teacher Profile · {{ app_name }}{% endblock %}
+{% block header_title %}Create Teacher Profile{% endblock %}
+{% block header_subtitle %}Create your account first, then add courses using vouchers{% endblock %}
 {% block header_actions %}
   <a class="secondary-btn small" href="/teacher-login">Teacher Login</a>
   <a class="secondary-btn small" href="/">Home</a>
@@ -15,84 +15,204 @@
       <div class="mg-agent-orb mg-agent-orb-one"></div>
       <div class="mg-agent-orb mg-agent-orb-two"></div>
       <div class="mg-agent-phone">
-        <div class="mg-agent-phone-top"><span></span><span></span><span></span></div>
-        <div class="mg-agent-message-row bot"><div class="mg-agent-avatar">🎟️</div><div class="mg-agent-message"><strong>Voucher</strong><span>One-time access code.</span></div></div>
-        <div class="mg-agent-message-row user"><div class="mg-agent-message"><strong>Profile</strong><span>Subject, prompt, password.</span></div><div class="mg-agent-avatar">🧑‍🏫</div></div>
+         <div class="mg-agent-phone-top">
+        <span></span><span></span><span></span>
+      </div>
+
+      <div class="mg-agent-message-row bot">
+        <div class="mg-agent-avatar">🧑‍🏫</div>
+        <div class="mg-agent-message">
+          <strong>Create your profile</strong>
+          <span>Choose a username and password.</span>
+        </div>
+      </div>
+
+      <div class="mg-agent-message-row user">
+        <div class="mg-agent-message">
+          <strong>Add courses later</strong>
+          <span>Redeem vouchers from inside your profile.</span>
+        </div>
+        <div class="mg-agent-avatar">🎟️</div>
+      </div>
+
+      <div class="mg-agent-message-row bot">
+        <div class="mg-agent-avatar">✓</div>
+        <div class="mg-agent-message">
+          <strong>One account</strong>
+          <span>All your courses appear in one place.</span>
+        </div>
       </div>
     </div>
-
-    <div class="mg-agent-login-copy">
-      <div class="badge">{{ app_name }}</div>
-      <h1>Create or Add Course</h1>
-      <p class="lead">Use a voucher from the admin. New teachers create an account; existing teachers enter the same email and password to add another course.</p>
-      <div id="registerNotice" class="alert error" style="display:none;"></div>
-      <form id="registerForm" class="bot-form mg-agent-login-form" autocomplete="off">
-        <label><span>Voucher code</span><input id="voucherCode" type="text" required placeholder="STEM-…" dir="auto" /></label>
-        <label><span>Course / group label</span><input id="courseLabel" type="text" placeholder="e.g. Linear Algebra 2026" /></label>
-        <label><span>Initial student codes</span><input id="initialStudentCount" type="number" min="0" max="200" value="0" /></label>
-        <label><span>Teacher name</span><input id="teacherName" type="text" required placeholder="Teacher name" /></label>
-        <label><span>Teacher email</span><input id="teacherEmail" type="email" required placeholder="teacher@example.edu" /></label>
-        <label><span>Subject</span><select id="teacherSubject"></select></label>
-        <label><span>Basic grading prompt</span><textarea id="gradingPromptExtra" rows="5" placeholder="Optional subject-specific grading priorities…"></textarea></label>
-        <label><span>Teacher account password</span><input id="teacherPassword" type="password" required autocomplete="new-password" placeholder="For existing teachers, enter your current password" /></label>
-        <label><span>Confirm password</span><input id="teacherPasswordConfirm" type="password" required autocomplete="new-password" /></label>
-        <button id="registerBtn" type="submit" class="primary-btn mg-agent-login-submit"><span>Create course</span><span class="mg-btn-arrow">→</span></button>
-      </form>
     </div>
+        <div class="mg-agent-login-copy">
+          <div class="badge">{{ app_name }}</div>
+
+          <h1>Create Teacher Profile</h1>
+
+          <p class="lead">
+            Create one teacher account using only a username and password.
+            After signing in, you can redeem vouchers and manage all your courses
+            from your profile.
+          </p>
+
+          <div
+            id="registerNotice"
+            class="alert error"
+            style="display:none;"
+          ></div>
+
+          <form
+            id="registerForm"
+            class="bot-form mg-agent-login-form"
+            autocomplete="off"
+          >
+            <label>
+              <span>Username / display name</span>
+
+              <input
+                id="teacherUsername"
+                type="text"
+                required
+                minlength="3"
+                maxlength="40"
+                placeholder="Choose a teacher username"
+                autocomplete="username"
+                dir="auto"
+              />
+
+              <span class="small">
+                This is your login name and the name shown in your teacher profile.
+                No email address is required.
+              </span>
+            </label>
+
+            <label>
+              <span>Password</span>
+
+              <input
+                id="teacherPassword"
+                type="password"
+                required
+                autocomplete="new-password"
+                placeholder="Create a password"
+              />
+            </label>
+
+            <label>
+              <span>Confirm password</span>
+
+              <input
+                id="teacherPasswordConfirm"
+                type="password"
+                required
+                autocomplete="new-password"
+                placeholder="Enter the password again"
+              />
+
+              <span class="small">
+                Use at least 10 characters with uppercase, lowercase, and a number.
+              </span>
+            </label>
+
+            <button
+              id="registerBtn"
+              type="submit"
+              class="primary-btn mg-agent-login-submit"
+            >
+              <span>Create Teacher Profile</span>
+              <span class="mg-btn-arrow">→</span>
+            </button>
+          </form>
+
+          <div class="mg-agent-login-footer">
+            <span>Already have a teacher profile?</span>
+
+            <a href="/teacher-login" class="secondary-btn small">
+              Teacher Login
+            </a>
+          </div>
+        </div>
   </section>
 </main>
 {% endblock %}
-
 {% block scripts %}
 <script>
-const DEFAULT_PROMPTS = {
-  math: "Grade mathematical reasoning, notation, algebra/calculus steps, final answer, and justification. Do not give credit for an unsupported final answer when the method is required.",
-  physics: "Grade physical reasoning, formula selection, unit consistency, substitution, signs/directions, significant figures, and interpretation of the result.",
-  chemistry: "Grade chemical notation, balanced equations, units, stoichiometry, charges, states/phases when relevant, and conceptual explanation.",
-  biology: "Grade biological terminology, process accuracy, evidence, diagrams/labels when relevant, and whether the explanation answers the requested mechanism or comparison.",
-  cs: "Grade algorithmic reasoning, code correctness, edge cases, complexity, outputs, syntax/indentation when relevant, and whether the answer matches the required programming task.",
-  engineering: "Grade modeling assumptions, equations, units, constraints, calculations, safety factors, diagrams, and interpretation of engineering results.",
-  general_stem: "Grade the STEM reasoning, correct use of domain concepts, units/notation where relevant, evidence, and clarity of explanation."
-};
-const form = document.getElementById("registerForm");
-const notice = document.getElementById("registerNotice");
-const btn = document.getElementById("registerBtn");
-function showNotice(msg){ notice.textContent = msg || "Registration failed."; notice.style.display = "block"; }
-function hideNotice(){ notice.textContent = ""; notice.style.display = "none"; }
-async function loadSubjects(){
-  const res = await fetch("/routes/teacher/subjects", {cache:"no-store"});
-  const data = await res.json();
-  const subjects = data.subjects || [];
-  document.getElementById("teacherSubject").innerHTML = subjects.map(s => `<option value="${s.value}">${s.label}</option>`).join("");
-  document.getElementById("gradingPromptExtra").value = DEFAULT_PROMPTS[document.getElementById("teacherSubject").value] || "";
+const registerForm = document.getElementById("registerForm");
+const registerNotice = document.getElementById("registerNotice");
+const registerBtn = document.getElementById("registerBtn");
+const teacherUsername = document.getElementById("teacherUsername");
+const teacherPassword = document.getElementById("teacherPassword");
+const teacherPasswordConfirm = document.getElementById(
+  "teacherPasswordConfirm"
+);
+
+function showNotice(message) {
+  registerNotice.textContent =
+    message || "Could not create the teacher profile.";
+
+  registerNotice.style.display = "block";
 }
-document.getElementById("teacherSubject").addEventListener("change", (ev) => {
-  const box = document.getElementById("gradingPromptExtra");
-  if (!box.value.trim() || Object.values(DEFAULT_PROMPTS).includes(box.value.trim())) {
-    box.value = DEFAULT_PROMPTS[ev.target.value] || "";
+
+function hideNotice() {
+  registerNotice.textContent = "";
+  registerNotice.style.display = "none";
+}
+
+registerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideNotice();
+
+  const username = (teacherUsername.value || "").trim();
+  const password = teacherPassword.value || "";
+  const passwordConfirm = teacherPasswordConfirm.value || "";
+
+  if (!username || !password || !passwordConfirm) {
+    showNotice("Enter a username, password, and password confirmation.");
+    return;
+  }
+
+  registerBtn.disabled = true;
+  registerBtn.textContent = "Creating profile…";
+
+  try {
+    const response = await fetch("/routes/teacher/register", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        password_confirm: passwordConfirm,
+      }),
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not create the teacher profile."
+      );
+    }
+
+    teacherPassword.value = "";
+    teacherPasswordConfirm.value = "";
+
+    window.location.href = "/teacher-profile";
+  } catch (error) {
+    showNotice(
+      error && error.message
+        ? error.message
+        : String(error)
+    );
+  } finally {
+    registerBtn.disabled = false;
+    registerBtn.innerHTML =
+      '<span>Create Teacher Profile</span>' +
+      '<span class="mg-btn-arrow">→</span>';
   }
 });
-form.addEventListener("submit", async (ev) => {
-  ev.preventDefault(); hideNotice(); btn.disabled = true; btn.textContent = "Creating course…";
-  try {
-    const payload = {
-      voucher_code: document.getElementById("voucherCode").value.trim(),
-      teacher_name: document.getElementById("teacherName").value.trim(),
-      teacher_email: document.getElementById("teacherEmail").value.trim(),
-      subject: document.getElementById("teacherSubject").value,
-      grading_prompt_extra: document.getElementById("gradingPromptExtra").value.trim(),
-      course_label: document.getElementById("courseLabel").value.trim(),
-      initial_student_count: Number(document.getElementById("initialStudentCount").value || 0),
-      password: document.getElementById("teacherPassword").value,
-      password_confirm: document.getElementById("teacherPasswordConfirm").value
-    };
-    const res = await fetch("/routes/teacher/register", {method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"}, body: JSON.stringify(payload)});
-    const data = await res.json().catch(()=>null);
-    if (!res.ok || !data || !data.ok) { showNotice((data && data.detail) || "Could not create profile."); return; }
-    window.location.href = "/teacher";
-  } catch(err) { showNotice("Error: " + (err && err.message ? err.message : String(err))); }
-  finally { btn.disabled = false; btn.innerHTML = '<span>Create course</span><span class="mg-btn-arrow">→</span>'; }
-});
-loadSubjects();
 </script>
 {% endblock %}

@@ -16,6 +16,7 @@ from core.config import (
     ASSESSMENT_LABEL,
 )
 from core.security import get_session
+from services.teacher_profiles import get_teacher
 
 router = APIRouter(tags=["templates"])
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
@@ -94,28 +95,110 @@ def serve_admin(request: Request):
 
 @router.get("/teacher-register")
 def teacher_register_page(request: Request):
+    session = get_session(request)
+
+    if session and session.get("role") == "teacher":
+        return RedirectResponse(
+            url="/teacher-profile",
+            status_code=303,
+        )
+
     p = PROJECT_ROOT / "templates" / "teacher_register.html"
+
     if not p.exists():
-        raise HTTPException(status_code=404, detail="templates/teacher_register.html not found")
+        raise HTTPException(
+            status_code=404,
+            detail="templates/teacher_register.html not found",
+        )
+
     return _render(request, "teacher_register.html")
+
+
+@router.get("/teacher-profile")
+def serve_teacher_profile(request: Request):
+    session = get_session(request)
+
+    if not session or session.get("role") != "teacher":
+        return RedirectResponse(
+            url="/teacher-login",
+            status_code=303,
+        )
+
+    path = PROJECT_ROOT / "templates" / "teacher_profile.html"
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="templates/teacher_profile.html not found",
+        )
+
+    return _render(request, "teacher_profile.html")
 
 
 @router.get("/teacher")
 def serve_teacher(request: Request):
-    s = get_session(request)
-    if not s or s.get("role") != "teacher":
-        return RedirectResponse(url="/teacher-login", status_code=303)
-    pth = PROJECT_ROOT / "templates" / "teacher_page.html"
-    if not pth.exists():
-        raise HTTPException(status_code=404, detail="templates/teacher_page.html not found")
+    session = get_session(request)
+
+    if not session or session.get("role") != "teacher":
+        return RedirectResponse(
+            url="/teacher-login",
+            status_code=303,
+        )
+
+    teacher_id = str(
+        session.get("teacher_id")
+        or session.get("sub")
+        or ""
+    ).strip()
+
+    profile = get_teacher(teacher_id)
+
+    # A newly created account has no courses yet. Keep it out of the
+    # course workspace until a voucher has been redeemed.
+    if not profile:
+        return RedirectResponse(
+            url="/teacher-login",
+            status_code=303,
+        )
+
+    courses = profile.get("courses") or []
+    active_course = profile.get("active_course") or {}
+
+    if not courses or not active_course.get("course_id"):
+        return RedirectResponse(
+            url="/teacher-profile",
+            status_code=303,
+        )
+
+    path = PROJECT_ROOT / "templates" / "teacher_page.html"
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="templates/teacher_page.html not found",
+        )
+
     return _render(request, "teacher_page.html")
 
 
 @router.get("/teacher-login")
 def teacher_login(request: Request):
-    p = PROJECT_ROOT / "templates" / "teacher_login.html"
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="templates/teacher_login.html not found")
+    session = get_session(request)
+
+    if session and session.get("role") == "teacher":
+        return RedirectResponse(
+            url="/teacher-profile",
+            status_code=303,
+        )
+
+    path = PROJECT_ROOT / "templates" / "teacher_login.html"
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="templates/teacher_login.html not found",
+        )
+
     return _render(request, "teacher_login.html")
 
 
