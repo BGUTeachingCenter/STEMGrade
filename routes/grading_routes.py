@@ -122,7 +122,321 @@ def _write_result_metadata(
         "final_file": final_path.name,
         "source_work_id": source_work_id or "",
     }
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    meta_path.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _scan_complete_answer_objects(
+        raw_text: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Recover complete answer objects from a possibly truncated JSON string.
+
+    This supports OCR output such as:
+
+      {
+        "answers": [
+          {...complete answer...},
+          {...complete answer...},
+          {...unfinished final answer...
+        ]
+      }
+
+    Complete answer objects are preserved. The unfinished final object is
+    skipped because its missing content cannot be reconstructed safely.
+    """
+    text = str(raw_text or "")
+
+    marker = re.search(
+        r'"answers"\s*:\s*\[',
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    scan = text[marker.end():] if marker else text
+
+    answers: list[dict[str, Any]] = []
+
+    object_start = -1
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index, char in enumerate(scan):
+        if in_string:
+            if escaped:
+                escaped = False
+                continue
+
+            if char == "\\":
+                escaped = True
+                continue
+
+            if char == '"':
+                in_string = False
+
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+
+        if char == "{":
+            if depth == 0:
+                object_start = index
+
+            depth += 1
+            continue
+
+        if char != "}" or depth <= 0:
+            continue
+
+        depth -= 1
+
+        if depth != 0 or object_start < 0:
+            continue
+
+        candidate = scan[
+            object_start:index + 1
+        ]
+
+        object_start = -1
+
+        if '"answer_text"' not in candidate:
+            continue
+
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+
+        if not isinstance(parsed, dict):
+            continue
+
+        if not str(
+                parsed.get("answer_text") or ""
+        ).strip():
+            continue
+
+        answers.append(parsed)
+
+    # A positive depth means that the source ended while an object was open.
+    return answers, depth > 0
+
+
+def _embedded_answer_bundle(
+        raw_text: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    """
+    Parse a JSON answer bundle stored inside an answer_text field.
+
+    First try ordinary JSON parsing. If the model response was truncated,
+    recover every complete answer object separately.
+    """
+    text = str(raw_text or "").strip()
+
+    if not text or '"answers"' not in text:
+        return None, False
+
+    try:
+        parsed = json.loads(text)
+
+        if (
+                isinstance(parsed, dict)
+                and isinstance(parsed.get("answers"), list)
+        ):
+            valid_answers = [
+                item
+                for item in parsed["answers"]
+                if (
+                        isinstance(item, dict)
+                        and str(
+                    item.get("answer_text") or ""
+                ).strip()
+                )
+            ]
+
+            if valid_answers:
+                parsed = dict(parsed)
+                parsed["answers"] = valid_answers
+                return parsed, False
+    except Exception:
+        pass
+
+    recovered_answers, is_partial = (
+        _scan_complete_answer_objects(text)
+    )
+
+    if not recovered_answers:
+        return None, is_partial
+
+    return {
+        "schema_version": "student_answer_bundle_v1",
+        "answers": recovered_answers,
+    }, is_partial
+
+
+def _normalize_student_bundle_for_grading(
+        input_path: Path,
+        *,
+        out_dir: Path,
+) -> tuple[Path, dict[str, Any] | None]:
+    """
+    Unwrap structured OCR JSON that was accidentally stored inside one
+    outer answer_text field.
+
+    The original uploaded file is never modified. When recovery is needed,
+    a separate student_answer_bundle_normalized.json file is created and
+    used only by the grading pipeline.
+    """
+    input_path = Path(input_path)
+
+    if input_path.suffix.lower() != ".json":
+        return input_path, None
+
+    try:
+        original = json.loads(
+            input_path.read_text(
+                encoding="utf-8"
+            )
+        )
+    except Exception:
+        return input_path, None
+
+    if not isinstance(original, dict):
+        return input_path, None
+
+    outer_answers = original.get("answers")
+
+    if not isinstance(outer_answers, list):
+        return input_path, None
+
+    recovered: list[dict[str, Any]] = []
+    recovered_meta: dict[str, Any] = {}
+    source_was_partial = False
+
+    for outer_answer in outer_answers:
+        if not isinstance(outer_answer, dict):
+            continue
+
+        answer_text = str(
+            outer_answer.get("answer_text") or ""
+        ).strip()
+
+        nested_bundle, nested_partial = (
+            _embedded_answer_bundle(answer_text)
+        )
+
+        source_was_partial = (
+                source_was_partial
+                or nested_partial
+        )
+
+        if not nested_bundle:
+            continue
+
+        nested_answers = nested_bundle.get(
+            "answers"
+        )
+
+        if isinstance(nested_answers, list):
+            recovered.extend(
+                item
+                for item in nested_answers
+                if isinstance(item, dict)
+            )
+
+        for key in (
+                "student_name",
+                "student_id",
+                "exam_id",
+                "source_name",
+        ):
+            value = nested_bundle.get(key)
+
+            if value not in (None, ""):
+                recovered_meta[key] = value
+
+    if not recovered:
+        return input_path, None
+
+    unique_answers: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for answer in recovered:
+        signature = (
+            str(
+                answer.get("question_id") or ""
+            ).strip(),
+            str(
+                answer.get("part_key")
+                or answer.get("part")
+                or ""
+            ).strip(),
+            str(
+                answer.get("answer_text") or ""
+            ).strip(),
+        )
+
+        if not signature[2]:
+            continue
+
+        if signature in seen:
+            continue
+
+        seen.add(signature)
+        unique_answers.append(answer)
+
+    normalized = dict(original)
+    normalized["answers"] = unique_answers
+
+    for key, value in recovered_meta.items():
+        if not normalized.get(key):
+            normalized[key] = value
+
+    normalization_info = {
+        "applied": True,
+        "reason": (
+            "Recovered answer objects embedded "
+            "inside answer_text."
+        ),
+        "recovered_answer_count": len(
+            unique_answers
+        ),
+        "source_was_partial": (
+            source_was_partial
+        ),
+    }
+
+    normalized["normalization"] = (
+        normalization_info
+    )
+
+    out_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    normalized_path = (
+            out_dir
+            / "student_answer_bundle_normalized.json"
+    )
+
+    normalized_path.write_text(
+        json.dumps(
+            normalized,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return (
+        normalized_path,
+        normalization_info,
+    )
 
 
 # -------------------------
@@ -226,9 +540,61 @@ async def _grade_tex_flow(
         student_upload_bytes = await student_tex.read()
         tex_path.write_bytes(student_upload_bytes)
         artifact_name = "student_answer_bundle.json" if tex_path.suffix.lower() == ".json" else f"student_upload{tex_path.suffix or '.tex'}"
-        trace.save_bytes(artifact_name, student_upload_bytes, stage="student_upload")
-        trace.log("student_upload", "saved", path=str(tex_path), bytes=len(student_upload_bytes),
-                  suffix=tex_path.suffix.lower())
+        trace.save_bytes(
+            artifact_name,
+            student_upload_bytes,
+            stage="student_upload",
+        )
+
+        trace.log(
+            "student_upload",
+            "saved",
+            path=str(tex_path),
+            bytes=len(student_upload_bytes),
+            suffix=tex_path.suffix.lower(),
+        )
+
+        # Some OCR providers occasionally return a JSON answer bundle as
+        # text inside one outer answer_text field. Recover the inner answer
+        # objects before reference matching and payload construction.
+        grading_input_path, normalization_info = (
+            _normalize_student_bundle_for_grading(
+                tex_path,
+                out_dir=out_dir,
+            )
+        )
+
+        if grading_input_path != tex_path:
+            trace.save_file(
+                grading_input_path,
+                "student_answer_bundle_normalized.json",
+                stage="student_upload",
+            )
+
+            trace.log(
+                "student_upload",
+                "structured_bundle_normalized",
+                **(normalization_info or {}),
+            )
+
+            if job_id:
+                recovered_count = int(
+                    (
+                        normalization_info
+                        or {}
+                    ).get(
+                        "recovered_answer_count"
+                    )
+                    or 0
+                )
+
+                push(
+                    job_id,
+                    (
+                        f"Recovered {recovered_count} "
+                        "structured OCR answer parts"
+                    ),
+                )
 
         # If this is a direct student TeX/TXT upload, create a canonical
         # student-work folder now. OCR uploads already created one earlier and
@@ -263,7 +629,10 @@ async def _grade_tex_flow(
 
         # summary (optional)
         try:
-            summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
+            summary_path = write_student_summary_file(
+                                                        grading_input_path,
+                                                        out_dir=out_dir,
+                                                    )
             student_summary_path = summary_path
             trace.save_file(summary_path, "student_summary.json", stage="student_summary")
             try:
@@ -335,7 +704,7 @@ async def _grade_tex_flow(
             match = await run_in_threadpool(
                 pick_reference_with_match_info,
                 bank_dir=active_bank_root,
-                student_tex=tex_path,
+                student_tex=grading_input_path,
                 prefer_heuristic=True,
                 llm_top_k=12,
             )
@@ -381,7 +750,10 @@ async def _grade_tex_flow(
         # we use the single-exam fallback.
         try:
             if student_summary_path is None or not student_summary_path.exists():
-                student_summary_path = write_student_summary_file(tex_path, out_dir=out_dir)
+                student_summary_path = write_student_summary_file(
+                                        grading_input_path,
+                                        out_dir=out_dir,
+                                    )
 
             reference_summary_path = active_bank_root / str(exam_id) / "uploads" / "reference_summary.json"
             student_summary = read_json_file(student_summary_path) or {}
@@ -429,7 +801,7 @@ async def _grade_tex_flow(
         manifest_json, items = await run_in_threadpool(
             build_payloads,
             reference_tex=ref_path,
-            student_tex=tex_path,
+            student_tex=grading_input_path,
             out_dir=payload_out,
             default_max_points=0.0,
         )
