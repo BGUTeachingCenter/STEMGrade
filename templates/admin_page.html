@@ -38,10 +38,10 @@
         <button id="createVoucherBtn" type="button">Create voucher</button>
       </div>
       <div
-        id="newVoucherBox"
-        class="statusBox"
-        style="display:none; min-height:0; padding:14px 16px; margin-top:12px;"
-      ></div>
+          id="newVoucherBox"
+          class="statusBox mg-new-voucher-box"
+          style="display:none;"
+        ></div>
     </div></div>
   </section>
 
@@ -213,9 +213,8 @@ function showNewVoucher(code) {
   const box = $("newVoucherBox");
 
   box.style.display = "block";
-  box.style.minHeight = "0";
-  box.style.padding = "14px 16px";
-  box.style.marginTop = "12px";
+    box.classList.remove("err");
+    box.classList.add("ok");
 
   box.innerHTML = `
     <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
@@ -266,9 +265,14 @@ $("createVoucherBtn").addEventListener("click", async () => {
     $("voucherNote").value = "";
     await loadAdminData();
   } catch (err) {
-    $("newVoucherBox").style.display = "block";
-    $("newVoucherBox").textContent = "Error: " + (err && err.message ? err.message : String(err));
-  } finally {
+      const box = $("newVoucherBox");
+
+      box.style.display = "block";
+      box.classList.remove("ok");
+      box.classList.add("err");
+      box.textContent =
+        "Error: " + (err && err.message ? err.message : String(err));
+    } finally {
     $("createVoucherBtn").disabled = false;
   }
 });

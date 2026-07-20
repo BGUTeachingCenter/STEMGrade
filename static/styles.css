@@ -3348,3 +3348,64 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     grid-template-columns: 1fr;
   }
 }
+
+/* Admin portal: compact newly-created voucher confirmation */
+.mg-admin-page .mg-new-voucher-box {
+  min-height: 0 !important;
+  margin-top: 14px !important;
+  padding: 12px 16px !important;
+  overflow: visible;
+  white-space: normal;
+  border-radius: 18px;
+}
+
+/* Remove the generic "Status" title from this specific result card */
+.mg-admin-page .mg-new-voucher-box::before {
+  display: none !important;
+  content: none !important;
+}
+
+/* Successful voucher creation */
+.mg-admin-page .mg-new-voucher-box.ok {
+  border: 1px solid #a8d5ad;
+  background:
+    radial-gradient(circle at top right, rgba(47, 125, 50, 0.10), transparent 42%),
+    linear-gradient(180deg, #f2fbf3 0%, #e8f6ea 100%);
+  color: #246628;
+  box-shadow: 0 10px 24px rgba(47, 125, 50, 0.10);
+}
+
+.mg-admin-page .mg-new-voucher-box.ok .small {
+  color: #39783d;
+}
+
+.mg-admin-page .mg-new-voucher-box.ok code {
+  color: #1f5e24;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #bcdcbf;
+  border-radius: 10px;
+  padding: 6px 9px;
+}
+
+/* Compact green copy button inside the success card */
+.mg-admin-page .mg-new-voucher-box.ok .secondary-btn {
+  min-height: 38px;
+  padding: 8px 15px;
+  border-color: #99ca9e;
+  background: #ffffff;
+  color: #2f7d32;
+  box-shadow: 0 6px 14px rgba(47, 125, 50, 0.10);
+}
+
+.mg-admin-page .mg-new-voucher-box.ok .secondary-btn:hover {
+  border-color: #68ad70;
+  background: #f7fff8;
+  color: #246628;
+}
+
+/* Failed voucher creation */
+.mg-admin-page .mg-new-voucher-box.err {
+  border-color: #f2c4bd;
+  background: #fff1ef;
+  color: #9f2f25;
+}
