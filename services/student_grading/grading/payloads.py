@@ -926,6 +926,43 @@ def _build_reference_parts_from_full_solution_json(reference_json: Path, default
         )
     )
 
+    source_title_debug = {
+        "reference_json": str(
+            reference_json
+        ),
+        "reference_directory": str(
+            reference_json.parent
+        ),
+        "source_names": list(
+            raw.get("source_names")
+            or []
+        ),
+        "recovered_title_count": len(
+            source_part_titles
+        ),
+        "recovered_titles": {
+            _qid_from_key(key): value
+            for key, value
+            in sorted(
+                source_part_titles.items()
+            )
+        },
+    }
+
+    debug_title_path = (
+            reference_json.parent
+            / "debug_reference_question_titles.json"
+    )
+
+    debug_title_path.write_text(
+        json.dumps(
+            source_title_debug,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
     subject = _to_clean_text(
         raw.get("subject")
         or "math"

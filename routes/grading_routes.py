@@ -1120,28 +1120,131 @@ async def _grade_tex_flow(
                     Path(chosen_ref).parent
                 )
 
+                copied_source_count = 0
+
                 for source_name in sorted(
                         source_reference_names
                 ):
-                    source_path = (
+                    candidate_paths: list[
+                        Path
+                    ] = []
+
+                    # Prefer a source file stored directly beside the
+                    # selected reference bundle.
+                    direct_candidate = (
                             source_parent
                             / source_name
                     )
 
                     if (
-                            not source_path.exists()
-                            or not source_path.is_file()
+                            direct_candidate.exists()
+                            and direct_candidate.is_file()
                     ):
+                        candidate_paths.append(
+                            direct_candidate
+                        )
+
+                    # Generated JSON and source TeX may be stored in
+                    # different subfolders of the same solution bank.
+                    try:
+                        bank_root = Path(
+                            active_bank_root
+                        )
+
+                        if bank_root.exists():
+                            for candidate in (
+                                    bank_root.rglob(
+                                        source_name
+                                    )
+                            ):
+                                if candidate.is_file():
+                                    candidate_paths.append(
+                                        candidate
+                                    )
+                    except Exception as search_error:
+                        trace.log(
+                            "reference_match",
+                            "reference_source_search_failed",
+                            status="warning",
+                            source_name=source_name,
+                            error=_safe_str(
+                                search_error,
+                                500,
+                            ),
+                        )
+
+                    # Remove duplicate paths while preserving priority.
+                    unique_candidates: list[
+                        Path
+                    ] = []
+
+                    seen_candidate_paths: set[
+                        str
+                    ] = set()
+
+                    for candidate in (
+                            candidate_paths
+                    ):
+                        try:
+                            identity = str(
+                                candidate.resolve()
+                            )
+                        except Exception:
+                            identity = str(
+                                candidate
+                            )
+
+                        if (
+                                identity
+                                in seen_candidate_paths
+                        ):
+                            continue
+
+                        seen_candidate_paths.add(
+                            identity
+                        )
+
+                        unique_candidates.append(
+                            candidate
+                        )
+
+                    if not unique_candidates:
                         trace.log(
                             "reference_match",
                             "reference_source_file_missing",
                             status="warning",
                             source_name=source_name,
-                            expected_path=str(
-                                source_path
+                            searched_reference_parent=str(
+                                source_parent
+                            ),
+                            searched_bank_root=str(
+                                active_bank_root
                             ),
                         )
                         continue
+
+                    source_path = (
+                        unique_candidates[0]
+                    )
+
+                    if (
+                            len(unique_candidates)
+                            > 1
+                    ):
+                        trace.log(
+                            "reference_match",
+                            "multiple_reference_source_files_found",
+                            status="warning",
+                            source_name=source_name,
+                            selected_path=str(
+                                source_path
+                            ),
+                            candidate_paths=[
+                                str(candidate)
+                                for candidate
+                                in unique_candidates
+                            ],
+                        )
 
                     copied_source_path = (
                             tmp_dir
@@ -1152,6 +1255,8 @@ async def _grade_tex_flow(
                         source_path,
                         copied_source_path,
                     )
+
+                    copied_source_count += 1
 
                     trace.save_file(
                         copied_source_path,
@@ -1170,6 +1275,32 @@ async def _grade_tex_flow(
                             copied_source_path
                         ),
                     )
+
+                    trace.log(
+                        "reference_match",
+                        "reference_source_copy_summary",
+                        requested_count=len(
+                            source_reference_names
+                        ),
+                        copied_count=(
+                            copied_source_count
+                        ),
+                        temporary_directory=str(
+                            tmp_dir
+                        ),
+                    )
+
+                    if (
+                            source_reference_names
+                            and copied_source_count == 0
+                    ):
+                        raise RuntimeError(
+                            "The full solution JSON refers "
+                            "to source TeX files, but none "
+                            "could be located in the active "
+                            "solution bank. Cannot restore "
+                            "complete question formulas."
+                        )
 
             except Exception as source_copy_error:
                 trace.log(
