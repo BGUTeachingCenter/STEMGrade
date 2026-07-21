@@ -35,6 +35,7 @@ from common.exam_summary import (
 from services.student_grading.unified_tex import (
     build_graded_result_json,
     build_graded_result_tex,
+    build_student_feedback_json,
 )
 from core.ai_clients.ai_usage_logger import bind_usage_context
 from services.student_work_store import (
@@ -1240,6 +1241,19 @@ async def _grade_tex_flow(
             )
         )
 
+        student_feedback_json = (
+            await run_in_threadpool(
+                build_student_feedback_json,
+                graded_result_json=(
+                    graded_result_json
+                ),
+                out_dir=ai_dir,
+                output_name=(
+                    "student_feedback.json"
+                ),
+            )
+        )
+
         structured_secs = (
                 perf_counter()
                 - t_structured
@@ -1247,7 +1261,13 @@ async def _grade_tex_flow(
 
         trace.save_file(
             graded_result_json,
-            "graded_result.json",
+            "graded_result_internal.json",
+            stage="graded_result",
+        )
+
+        trace.save_file(
+            student_feedback_json,
+            "student_feedback.json",
             stage="graded_result",
         )
 
@@ -1406,16 +1426,30 @@ async def _grade_tex_flow(
             final_persistent_path.stem
         )
 
+        internal_persistent_path = (
+                final_persistent_path.parent
+                / (
+                    f"{persistent_stem}"
+                    "_internal.json"
+                )
+        )
+
         structured_persistent_path = (
-            final_persistent_path.parent
-            / (
-                f"{persistent_stem}"
-                "_structured.json"
-            )
+                final_persistent_path.parent
+                / (
+                    f"{persistent_stem}"
+                    "_structured.json"
+                )
         )
 
         shutil.copy2(
             graded_result_json,
+            internal_persistent_path,
+        )
+
+        # Only this safe file is attached to the student's saved work.
+        shutil.copy2(
+            student_feedback_json,
             structured_persistent_path,
         )
 
@@ -1532,8 +1566,14 @@ async def _grade_tex_flow(
         )
 
         trace.save_file(
+            internal_persistent_path,
+            "persisted_graded_result_internal.json",
+            stage="persist",
+        )
+
+        trace.save_file(
             structured_persistent_path,
-            "persisted_graded_result.json",
+            "persisted_student_feedback.json",
             stage="persist",
         )
 

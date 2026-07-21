@@ -431,6 +431,369 @@ def _as_string_list(value: Any) -> list[str]:
     return []
 
 
+def _positive_number(
+    value: Any,
+) -> float | None:
+    try:
+        number = float(value)
+    except Exception:
+        return None
+
+    return (
+        number
+        if number > 0
+        else None
+    )
+
+
+def _looks_like_orphan_question_fragment(
+    line: str,
+) -> bool:
+    """
+    Detect parser debris such as:
+
+      ^n k^2=...
+      {b}<\\frac{c}{d}\\)}
+      +\\frac1{n+2}+...
+
+    These fragments appeared after a clean Hebrew question line when the
+    source question JSON lost the beginning of a math expression.
+    """
+    text = str(
+        line or ""
+    ).strip()
+
+    if not text:
+        return False
+
+    if re.search(
+        r"[\u0590-\u05FF]",
+        text,
+    ):
+        return False
+
+    if text.startswith(
+        (
+            r"\[",
+            r"\(",
+            "$",
+        )
+    ):
+        return False
+
+    if text.startswith(
+        (
+            "^",
+            "+",
+        )
+    ):
+        return True
+
+    if text.startswith("{") and any(
+        token in text
+        for token in (
+            r"\frac",
+            r"\right",
+            r"\binom",
+            r"\)",
+        )
+    ):
+        return True
+
+    return False
+
+
+def _clean_question_text_for_student(
+    value: Any,
+) -> str:
+    """
+    Remove payload labels and obvious incomplete math fragments from the
+    student-facing question text.
+
+    The internal graded result remains untouched for debugging.
+    """
+    text = (
+        str(value or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .strip()
+    )
+
+    if not text:
+        return ""
+
+    cleaned_lines: list[str] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+
+        if line in {
+            "Question:",
+            "Required action:",
+        }:
+            continue
+
+        if line.startswith("Question:"):
+            line = line[
+                len("Question:"):
+            ].strip()
+
+        if line.startswith(
+            "Required action:"
+        ):
+            line = line[
+                len("Required action:"):
+            ].strip()
+
+        if (
+            _looks_like_orphan_question_fragment(
+                line
+            )
+        ):
+            continue
+
+        cleaned_lines.append(line)
+
+    cleaned = "\n".join(
+        cleaned_lines
+    )
+
+    cleaned = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        cleaned,
+    ).strip()
+
+    return cleaned
+
+
+def build_student_feedback_json(
+    *,
+    graded_result_json: Path,
+    out_dir: Path,
+    output_name: str = (
+        "student_feedback.json"
+    ),
+) -> Path:
+    """
+    Create the JSON that is safe to expose to students.
+
+    It intentionally excludes:
+      - official/reference solutions
+      - mismatch targets
+      - confidence values
+      - internal error taxonomy
+      - provider evidence/debug fields
+    """
+    data = json.loads(
+        Path(
+            graded_result_json
+        ).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    raw_parts = (
+        data.get("parts")
+        if isinstance(
+            data.get("parts"),
+            list,
+        )
+        else []
+    )
+
+    student_parts: list[
+        dict[str, Any]
+    ] = []
+
+    for part in raw_parts:
+        if not isinstance(
+            part,
+            dict,
+        ):
+            continue
+
+        part_scoring_mode = str(
+            part.get("scoring_mode")
+            or "feedback_only"
+        ).strip()
+
+        feedback = {
+            "summary": str(
+                part.get("summary")
+                or ""
+            ).strip(),
+            "what_was_correct": (
+                _as_string_list(
+                    part.get(
+                        "what_was_correct"
+                    )
+                )
+            ),
+            "main_mistakes": (
+                _as_string_list(
+                    part.get(
+                        "main_mistakes"
+                    )
+                )
+            ),
+            "how_to_improve": (
+                _as_string_list(
+                    part.get(
+                        "how_to_improve"
+                    )
+                )
+            ),
+            "suggested_next_step": str(
+                part.get(
+                    "suggested_next_step"
+                )
+                or ""
+            ).strip(),
+        }
+
+        student_parts.append(
+            {
+                "qid": str(
+                    part.get("qid")
+                    or ""
+                ).strip(),
+                "question_id": (
+                    part.get(
+                        "question_id"
+                    )
+                ),
+                "part_key": str(
+                    part.get(
+                        "part_key"
+                    )
+                    or ""
+                ).strip(),
+                "question_text": (
+                    _clean_question_text_for_student(
+                        part.get(
+                            "question_text"
+                        )
+                    )
+                ),
+                "student_answer": str(
+                    part.get(
+                        "student_answer"
+                    )
+                    or ""
+                ).strip(),
+                "scoring_mode": (
+                    part_scoring_mode
+                ),
+                "score": (
+                    part.get("score")
+                    if part_scoring_mode
+                    == "scored"
+                    else None
+                ),
+                "max_score": (
+                    part.get(
+                        "max_score"
+                    )
+                    if part_scoring_mode
+                    == "scored"
+                    else None
+                ),
+                "feedback": feedback,
+            }
+        )
+
+    scoring = (
+        data.get("scoring")
+        if isinstance(
+            data.get("scoring"),
+            dict,
+        )
+        else {}
+    )
+
+    score_available = bool(
+        scoring.get(
+            "score_available"
+        )
+    )
+
+    result = {
+        "schema_version": (
+            "student_feedback_v1"
+        ),
+        "created_at": str(
+            data.get("created_at")
+            or ""
+        ),
+        "exam_id": str(
+            data.get("exam_id")
+            or ""
+        ),
+        "provider": str(
+            data.get("provider")
+            or ""
+        ),
+        "subject": str(
+            data.get("subject")
+            or "math"
+        ),
+        "source_filename": str(
+            data.get(
+                "source_filename"
+            )
+            or ""
+        ),
+        "scoring": {
+            "mode": str(
+                scoring.get("mode")
+                or "feedback_only"
+            ),
+            "score_available": (
+                score_available
+            ),
+            "total_score": (
+                data.get(
+                    "total_score"
+                )
+                if score_available
+                else None
+            ),
+            "total_max_score": (
+                data.get(
+                    "total_max_score"
+                )
+                if score_available
+                else None
+            ),
+        },
+        "parts": student_parts,
+    }
+
+    out_dir = Path(out_dir)
+
+    out_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    out_path = (
+        out_dir
+        / output_name
+    )
+
+    out_path.write_text(
+        json.dumps(
+            result,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return out_path
+
+
 def _payload_qid(
     payload: dict[str, Any],
     manifest_item: dict[str, Any],
@@ -729,6 +1092,31 @@ def build_graded_result_json(
             or ""
         ).strip()
 
+        part_scoring_mode = str(
+            grade.get("scoring_mode")
+            or (
+                "scored"
+                if _positive_number(
+                    max_score
+                )
+                else "feedback_only"
+            )
+        ).strip()
+
+        part_score = (
+            grade.get("score")
+            if part_scoring_mode
+               == "scored"
+            else None
+        )
+
+        part_max_score = (
+            max_score
+            if part_scoring_mode
+               == "scored"
+            else None
+        )
+
         parts.append(
             {
                 "qid": qid,
@@ -749,11 +1137,13 @@ def build_graded_result_json(
                     )
                     or ""
                 ).strip(),
-                "score": grade.get(
-                    "score",
-                    0,
+                "scoring_mode": (
+                    part_scoring_mode
                 ),
-                "max_score": max_score,
+                "score": part_score,
+                "max_score": (
+                    part_max_score
+                ),
                 "summary": str(
                     grade.get("summary")
                     or ""
@@ -846,13 +1236,43 @@ def build_graded_result_json(
                     "question_text": "",
                     "student_answer": "",
                     "reference_solution": "",
-                    "score": grade.get(
-                        "score",
-                        0,
+                                        "scoring_mode": (
+                        str(
+                            grade.get(
+                                "scoring_mode"
+                            )
+                            or (
+                                "scored"
+                                if _positive_number(
+                                    grade.get(
+                                        "max_points"
+                                    )
+                                )
+                                else (
+                                    "feedback_only"
+                                )
+                            )
+                        )
                     ),
-                    "max_score": grade.get(
-                        "max_points",
-                        0,
+                    "score": (
+                        grade.get("score")
+                        if _positive_number(
+                            grade.get(
+                                "max_points"
+                            )
+                        )
+                        else None
+                    ),
+                    "max_score": (
+                        grade.get(
+                            "max_points"
+                        )
+                        if _positive_number(
+                            grade.get(
+                                "max_points"
+                            )
+                        )
+                        else None
                     ),
                     "summary": str(
                         grade.get("summary")
@@ -909,6 +1329,37 @@ def build_graded_result_json(
                 }
             )
 
+    scored_parts = [
+        part
+        for part in parts
+        if isinstance(
+            part,
+            dict,
+        )
+           and part.get(
+            "scoring_mode"
+        ) == "scored"
+    ]
+
+    if (
+            parts
+            and len(scored_parts)
+            == len(parts)
+    ):
+        scoring_mode = "scored"
+
+    elif scored_parts:
+        scoring_mode = "mixed"
+
+    else:
+        scoring_mode = (
+            "feedback_only"
+        )
+
+    score_available = bool(
+        scored_parts
+    )
+
     result = {
         "schema_version": (
             "graded_result_v1"
@@ -936,16 +1387,35 @@ def build_graded_result_json(
             manifest.get("subject")
             or "math"
         ),
-        "total_score": grades.get(
-            "total_score",
-            0,
-        ),
-        "total_max_score": grades.get(
-            "total_max",
-            grades.get(
-                "total_max_score",
-                0,
+                "scoring": {
+            "mode": scoring_mode,
+            "score_available": (
+                score_available
             ),
+            "scored_part_count": len(
+                scored_parts
+            ),
+            "feedback_only_part_count": (
+                len(parts)
+                - len(scored_parts)
+            ),
+        },
+        "total_score": (
+            grades.get(
+                "total_score"
+            )
+            if score_available
+            else None
+        ),
+        "total_max_score": (
+            grades.get(
+                "total_max",
+                grades.get(
+                    "total_max_score"
+                ),
+            )
+            if score_available
+            else None
         ),
         "parts": parts,
     }
@@ -1325,6 +1795,16 @@ def build_graded_result_tex(
             0,
         )
 
+        show_score = (
+                part.get(
+                    "scoring_mode"
+                ) == "scored"
+                and _positive_number(
+            max_score
+        )
+                is not None
+        )
+
         summary = str(
             part.get("summary")
             or ""
@@ -1352,14 +1832,22 @@ def build_graded_result_tex(
                     r"}"
                     r"\end{english}"
                 ),
-                r"\hfill",
-                (
-                    r"\textcolor{MGGreen}"
-                    r"{\textbf{"
-                    f"{_format_number(score)}"
-                    " / "
-                    f"{_format_number(max_score)}"
-                    r"}}\par"
+                *(
+                    [
+                        r"\hfill",
+                        (
+                            r"\textcolor{MGGreen}"
+                            r"{\textbf{"
+                            f"{_format_number(score)}"
+                            " / "
+                            f"{_format_number(max_score)}"
+                            r"}}\par"
+                        ),
+                    ]
+                    if show_score
+                    else [
+                        r"\par",
+                    ]
                 ),
                 (
                     r"\medskip"

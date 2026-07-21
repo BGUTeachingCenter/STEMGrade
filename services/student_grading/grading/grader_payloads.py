@@ -27,6 +27,128 @@ from .schema import grading_response_schema
 
 _WS_RE = re.compile(r"\s+")
 
+_FEEDBACK_ONLY_SYSTEM_SUFFIX = """
+SCORING MODE: FEEDBACK ONLY.
+
+No numeric point values were configured for this question.
+Evaluate correctness and quality, but do not discuss or infer a numeric score.
+
+For schema compatibility, return 0 in the score field. Never mention that:
+- the score is zero;
+- the maximum score is zero;
+- points were not supplied or configured;
+- the score field exists only for technical reasons.
+
+The summary and feedback must discuss only the student's mathematical work.
+""".strip()
+
+
+def _is_scoring_configuration_segment(
+    value: Any,
+) -> bool:
+    text = str(
+        value or ""
+    ).strip().lower()
+
+    if not text:
+        return False
+
+    mentions_score = any(
+        term in text
+        for term in (
+            "score",
+            "points",
+            "max_points",
+            "ציון",
+            "ניקוד",
+            "נקודות",
+        )
+    )
+
+    mentions_configuration = any(
+        term in text
+        for term in (
+            "zero",
+            "0",
+            "maximum",
+            "configured",
+            "provided",
+            "supplied",
+            "אפס",
+            "מקסימום",
+            "מרבי",
+            "הוגדר",
+            "סופק",
+        )
+    )
+
+    return (
+        mentions_score
+        and mentions_configuration
+    )
+
+
+def _remove_scoring_configuration_language(
+    value: Any,
+) -> str:
+    text = str(
+        value or ""
+    ).strip()
+
+    if not text:
+        return ""
+
+    segments = re.split(
+        r"(?<=[.!?])\s+|\n+",
+        text,
+    )
+
+    kept = [
+        segment.strip()
+        for segment in segments
+        if segment.strip()
+        and not (
+            _is_scoring_configuration_segment(
+                segment
+            )
+        )
+    ]
+
+    return " ".join(
+        kept
+    ).strip()
+
+
+def _clean_feedback_list(
+    values: Any,
+) -> list[str]:
+    if not isinstance(
+        values,
+        list,
+    ):
+        values = (
+            [values]
+            if values not in (
+                None,
+                "",
+            )
+            else []
+        )
+
+    cleaned: list[str] = []
+
+    for value in values:
+        text = (
+            _remove_scoring_configuration_language(
+                value
+            )
+        )
+
+        if text:
+            cleaned.append(text)
+
+    return cleaned
+
 def _schema_for_google(schema: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert a normal JSON Schema (draft-ish) into something Gemini AI Studio accepts
@@ -221,8 +343,26 @@ def grade_payload_manifest(
             solution_text = ref_block.get("solution_text") or ""
             max_points = infer_max_points(combined_text or solution_text, default_max=0.0)
 
+        scoring_mode = (
+            "scored"
+            if max_points > 0
+            else "feedback_only"
+        )
+
+        item_system = system
+
+        if scoring_mode == "feedback_only":
+            item_system = (
+                f"{system}\n\n"
+                f"{_FEEDBACK_ONLY_SYSTEM_SUFFIX}"
+            )
+
         if debug:
-            print(f"[grade_payload_manifest] max_points={max_points}")
+            print(
+                "[grade_payload_manifest] "
+                f"max_points={max_points}, "
+                f"scoring_mode={scoring_mode}"
+            )
 
         student_raw = str(stu_block.get("latex_raw") or "")
         no_submission = ("לא לבדיקה" in student_raw) or _is_effectively_empty_latex(student_raw)
@@ -264,9 +404,36 @@ def grade_payload_manifest(
                 "latex_raw": _clip(student_raw, stu_limit),
                 "latex_clean": _clip(str(stu_block.get("latex_clean") or ""), stu_clean_limit),
             },
+                        "grading_mode": scoring_mode,
             "rubric": {
-                "score_max": float(rubric_block.get("score_max") or max_points or 0.0),
-                "key_points": list(rubric_block.get("key_points") or []),
+                "score_max": (
+                    float(
+                        rubric_block.get(
+                            "score_max"
+                        )
+                        or max_points
+                        or 0.0
+                    )
+                ),
+                "score_is_configured": (
+                    scoring_mode == "scored"
+                ),
+                "instruction": (
+                    "Return a numeric score."
+                    if scoring_mode == "scored"
+                    else (
+                        "Feedback only. Do not "
+                        "mention scores, points, "
+                        "or missing scoring "
+                        "configuration."
+                    )
+                ),
+                "key_points": list(
+                    rubric_block.get(
+                        "key_points"
+                    )
+                    or []
+                ),
             },
         }
 
@@ -281,7 +448,12 @@ def grade_payload_manifest(
             print(f"[grade_payload_manifest] calling client.chat_json for qid={qid}")
 
         user = json.dumps(model_input, ensure_ascii=False, indent=2)
-        resp = client.chat_json(system=system, user=user, schema=schema, temperature=temperature)
+        resp = client.chat_json(
+            system=item_system,
+            user=user,
+            schema=schema,
+            temperature=temperature,
+        )
 
         if debug:
             print(f"[grade_payload_manifest] model response keys={sorted(resp.keys())}")
@@ -298,7 +470,59 @@ def grade_payload_manifest(
         common_errors = list(resp.get("common_errors_detected") or [])
         mismatch = dict(resp.get("mismatch") or {})
         suggested_next = str(resp.get("suggested_next_step_he") or "").strip()
-        confidence = max(0.0, min(float(resp.get("confidence", 0.0)), 1.0))
+        confidence = max(
+            0.0,
+            min(
+                float(
+                    resp.get(
+                        "confidence",
+                        0.0,
+                    )
+                ),
+                1.0,
+            ),
+        )
+
+        if scoring_mode == "feedback_only":
+            # The response schema currently requires a number, but it must
+            # not become a student-visible zero score.
+            score = 0.0
+
+            summary = (
+                _remove_scoring_configuration_language(
+                    summary
+                )
+            )
+
+            what_was_correct = (
+                _clean_feedback_list(
+                    what_was_correct
+                )
+            )
+
+            main_mistakes = (
+                _clean_feedback_list(
+                    main_mistakes
+                )
+            )
+
+            how_to_improve = (
+                _clean_feedback_list(
+                    how_to_improve
+                )
+            )
+
+            suggested_next = (
+                _remove_scoring_configuration_language(
+                    suggested_next
+                )
+            )
+
+            if not summary:
+                summary = (
+                    "המשוב המפורט מופיע "
+                    "בסעיפים הבאים."
+                )
 
         no_submission_lang = (
             ("לא הוגשה" in summary) or
@@ -391,10 +615,121 @@ def grade_payload_manifest(
         print(f"[grade_payload_manifest] graded_items={len(graded)}")
         _log(f"[grade_payload_manifest] graded_items={len(graded)}")
 
-    bundle = BundleGrades(total_score=total_score, total_max=total_max, question_grades=graded)
+    bundle = BundleGrades(
+        total_score=total_score,
+        total_max=total_max,
+        question_grades=graded,
+    )
 
-    grades_json = out_dir / "grades.json"
-    grades_json.write_text(json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    bundle_dict = bundle.to_dict()
+
+    question_grade_dicts = (
+        bundle_dict.get(
+            "question_grades"
+        )
+        if isinstance(
+            bundle_dict.get(
+                "question_grades"
+            ),
+            list,
+        )
+        else []
+    )
+
+    scored_count = 0
+
+    for index, grade_dict in enumerate(
+            question_grade_dicts
+    ):
+        if not isinstance(
+                grade_dict,
+                dict,
+        ):
+            continue
+
+        grade_model = (
+            graded[index]
+            if index < len(graded)
+            else None
+        )
+
+        max_points_value = float(
+            getattr(
+                grade_model,
+                "max_points",
+                0.0,
+            )
+            or 0.0
+        )
+
+        if max_points_value > 0:
+            grade_dict[
+                "scoring_mode"
+            ] = "scored"
+
+            scored_count += 1
+
+        else:
+            grade_dict[
+                "scoring_mode"
+            ] = "feedback_only"
+
+            grade_dict["score"] = None
+            grade_dict[
+                "max_points"
+            ] = None
+
+    if scored_count == len(graded):
+        bundle_scoring_mode = "scored"
+
+    elif scored_count:
+        bundle_scoring_mode = "mixed"
+
+    else:
+        bundle_scoring_mode = (
+            "feedback_only"
+        )
+
+    score_available = (
+            scored_count > 0
+    )
+
+    bundle_dict["scoring"] = {
+        "mode": bundle_scoring_mode,
+        "score_available": (
+            score_available
+        ),
+        "scored_part_count": (
+            scored_count
+        ),
+        "feedback_only_part_count": (
+                len(graded)
+                - scored_count
+        ),
+    }
+
+    if not score_available:
+        bundle_dict[
+            "total_score"
+        ] = None
+
+        bundle_dict[
+            "total_max"
+        ] = None
+
+    grades_json = (
+            out_dir
+            / "grades.json"
+    )
+
+    grades_json.write_text(
+        json.dumps(
+            bundle_dict,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     if debug:
         print(f"[grade_payload_manifest] wrote grades_json={grades_json}")
