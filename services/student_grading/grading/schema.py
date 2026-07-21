@@ -14,9 +14,29 @@ def grading_response_schema() -> Dict[str, Any]:
         "additionalProperties": False,
         "properties": {
             "qid": {"type": "string"},
-            "max_points": {"type": "number"},
-            "score": {"type": "number"},
-            "summary": {"type": "string"},
+                        "max_points": {
+                "type": "number",
+            },
+            "score": {
+                "type": "number",
+            },
+            "correctness_level": {
+                "type": "string",
+                "enum": [
+                    "correct",
+                    "mostly_correct",
+                    "partially_correct",
+                    "needs_work",
+                    "not_answered",
+                ],
+                "description": (
+                    "Qualitative evaluation of the submitted "
+                    "answer. This is not an official numeric grade."
+                ),
+            },
+            "summary": {
+                "type": "string",
+            },
             "what_was_correct": {"type": "array", "items": {"type": "string"}},
             "main_mistakes": {"type": "array", "items": {"type": "string"}},
             "how_to_improve": {"type": "array", "items": {"type": "string"}},
@@ -44,6 +64,7 @@ def grading_response_schema() -> Dict[str, Any]:
             "qid",
             "max_points",
             "score",
+            "correctness_level",
             "summary",
             "what_was_correct",
             "main_mistakes",

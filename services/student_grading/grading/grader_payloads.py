@@ -27,6 +27,132 @@ from .schema import grading_response_schema
 
 _WS_RE = re.compile(r"\s+")
 
+
+_CORRECTNESS_LEVELS = {
+    "correct",
+    "mostly_correct",
+    "partially_correct",
+    "needs_work",
+    "not_answered",
+}
+
+
+_CORRECTNESS_LEVEL_INSTRUCTIONS = """
+In addition to the pedagogical feedback, classify the student's
+answer using exactly one correctness_level:
+
+- correct:
+  The mathematical answer is correct and sufficiently complete.
+  Tiny wording or presentation issues may remain.
+
+- mostly_correct:
+  The main method and conclusion are correct, but there is a minor
+  omission, notation issue, missing justification, or presentation
+  requirement.
+
+- partially_correct:
+  The answer contains meaningful correct reasoning, but also has a
+  significant error, incomplete argument, or incorrect conclusion.
+
+- needs_work:
+  The central method or conclusion is incorrect, the answer addresses
+  the wrong target, or very little usable progress was made.
+
+- not_answered:
+  There is no meaningful submitted answer.
+
+This is a qualitative learning indicator, not an official numeric
+grade. Return only one of the exact schema values.
+""".strip()
+
+
+def _normalize_correctness_level(
+    value: Any,
+    *,
+    has_student: bool,
+    score: float,
+    max_points: float,
+    what_was_correct: list[str],
+    main_mistakes: list[str],
+    mismatch: dict[str, Any],
+    common_errors: list[str],
+) -> str:
+    """
+    Validate the model classification and provide a deterministic
+    fallback for older models or malformed responses.
+    """
+    raw = (
+        str(value or "")
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+    aliases = {
+        "fully_correct": "correct",
+        "mostly": "mostly_correct",
+        "partial": "partially_correct",
+        "partially": "partially_correct",
+        "incorrect": "needs_work",
+        "wrong": "needs_work",
+        "no_submission": "not_answered",
+        "missing": "not_answered",
+    }
+
+    raw = aliases.get(
+        raw,
+        raw,
+    )
+
+    if raw in _CORRECTNESS_LEVELS:
+        return raw
+
+    if (
+        not has_student
+        or "no_submission" in common_errors
+    ):
+        return "not_answered"
+
+    if (
+        bool(
+            mismatch.get(
+                "is_mismatch"
+            )
+        )
+        or "irrelevant_solution"
+        in common_errors
+    ):
+        return "needs_work"
+
+    if max_points > 0:
+        ratio = score / max_points
+
+        if ratio >= 0.9:
+            return "correct"
+
+        if ratio >= 0.7:
+            return "mostly_correct"
+
+        if ratio >= 0.35:
+            return "partially_correct"
+
+        return "needs_work"
+
+    if not main_mistakes:
+        return "correct"
+
+    if (
+        what_was_correct
+        and len(main_mistakes) <= 1
+    ):
+        return "mostly_correct"
+
+    if what_was_correct:
+        return "partially_correct"
+
+    return "needs_work"
+
 _FEEDBACK_ONLY_SYSTEM_SUFFIX = """
 SCORING MODE: FEEDBACK ONLY.
 
@@ -289,7 +415,16 @@ def grade_payload_manifest(
     schema = grading_response_schema()
     subject = str(manifest.get("subject") or "math")
     grading_prompt_extra = str(manifest.get("grading_prompt_extra") or "")
-    system = load_grading_prompt(subject=subject, extra_instructions=grading_prompt_extra)
+    system = (
+            load_grading_prompt(
+                subject=subject,
+                extra_instructions=(
+                    grading_prompt_extra
+                ),
+            )
+            + "\n\n"
+            + _CORRECTNESS_LEVEL_INSTRUCTIONS
+    )
 
     provider = (model or "ollama").strip().lower()
     if provider in ("google", "gemini", "google_ai_studio", "aistudio"):
@@ -380,7 +515,13 @@ def grade_payload_manifest(
                     qid=qid,
                     max_points=max_points,
                     score=0.0,
-                    summary="אין תשובה לבדיקה. לא הוגשה תשובה.",
+                    correctness_level=(
+                        "not_answered"
+                    ),
+                    summary=(
+                        "אין תשובה לבדיקה. "
+                        "לא הוגשה תשובה."
+                    ),
                     what_was_correct=[],
                     main_mistakes=["לא הוגשה תשובה לבדיקה."],
                     how_to_improve=["להגיש פתרון מלא.", "לכתוב את שלבי הפתרון בצורה ברורה."],
@@ -575,7 +716,34 @@ def grade_payload_manifest(
             confidence = max(confidence, 0.4)
 
         if max_points > 0:
-            score = max(0.0, min(score, max_points))
+            score = max(
+                0.0,
+                min(
+                    score,
+                    max_points,
+                ),
+            )
+
+        correctness_level = (
+            _normalize_correctness_level(
+                resp.get(
+                    "correctness_level"
+                ),
+                has_student=has_student,
+                score=score,
+                max_points=max_points,
+                what_was_correct=(
+                    what_was_correct
+                ),
+                main_mistakes=(
+                    main_mistakes
+                ),
+                mismatch=mismatch,
+                common_errors=(
+                    common_errors
+                ),
+            )
+        )
 
         if debug:
             print(
@@ -584,7 +752,8 @@ def grade_payload_manifest(
                 f"correct_count={len(what_was_correct)}, "
                 f"mistakes_count={len(main_mistakes)}, "
                 f"improve_count={len(how_to_improve)}, "
-                f"errors_count={len(common_errors)}"
+                f"errors_count={len(common_errors)}, "
+                f"correctness={correctness_level}"
             )
 
         graded.append(

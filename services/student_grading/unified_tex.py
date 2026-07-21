@@ -193,7 +193,7 @@ def _parse_qa_sections_section_style(body: str) -> Dict[str, Dict[str, str]]:
 
 
 def _parse_qa_sections_inline_style(body: str) -> Dict[str, Dict[str, str]]:
-    """
+    r"""
     Parse inline Q/A bundle:
 
       \hrule
@@ -235,7 +235,7 @@ def _parse_qa_sections_inline_style(body: str) -> Dict[str, Dict[str, str]]:
 
 
 def _extract_inline_ref_and_student(chunk: str) -> Tuple[str, str]:
-    """
+    r"""
     Extract reference and student blocks from the inline chunk using the markers:
       {\bfseries Reference}\par
       {\bfseries Student answer}\par
@@ -291,7 +291,7 @@ def _parse_feedback_sections_section_style(body: str) -> Dict[str, str]:
 
 
 def _parse_feedback_sections_inline_style(body: str) -> Dict[str, str]:
-    """
+    r"""
     Parse inline feedback:
 
       \hrule ...
@@ -618,6 +618,37 @@ def build_student_feedback_json(
             or "feedback_only"
         ).strip()
 
+        student_answer = str(
+            part.get(
+                "student_answer"
+            )
+            or ""
+        ).strip()
+
+        correctness_level = str(
+            part.get(
+                "correctness_level"
+            )
+            or (
+                "not_answered"
+                if not student_answer
+                else "needs_work"
+            )
+        ).strip().lower()
+
+        if correctness_level not in {
+            "correct",
+            "mostly_correct",
+            "partially_correct",
+            "needs_work",
+            "not_answered",
+        }:
+            correctness_level = (
+                "not_answered"
+                if not student_answer
+                else "needs_work"
+            )
+
         feedback = {
             "summary": str(
                 part.get("summary")
@@ -676,12 +707,14 @@ def build_student_feedback_json(
                         )
                     )
                 ),
-                "student_answer": str(
-                    part.get(
-                        "student_answer"
-                    )
-                    or ""
-                ).strip(),
+                "student_answer": (
+                    student_answer
+                ),
+                "correctness": {
+                    "level": (
+                        correctness_level
+                    ),
+                },
                 "scoring_mode": (
                     part_scoring_mode
                 ),
@@ -1092,6 +1125,35 @@ def build_graded_result_json(
             or ""
         ).strip()
 
+        correctness_level = str(
+            grade.get(
+                "correctness_level"
+            )
+            or (
+                "not_answered"
+                if not student_answer
+                else "needs_work"
+            )
+        ).strip().lower()
+
+        allowed_correctness_levels = {
+            "correct",
+            "mostly_correct",
+            "partially_correct",
+            "needs_work",
+            "not_answered",
+        }
+
+        if (
+                correctness_level
+                not in allowed_correctness_levels
+        ):
+            correctness_level = (
+                "not_answered"
+                if not student_answer
+                else "needs_work"
+            )
+
         part_scoring_mode = str(
             grade.get("scoring_mode")
             or (
@@ -1137,6 +1199,9 @@ def build_graded_result_json(
                     )
                     or ""
                 ).strip(),
+                "correctness_level": (
+                    correctness_level
+                ),
                 "scoring_mode": (
                     part_scoring_mode
                 ),
@@ -1236,7 +1301,13 @@ def build_graded_result_json(
                     "question_text": "",
                     "student_answer": "",
                     "reference_solution": "",
-                                        "scoring_mode": (
+                    "correctness_level": str(
+                        grade.get(
+                            "correctness_level"
+                        )
+                        or "not_answered"
+                    ).strip().lower(),
+                    "scoring_mode": (
                         str(
                             grade.get(
                                 "scoring_mode"

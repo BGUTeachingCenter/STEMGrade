@@ -1020,6 +1020,140 @@
   return [];
 }
 
+function normalizeStudentFeedbackCorrectnessLevel(
+  value
+) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replaceAll(" ", "_");
+
+  const aliases = {
+    fully_correct: "correct",
+    mostly: "mostly_correct",
+    partial: "partially_correct",
+    partially: "partially_correct",
+    incorrect: "needs_work",
+    wrong: "needs_work",
+    no_submission: "not_answered",
+    missing: "not_answered"
+  };
+
+  const resolved =
+    aliases[normalized] || normalized;
+
+  return [
+    "correct",
+    "mostly_correct",
+    "partially_correct",
+    "needs_work",
+    "not_answered"
+  ].includes(resolved)
+    ? resolved
+    : "";
+}
+
+
+function inferStudentFeedbackCorrectness(
+  part
+) {
+  const explicitLevel =
+    part &&
+    part.correctness &&
+    typeof part.correctness === "object"
+      ? part.correctness.level
+      : part?.correctness_level;
+
+  const normalizedExplicit =
+    normalizeStudentFeedbackCorrectnessLevel(
+      explicitLevel
+    );
+
+  if (normalizedExplicit) {
+    return normalizedExplicit;
+  }
+
+  const studentAnswer = String(
+    part?.student_answer || ""
+  ).trim();
+
+  if (!studentAnswer) {
+    return "not_answered";
+  }
+
+  const feedback =
+    part?.feedback &&
+    typeof part.feedback === "object"
+      ? part.feedback
+      : {};
+
+  const correctItems =
+    normalizeGradedArray(
+      feedback.what_was_correct
+    );
+
+  const mistakeItems =
+    normalizeGradedArray(
+      feedback.main_mistakes
+    );
+
+  /*
+   * Compatibility fallback for older feedback JSON.
+   *
+   * New grading runs use the explicit model classification.
+   */
+  if (!mistakeItems.length) {
+    return "correct";
+  }
+
+  if (
+    correctItems.length &&
+    mistakeItems.length <= 1
+  ) {
+    return "mostly_correct";
+  }
+
+  if (correctItems.length) {
+    return "partially_correct";
+  }
+
+  return "needs_work";
+}
+
+
+function studentFeedbackCorrectnessMeta(
+  level
+) {
+  const metadata = {
+    correct: {
+      label: "Correct",
+      className: "is-correct"
+    },
+    mostly_correct: {
+      label: "Mostly correct",
+      className: "is-mostly-correct"
+    },
+    partially_correct: {
+      label: "Partially correct",
+      className: "is-partially-correct"
+    },
+    needs_work: {
+      label: "Needs work",
+      className: "is-needs-work"
+    },
+    not_answered: {
+      label: "Not answered",
+      className: "is-not-answered"
+    }
+  };
+
+  return (
+    metadata[level] ||
+    metadata.needs_work
+  );
+}
+
 function appendCanonicalGradedText(
   container,
   value,
@@ -1143,7 +1277,6 @@ function appendCanonicalGradedText(
   );
 }
 
-
 function renderStudentFeedbackResult(data) {
   if (
     !data ||
@@ -1189,9 +1322,9 @@ function renderStudentFeedbackResult(data) {
     document.createElement("strong");
 
   summaryTitle.textContent =
-    `${parts.length} feedback section${
+    `${parts.length} question part${
       parts.length === 1 ? "" : "s"
-    }`;
+    } reviewed`;
 
   const scoring =
     data.scoring &&
@@ -1231,7 +1364,7 @@ function renderStudentFeedbackResult(data) {
     );
   } else {
     summaryDetails.push(
-      "Feedback only"
+      "Qualitative feedback"
     );
   }
 
@@ -1269,14 +1402,33 @@ function renderStudentFeedbackResult(data) {
 
   parts.forEach(
     (part, index) => {
+      const correctnessLevel =
+        inferStudentFeedbackCorrectness(
+          part
+        );
+
+      const correctnessMeta =
+        studentFeedbackCorrectnessMeta(
+          correctnessLevel
+        );
+
       const card =
-        document.createElement("article");
+        document.createElement("details");
 
       card.className =
         "mg-graded-question-card";
 
+      card.dataset.correctness =
+        correctnessLevel;
+
+      /*
+       * Open the first item so the student immediately understands
+       * that every row can be expanded.
+       */
+      card.open = index === 0;
+
       const header =
-        document.createElement("div");
+        document.createElement("summary");
 
       header.className =
         "mg-graded-question-head";
@@ -1294,14 +1446,14 @@ function renderStudentFeedbackResult(data) {
         "mg-ocr-preview-question";
 
       title.textContent =
-        String(
-          part.qid ||
-          (
-            part.question_id
-              ? `Q${part.question_id}`
-              : `Section ${index + 1}`
-          )
-        );
+        part.question_id !== null &&
+        part.question_id !== undefined &&
+        String(part.question_id).trim()
+          ? `Question ${part.question_id}`
+          : String(
+              part.qid ||
+              `Section ${index + 1}`
+            );
 
       titleGroup.appendChild(title);
 
@@ -1331,6 +1483,27 @@ function renderStudentFeedbackResult(data) {
       meta.className =
         "mg-graded-question-meta";
 
+      const correctnessPill =
+        document.createElement("span");
+
+      correctnessPill.className =
+        (
+          "mg-graded-correctness-pill " +
+          correctnessMeta.className
+        );
+
+      correctnessPill.textContent =
+        correctnessMeta.label;
+
+      correctnessPill.setAttribute(
+        "aria-label",
+        `Answer evaluation: ${correctnessMeta.label}`
+      );
+
+      meta.appendChild(
+        correctnessPill
+      );
+
       if (
         part.scoring_mode === "scored" &&
         part.score !== null &&
@@ -1351,12 +1524,30 @@ function renderStudentFeedbackResult(data) {
         meta.appendChild(score);
       }
 
-      header.append(
-        titleGroup,
-        meta
+      const collapseIcon =
+        document.createElement("span");
+
+      collapseIcon.className =
+        "mg-graded-collapse-icon";
+
+      collapseIcon.setAttribute(
+        "aria-hidden",
+        "true"
       );
 
-      card.appendChild(header);
+      collapseIcon.textContent = "⌄";
+
+      header.append(
+        titleGroup,
+        meta,
+        collapseIcon
+      );
+
+      const body =
+        document.createElement("div");
+
+      body.className =
+        "mg-graded-question-body";
 
       const questionSection =
         document.createElement("section");
@@ -1390,7 +1581,7 @@ function renderStudentFeedbackResult(data) {
         questionBody
       );
 
-      card.appendChild(
+      body.appendChild(
         questionSection
       );
 
@@ -1426,7 +1617,7 @@ function renderStudentFeedbackResult(data) {
         answerBody
       );
 
-      card.appendChild(
+      body.appendChild(
         answerSection
       );
 
@@ -1534,8 +1725,58 @@ function renderStudentFeedbackResult(data) {
         );
       }
 
-      card.appendChild(
+      body.appendChild(
         feedbackSection
+      );
+
+      card.append(
+        header,
+        body
+      );
+
+      /*
+       * Accordion behavior: opening one part closes the other parts.
+       * It also re-runs MathJax for the newly visible content.
+       */
+      card.addEventListener(
+        "toggle",
+        () => {
+          if (!card.open) {
+            return;
+          }
+
+          documentPreview
+            .querySelectorAll(
+              "details.mg-graded-question-card[open]"
+            )
+            .forEach((otherCard) => {
+              if (otherCard !== card) {
+                otherCard.open = false;
+              }
+            });
+
+          ensureMathJaxForOcrPreview()
+            .then((mathJax) => {
+              if (
+                typeof mathJax.typesetClear ===
+                "function"
+              ) {
+                mathJax.typesetClear([
+                  card
+                ]);
+              }
+
+              return mathJax.typesetPromise([
+                card
+              ]);
+            })
+            .catch((error) => {
+              console.warn(
+                "Could not render expanded feedback equations:",
+                error
+              );
+            });
+        }
       );
 
       documentPreview.appendChild(

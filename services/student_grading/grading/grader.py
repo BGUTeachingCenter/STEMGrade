@@ -10,6 +10,7 @@ class QuestionGrade:
     qid: str
     max_points: float
     score: float
+    correctness_level: str
     summary: str
     what_was_correct: List[str]
     main_mistakes: List[str]
