@@ -664,31 +664,33 @@
     }
 
     function inferOriginalSubmissionType(
-      contentType,
-      filename
-    ) {
-      const normalizedType =
-        String(contentType || "").toLowerCase();
+  contentType,
+  filename
+) {
+  const normalizedType =
+    String(contentType || "").toLowerCase();
 
-      const normalizedName =
-        String(filename || "").toLowerCase();
+  const normalizedName =
+    String(filename || "").toLowerCase();
 
-      if (
-        normalizedType.includes("application/pdf") ||
-        normalizedName.endsWith(".pdf")
-      ) {
-        return "pdf";
-      }
+  if (
+    normalizedType.includes("application/pdf") ||
+    normalizedName.endsWith(".pdf")
+  ) {
+    return "pdf";
+  }
 
-      if (
-        normalizedType.startsWith("image/") ||
-        /\.(png|jpe?g|webp|gif|bmp)$/i.test(normalizedName)
-      ) {
-        return "image";
-      }
+  if (
+    normalizedType.startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif|bmp)$/i.test(
+      normalizedName
+    )
+  ) {
+    return "image";
+  }
 
-      return "file";
-    }
+  return "file";
+}
 
     function resetOriginalSubmissionPreview(
       message = "Upload handwritten work or open a saved OCR result."
@@ -958,39 +960,50 @@
     }
   }
 
-    function inferGradedResultType(contentType, filename) {
-      const normalizedType =
-        String(contentType || "").toLowerCase();
+    function inferGradedResultType(
+  contentType,
+  filename
+) {
+  const normalizedType =
+    String(contentType || "").toLowerCase();
 
-      const normalizedName =
-        String(filename || "").toLowerCase();
+  const normalizedName =
+    String(filename || "").toLowerCase();
 
-      if (
-        normalizedType.includes("application/pdf") ||
-        normalizedName.endsWith(".pdf")
-      ) {
-        return "pdf";
-      }
+  if (
+    normalizedType.includes("application/pdf") ||
+    normalizedName.endsWith(".pdf")
+  ) {
+    return "pdf";
+  }
 
-      if (
-        normalizedType.includes("application/x-tex") ||
-        normalizedType.includes("text/x-tex") ||
-        normalizedType.includes("text/plain") ||
-        normalizedName.endsWith(".tex") ||
-        normalizedName.endsWith(".txt")
-      ) {
-        return "tex";
-      }
+  if (
+    normalizedType.includes("application/json") ||
+    normalizedType.includes("text/json") ||
+    normalizedName.endsWith(".json")
+  ) {
+    return "json";
+  }
 
-      if (
-        normalizedType.includes("text/html") ||
-        normalizedName.endsWith(".html")
-      ) {
-        return "html";
-      }
+  if (
+    normalizedType.includes("application/x-tex") ||
+    normalizedType.includes("text/x-tex") ||
+    normalizedType.includes("text/plain") ||
+    normalizedName.endsWith(".tex") ||
+    normalizedName.endsWith(".txt")
+  ) {
+    return "tex";
+  }
 
-      return "file";
-    }
+  if (
+    normalizedType.includes("text/html") ||
+    normalizedName.endsWith(".html")
+  ) {
+    return "html";
+  }
+
+  return "file";
+}
 
 
    function normalizeGradedArray(value) {
@@ -1005,6 +1018,537 @@
   }
 
   return [];
+}
+
+function appendCanonicalGradedText(
+  container,
+  value,
+  emptyMessage = ""
+) {
+  const source = String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
+  if (!source) {
+    if (emptyMessage) {
+      const empty =
+        document.createElement("div");
+
+      empty.className =
+        "mg-graded-content-empty";
+
+      empty.textContent = emptyMessage;
+
+      container.appendChild(empty);
+    }
+
+    return;
+  }
+
+  const displayMathPattern =
+    /(\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$)/g;
+
+  let cursor = 0;
+  let match;
+
+  function appendProseBlock(block) {
+    String(block || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const containsHebrew =
+          /[\u0590-\u05FF]/.test(line);
+
+        if (
+          !containsHebrew &&
+          (
+            lineAlreadyHasMathDelimiters(line) ||
+            lineLooksLikeMath(line)
+          )
+        ) {
+          const equation =
+            document.createElement("div");
+
+          equation.className =
+            "mg-ocr-preview-equation";
+
+          equation.dir = "ltr";
+
+          equation.textContent =
+            lineAlreadyHasMathDelimiters(line)
+              ? line
+              : `\\[${line}\\]`;
+
+          container.appendChild(equation);
+          return;
+        }
+
+        const paragraph =
+          document.createElement("p");
+
+        paragraph.className =
+          containsHebrew
+            ? "mg-graded-rich-text is-hebrew"
+            : "mg-graded-rich-text";
+
+        paragraph.dir =
+          containsHebrew
+            ? "rtl"
+            : "auto";
+
+        if (containsHebrew) {
+          paragraph.lang = "he";
+        }
+
+        // Preserve \( ... \), \[ ... \], $...$, and other MathJax
+        // delimiters inside ordinary prose.
+        paragraph.textContent = line;
+
+        container.appendChild(paragraph);
+      });
+  }
+
+  while (
+    (
+      match =
+        displayMathPattern.exec(source)
+    ) !== null
+  ) {
+    appendProseBlock(
+      source.slice(
+        cursor,
+        match.index
+      )
+    );
+
+    const equation =
+      document.createElement("div");
+
+    equation.className =
+      "mg-ocr-preview-equation";
+
+    equation.dir = "ltr";
+    equation.textContent = match[0];
+
+    container.appendChild(equation);
+
+    cursor =
+      match.index +
+      match[0].length;
+  }
+
+  appendProseBlock(
+    source.slice(cursor)
+  );
+}
+
+
+function renderStudentFeedbackResult(data) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    data.schema_version !==
+      "student_feedback_v1"
+  ) {
+    return false;
+  }
+
+  const parts = Array.isArray(data.parts)
+    ? data.parts.filter(
+        (part) =>
+          part &&
+          typeof part === "object"
+      )
+    : [];
+
+  const documentPreview =
+    document.createElement("div");
+
+  documentPreview.className =
+    "mg-graded-document";
+
+  const summary =
+    document.createElement("div");
+
+  summary.className =
+    "mg-graded-summary";
+
+  const summaryIcon =
+    document.createElement("div");
+
+  summaryIcon.className =
+    "mg-graded-summary-icon";
+
+  summaryIcon.textContent = "✓";
+
+  const summaryCopy =
+    document.createElement("div");
+
+  const summaryTitle =
+    document.createElement("strong");
+
+  summaryTitle.textContent =
+    `${parts.length} feedback section${
+      parts.length === 1 ? "" : "s"
+    }`;
+
+  const scoring =
+    data.scoring &&
+    typeof data.scoring === "object"
+      ? data.scoring
+      : {};
+
+  const scoreAvailable =
+    scoring.score_available === true;
+
+  const summaryText =
+    document.createElement("span");
+
+  const summaryDetails = [];
+
+  if (data.exam_id) {
+    summaryDetails.push(
+      String(data.exam_id)
+    );
+  }
+
+  if (data.provider) {
+    summaryDetails.push(
+      `Graded with ${data.provider}`
+    );
+  }
+
+  if (
+    scoreAvailable &&
+    scoring.total_score !== null &&
+    scoring.total_score !== undefined &&
+    scoring.total_max_score !== null &&
+    scoring.total_max_score !== undefined
+  ) {
+    summaryDetails.push(
+      `${scoring.total_score} / ${scoring.total_max_score}`
+    );
+  } else {
+    summaryDetails.push(
+      "Feedback only"
+    );
+  }
+
+  summaryText.textContent =
+    summaryDetails.join(" · ");
+
+  summaryCopy.append(
+    summaryTitle,
+    summaryText
+  );
+
+  summary.append(
+    summaryIcon,
+    summaryCopy
+  );
+
+  documentPreview.appendChild(
+    summary
+  );
+
+  if (!parts.length) {
+    const empty =
+      document.createElement("div");
+
+    empty.className =
+      "mg-graded-content-empty";
+
+    empty.textContent =
+      "No feedback sections were found in this result.";
+
+    documentPreview.appendChild(
+      empty
+    );
+  }
+
+  parts.forEach(
+    (part, index) => {
+      const card =
+        document.createElement("article");
+
+      card.className =
+        "mg-graded-question-card";
+
+      const header =
+        document.createElement("div");
+
+      header.className =
+        "mg-graded-question-head";
+
+      const titleGroup =
+        document.createElement("div");
+
+      titleGroup.className =
+        "mg-ocr-preview-answer-title";
+
+      const title =
+        document.createElement("div");
+
+      title.className =
+        "mg-ocr-preview-question";
+
+      title.textContent =
+        String(
+          part.qid ||
+          (
+            part.question_id
+              ? `Q${part.question_id}`
+              : `Section ${index + 1}`
+          )
+        );
+
+      titleGroup.appendChild(title);
+
+      const formattedPart =
+        formatOcrPart(
+          part.part_key
+        );
+
+      if (formattedPart) {
+        const partPill =
+          document.createElement("span");
+
+        partPill.className =
+          "mg-ocr-preview-part";
+
+        partPill.textContent =
+          `Part ${formattedPart}`;
+
+        titleGroup.appendChild(
+          partPill
+        );
+      }
+
+      const meta =
+        document.createElement("div");
+
+      meta.className =
+        "mg-graded-question-meta";
+
+      if (
+        part.scoring_mode === "scored" &&
+        part.score !== null &&
+        part.score !== undefined
+      ) {
+        const score =
+          document.createElement("span");
+
+        score.className =
+          "mg-graded-score-pill";
+
+        score.textContent =
+          part.max_score !== null &&
+          part.max_score !== undefined
+            ? `${part.score} / ${part.max_score}`
+            : String(part.score);
+
+        meta.appendChild(score);
+      }
+
+      header.append(
+        titleGroup,
+        meta
+      );
+
+      card.appendChild(header);
+
+      const questionSection =
+        document.createElement("section");
+
+      questionSection.className =
+        "mg-graded-content-section mg-graded-question-section";
+
+      const questionLabel =
+        document.createElement("div");
+
+      questionLabel.className =
+        "mg-graded-section-label";
+
+      questionLabel.textContent =
+        "Question";
+
+      const questionBody =
+        document.createElement("div");
+
+      questionBody.className =
+        "mg-graded-rich-block";
+
+      appendCanonicalGradedText(
+        questionBody,
+        part.question_text,
+        "The complete question text is not available in this mock result."
+      );
+
+      questionSection.append(
+        questionLabel,
+        questionBody
+      );
+
+      card.appendChild(
+        questionSection
+      );
+
+      const answerSection =
+        document.createElement("section");
+
+      answerSection.className =
+        "mg-graded-content-section mg-graded-student-section";
+
+      const answerLabel =
+        document.createElement("div");
+
+      answerLabel.className =
+        "mg-graded-section-label";
+
+      answerLabel.textContent =
+        "Student answer";
+
+      const answerBody =
+        document.createElement("div");
+
+      answerBody.className =
+        "mg-graded-rich-block";
+
+      appendCanonicalGradedText(
+        answerBody,
+        part.student_answer,
+        "No student answer was detected."
+      );
+
+      answerSection.append(
+        answerLabel,
+        answerBody
+      );
+
+      card.appendChild(
+        answerSection
+      );
+
+      const feedbackData =
+        part.feedback &&
+        typeof part.feedback === "object"
+          ? part.feedback
+          : {};
+
+      const feedbackSection =
+        document.createElement("section");
+
+      feedbackSection.className =
+        "mg-graded-content-section mg-graded-feedback-section";
+
+      const feedbackLabel =
+        document.createElement("div");
+
+      feedbackLabel.className =
+        "mg-graded-section-label";
+
+      feedbackLabel.textContent =
+        "Feedback";
+
+      feedbackSection.appendChild(
+        feedbackLabel
+      );
+
+      const feedbackSummary =
+        document.createElement("div");
+
+      feedbackSummary.className =
+        "mg-graded-feedback-summary";
+
+      appendCanonicalGradedText(
+        feedbackSummary,
+        feedbackData.summary,
+        "No summary was provided."
+      );
+
+      feedbackSection.appendChild(
+        feedbackSummary
+      );
+
+      appendGradedList(
+        feedbackSection,
+        "What was done well",
+        normalizeGradedArray(
+          feedbackData.what_was_correct
+        ),
+        "is-good"
+      );
+
+      appendGradedList(
+        feedbackSection,
+        "Mistakes or missing parts",
+        normalizeGradedArray(
+          feedbackData.main_mistakes
+        ),
+        "is-error"
+      );
+
+      appendGradedList(
+        feedbackSection,
+        "How to improve",
+        normalizeGradedArray(
+          feedbackData.how_to_improve
+        ),
+        "is-warning"
+      );
+
+      const nextStep = String(
+        feedbackData.suggested_next_step ||
+        ""
+      ).trim();
+
+      if (nextStep) {
+        const nextStepBox =
+          document.createElement("div");
+
+        nextStepBox.className =
+          "mg-graded-next-step";
+
+        const nextStepTitle =
+          document.createElement("strong");
+
+        nextStepTitle.textContent =
+          "Suggested next step";
+
+        const nextStepBody =
+          document.createElement("div");
+
+        appendCanonicalGradedText(
+          nextStepBody,
+          nextStep
+        );
+
+        nextStepBox.append(
+          nextStepTitle,
+          nextStepBody
+        );
+
+        feedbackSection.appendChild(
+          nextStepBox
+        );
+      }
+
+      card.appendChild(
+        feedbackSection
+      );
+
+      documentPreview.appendChild(
+        card
+      );
+    }
+  );
+
+  gradedResultPreview.appendChild(
+    documentPreview
+  );
+
+  return true;
 }
 
 function recoverCompleteJsonBlocks(value) {
@@ -2011,7 +2555,9 @@ async function showGradedResultBlob(
   blob,
   contentType = "",
   filename = "graded_result",
-  activateTab = true
+  activateTab = true,
+  downloadBlob = null,
+  downloadFilename = ""
 ) {
   if (!gradedResultPreview || !blob) {
     return;
@@ -2023,12 +2569,12 @@ async function showGradedResultBlob(
     URL.createObjectURL(blob);
 
   reviewGradedDownload = {
-    blob,
+    blob: downloadBlob || blob,
     filename: normalizeReviewFilename(
-      filename,
+      downloadFilename || filename,
       "graded_result"
     )
-  };
+    };
 
   updateReviewDownloadButton();
 
@@ -2038,6 +2584,91 @@ async function showGradedResultBlob(
     contentType,
     filename
   );
+
+    if (resultType === "json") {
+    const source = await blob.text();
+
+    let data = null;
+
+    try {
+      data = JSON.parse(source);
+    } catch (error) {
+      console.warn(
+        "Could not parse graded JSON:",
+        error
+      );
+    }
+
+    const structuredRendered =
+      renderStudentFeedbackResult(data);
+
+    if (!structuredRendered) {
+      const fallback =
+        document.createElement("pre");
+
+      fallback.className =
+        "mg-graded-result-json-fallback";
+
+      fallback.textContent =
+        data
+          ? JSON.stringify(
+              data,
+              null,
+              2
+            )
+          : source;
+
+      gradedResultPreview.appendChild(
+        fallback
+      );
+    }
+
+    if (gradedResultStatus) {
+      gradedResultStatus.textContent =
+        "Rendering structured feedback…";
+    }
+
+    try {
+      const mathJax =
+        await ensureMathJaxForOcrPreview();
+
+      if (
+        typeof mathJax.typesetClear ===
+        "function"
+      ) {
+        mathJax.typesetClear([
+          gradedResultPreview
+        ]);
+      }
+
+      await mathJax.typesetPromise([
+        gradedResultPreview
+      ]);
+
+      if (gradedResultStatus) {
+        gradedResultStatus.textContent =
+          `Showing structured feedback from ${filename}.`;
+      }
+    } catch (error) {
+      console.warn(
+        "Could not render feedback equations:",
+        error
+      );
+
+      if (gradedResultStatus) {
+        gradedResultStatus.textContent =
+          "Feedback loaded, but equation rendering was unavailable.";
+      }
+    }
+
+    if (activateTab) {
+      activateOcrReviewTab(
+        "graded"
+      );
+    }
+
+    return;
+  }
 
   if (resultType === "pdf") {
     const frame = document.createElement("iframe");
@@ -3371,6 +4002,40 @@ function parseStructuredOcrPreview(value) {
       return texFile ? texFile.download_url : (String(result.filename || "").toLowerCase().endsWith(".tex") ? result.download_url : "");
     }
 
+        function findGradedStructuredFile(
+      result
+    ) {
+      if (!result) {
+        return null;
+      }
+
+      const files = Array.isArray(
+        result.files
+      )
+        ? result.files
+        : [];
+
+      return (
+        files.find(
+          (file) =>
+            file &&
+            file.download_url &&
+            (
+              file.kind ===
+                "graded_result_json" ||
+              String(
+                file.filename || ""
+              )
+                .toLowerCase()
+                .endsWith(
+                  "_structured.json"
+                )
+            )
+        )
+        || null
+      );
+    }
+
     function cleanOcrTitle(value) {
       const raw = String(value || "").trim();
       if (!raw) return "OCR review";
@@ -3380,102 +4045,242 @@ function parseStructuredOcrPreview(value) {
         .replace(/\s+/g, " ")
         .trim();
     }
-
     function resultCard(result) {
-      const type = String(result.file_type || "").toUpperCase();
-      const provider = result.provider || "unknown";
-      const rawExam = result.exam_id || result.exam_folder || "Assessment";
-      const saved = formatDateTime(result.saved_at);
-      const url = result.download_url || "#";
-      const isOcr = result.kind === "ocr";
-      const isTexWork = result.kind === "tex";
-      const ocrTexUrl = findOcrTexUrl(result);
-      const workId = result.work_id || result.exam_folder || "";
-      const hasFeedback = !!result.feedback_download_url;
+      const type = String(
+        result.file_type || ""
+      ).toUpperCase();
+
+      const provider =
+        result.provider || "unknown";
+
+      const rawExam =
+        result.exam_id ||
+        result.exam_folder ||
+        "Assessment";
+
+      const saved = formatDateTime(
+        result.saved_at
+      );
+
+      const url =
+        result.download_url || "#";
+
+      const isOcr =
+        result.kind === "ocr";
+
+      const isTexWork =
+        result.kind === "tex";
+
+      const ocrTexUrl =
+        findOcrTexUrl(result);
+
+      const workId =
+        result.work_id ||
+        result.exam_folder ||
+        "";
+
+      const hasFeedback =
+        !!result.feedback_download_url;
+
+      const structuredFile =
+        findGradedStructuredFile(
+          result
+        );
+
+      const structuredUrl =
+        structuredFile
+          ? structuredFile.download_url
+          : "";
+
+      const structuredFilename =
+        structuredFile
+          ? (
+              structuredFile.filename ||
+              "student_feedback.json"
+            )
+          : "";
+
+      const feedbackDisplayUrl =
+        structuredUrl ||
+        result.feedback_download_url ||
+        "";
+
+      const feedbackDisplayTitle =
+        structuredFilename ||
+        result.feedback_filename ||
+        "graded_result";
 
       const title = isOcr
-        ? (hasFeedback ? rawExam : "OCR review")
-        : (isTexWork && !hasFeedback ? "Uploaded LaTeX work" : rawExam);
+        ? (
+            hasFeedback
+              ? rawExam
+              : "OCR review"
+          )
+        : (
+            isTexWork &&
+            !hasFeedback
+              ? "Uploaded LaTeX work"
+              : rawExam
+          );
 
       const sourceName = isOcr
-        ? cleanOcrTitle(result.source_filename || rawExam)
+        ? cleanOcrTitle(
+            result.source_filename ||
+            rawExam
+          )
         : "";
 
       const fileName = hasFeedback
-        ? (result.feedback_filename || result.filename || "")
-        : (result.filename || "");
+        ? (
+            result.feedback_filename ||
+            result.filename ||
+            ""
+          )
+        : (
+            result.filename || ""
+          );
 
       const mainLabel = isOcr
         ? (
             hasFeedback
-              ? `OCR ready · Graded with ${escapeHtml(result.grading_provider || provider)} · ${escapeHtml(saved)}`
-              : `OCR result · ${escapeHtml(provider)} · ${escapeHtml(saved)}`
+              ? (
+                  `OCR ready · Graded with ${
+                    escapeHtml(
+                      result.grading_provider ||
+                      provider
+                    )
+                  } · ${escapeHtml(saved)}`
+                )
+              : (
+                  `OCR result · ${
+                    escapeHtml(provider)
+                  } · ${escapeHtml(saved)}`
+                )
           )
         : (
             hasFeedback
-              ? `${escapeHtml(type)} feedback · ${escapeHtml(provider)} · ${escapeHtml(saved)}`
-              : `Uploaded LaTeX · ${escapeHtml(saved)}`
+              ? (
+                  `${escapeHtml(type)} feedback · ${
+                    escapeHtml(provider)
+                  } · ${escapeHtml(saved)}`
+                )
+              : (
+                  `Uploaded LaTeX · ${
+                    escapeHtml(saved)
+                  }`
+                )
           );
-const reviewButton = isOcr && ocrTexUrl
-  ? `
-      <button
-        type="button"
-        class="secondary-btn small mg-review-saved-work-btn"
-        data-ocr-url="${escapeHtml(ocrTexUrl)}"
-        data-ocr-title="${escapeHtml(sourceName || title)}"
-        data-work-id="${escapeHtml(workId)}"
-        data-original-url="${escapeHtml(result.original_download_url || "")}"
-        data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
-        data-feedback-url="${escapeHtml(result.feedback_download_url || "")}"
-        data-feedback-title="${escapeHtml(result.feedback_filename || "graded_result")}"
-      >
-        Review
-      </button>
-    `
-  : "";
 
-const gradeAgainButton = isOcr && ocrTexUrl
-  ? `
-      <button
-        type="button"
-        class="primary-btn small mg-grade-again-saved-work-btn"
-        data-ocr-url="${escapeHtml(ocrTexUrl)}"
-        data-ocr-title="${escapeHtml(sourceName || title)}"
-        data-work-id="${escapeHtml(workId)}"
-        data-original-url="${escapeHtml(result.original_download_url || "")}"
-        data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
-        data-feedback-url="${escapeHtml(result.feedback_download_url || "")}"
-        data-feedback-title="${escapeHtml(result.feedback_filename || "graded_result")}"
-      >
-        Grade again
-      </button>
-    `
-  : "";
+      const reviewButton =
+        isOcr && ocrTexUrl
+          ? `
+              <button
+                type="button"
+                class="secondary-btn small mg-review-saved-work-btn"
+                data-ocr-url="${escapeHtml(ocrTexUrl)}"
+                data-ocr-title="${escapeHtml(sourceName || title)}"
+                data-work-id="${escapeHtml(workId)}"
+                data-original-url="${escapeHtml(result.original_download_url || "")}"
+                data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
+                data-feedback-url="${escapeHtml(feedbackDisplayUrl)}"
+                data-feedback-title="${escapeHtml(feedbackDisplayTitle)}"
+              >
+                Review
+              </button>
+            `
+          : "";
 
-const nonOcrDownloadButton = !isOcr
-  ? `
-      <a
-        class="secondary-btn small"
-        href="${escapeHtml(hasFeedback ? result.feedback_download_url : url)}"
-      >
-        ${hasFeedback ? "Download feedback" : "Download upload"}
-      </a>
-    `
-  : "";
+      const viewFeedbackButton =
+        !isOcr && structuredUrl
+          ? `
+              <button
+                type="button"
+                class="primary-btn small mg-view-saved-feedback-btn"
+                data-feedback-url="${escapeHtml(structuredUrl)}"
+                data-feedback-title="${escapeHtml(structuredFilename)}"
+              >
+                View feedback
+              </button>
+            `
+          : "";
+
+      const gradeAgainButton =
+        isOcr && ocrTexUrl
+          ? `
+              <button
+                type="button"
+                class="primary-btn small mg-grade-again-saved-work-btn"
+                data-ocr-url="${escapeHtml(ocrTexUrl)}"
+                data-ocr-title="${escapeHtml(sourceName || title)}"
+                data-work-id="${escapeHtml(workId)}"
+                data-original-url="${escapeHtml(result.original_download_url || "")}"
+                data-original-title="${escapeHtml(result.source_filename || "original_submission")}"
+                data-feedback-url="${escapeHtml(feedbackDisplayUrl)}"
+                data-feedback-title="${escapeHtml(feedbackDisplayTitle)}"
+              >
+                Grade again
+              </button>
+            `
+          : "";
+
+      const downloadButton =
+        hasFeedback
+          ? `
+              <a
+                class="secondary-btn small"
+                href="${escapeHtml(result.feedback_download_url)}"
+              >
+                Download feedback
+              </a>
+            `
+          : (
+              !isOcr
+                ? `
+                    <a
+                      class="secondary-btn small"
+                      href="${escapeHtml(url)}"
+                    >
+                      Download upload
+                    </a>
+                  `
+                : ""
+            );
 
       return `
-        <div class="mg-student-result-item ${isOcr ? "mg-student-result-item-ocr" : ""}">
+        <div class="mg-student-result-item ${
+          isOcr
+            ? "mg-student-result-item-ocr"
+            : ""
+        }">
           <div class="mg-student-result-main">
-            <div class="mg-student-result-title">${escapeHtml(title)}</div>
-            ${sourceName ? `<div class="mg-student-result-source">${escapeHtml(sourceName)}</div>` : ""}
-            <div class="small">${mainLabel}</div>
-            <div class="small mg-student-result-file">${escapeHtml(fileName)}</div>
+            <div class="mg-student-result-title">
+              ${escapeHtml(title)}
+            </div>
+
+            ${
+              sourceName
+                ? `
+                    <div class="mg-student-result-source">
+                      ${escapeHtml(sourceName)}
+                    </div>
+                  `
+                : ""
+            }
+
+            <div class="small">
+              ${mainLabel}
+            </div>
+
+            <div class="small mg-student-result-file">
+              ${escapeHtml(fileName)}
+            </div>
           </div>
 
           <div class="mg-student-result-actions">
             ${reviewButton}
+            ${viewFeedbackButton}
             ${gradeAgainButton}
-            ${nonOcrDownloadButton}
+            ${downloadButton}
           </div>
         </div>
       `;
@@ -3649,7 +4454,7 @@ function wireSavedOcrButtons() {
       });
     });
 
-  document
+    document
     .querySelectorAll(".mg-grade-again-saved-work-btn")
     .forEach((button) => {
       button.addEventListener("click", () => {
@@ -3667,6 +4472,23 @@ function wireSavedOcrButtons() {
           "preview"
         );
       });
+    });
+
+  document
+    .querySelectorAll(".mg-view-saved-feedback-btn")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          loadSavedGradedResult(
+            button.dataset.feedbackUrl ||
+              "",
+            button.dataset.feedbackTitle ||
+              "student_feedback.json",
+            true
+          );
+        }
+      );
     });
 }
 
@@ -3933,8 +4755,34 @@ function wireSavedOcrButtons() {
           form.append("selected_exam_id", selectedExam);
           lines.push(`[${nowTag()}] Manual reference selected: ${selectedExam}`);
         }
-        const res = await authedFetch(url, { method: "POST", body: form });
-        const contentType = (res.headers.get("content-type") || "").toLowerCase();
+                const res = await authedFetch(
+          url,
+          {
+            method: "POST",
+            body: form
+          }
+        );
+
+        const contentType = (
+          res.headers.get(
+            "content-type"
+          )
+          || ""
+        ).toLowerCase();
+
+        const structuredResultUrl = (
+          res.headers.get(
+            "x-mathgrade-structured-url"
+          )
+          || ""
+        ).trim();
+
+        const structuredResultFilename = (
+          res.headers.get(
+            "x-mathgrade-structured-filename"
+          )
+          || "student_feedback.json"
+        ).trim();
 
         if (!res.ok) {
           stopSignal.stopped = true;
@@ -3960,14 +4808,60 @@ function wireSavedOcrButtons() {
 
         setStatusText(lines, "work");
 
-        const blob = await res.blob();
+                const blob = await res.blob();
 
-        await showGradedResultBlob(
-          blob,
-          contentType,
-          finalName,
-          true
-        );
+        let renderedStructuredResult =
+          false;
+
+        if (structuredResultUrl) {
+          try {
+            const structuredResponse =
+              await authedFetch(
+                structuredResultUrl,
+                {
+                  cache: "no-store"
+                }
+              );
+
+            if (structuredResponse.ok) {
+              const structuredBlob =
+                await structuredResponse.blob();
+
+              const structuredContentType =
+                structuredResponse.headers.get(
+                  "content-type"
+                )
+                || structuredBlob.type
+                || "application/json";
+
+              await showGradedResultBlob(
+                structuredBlob,
+                structuredContentType,
+                structuredResultFilename,
+                true,
+                blob,
+                finalName
+              );
+
+              renderedStructuredResult =
+                true;
+            }
+          } catch (structuredError) {
+            console.warn(
+              "Could not load the structured result:",
+              structuredError
+            );
+          }
+        }
+
+        if (!renderedStructuredResult) {
+          await showGradedResultBlob(
+            blob,
+            contentType,
+            finalName,
+            true
+          );
+        }
 
         stopSignal.stopped = true;
         await pollPromise;

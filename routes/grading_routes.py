@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 from time import perf_counter
 from typing import Any, Dict, Tuple
 
@@ -54,10 +55,25 @@ DEBUG = True
 # -------------------------
 
 
-def _response_for_path(p: Path) -> FileResponse:
+def _response_for_path(
+    p: Path,
+    *,
+    headers: dict[str, str] | None = None,
+) -> FileResponse:
     if p.suffix.lower() == ".pdf":
-        return FileResponse(path=str(p), media_type="application/pdf", filename="graded_test.pdf")
-    return FileResponse(path=str(p), media_type="text/plain; charset=utf-8", filename="graded_union.tex")
+        return FileResponse(
+            path=str(p),
+            media_type="application/pdf",
+            filename="graded_test.pdf",
+            headers=headers or {},
+        )
+
+    return FileResponse(
+        path=str(p),
+        media_type="text/plain; charset=utf-8",
+        filename="graded_union.tex",
+        headers=headers or {},
+    )
 
 
 def _require_provider_env(provider: str) -> None:
@@ -1831,6 +1847,8 @@ async def _grade_tex_flow(
             ),
         )
 
+        response_headers: dict[str, str] = {}
+
         if student_code and source_work_id:
             try:
                 updated_work = (
@@ -1869,6 +1887,82 @@ async def _grade_tex_flow(
                         exam_id=str(exam_id),
                         provider=normalized_provider,
                     )
+
+                    feedback_meta = (
+                        updated_work.get("feedback")
+                        if isinstance(
+                            updated_work.get("feedback"),
+                            dict,
+                        )
+                        else {}
+                    )
+
+                    graded_result_meta = (
+                        updated_work.get("graded_result")
+                        if isinstance(
+                            updated_work.get("graded_result"),
+                            dict,
+                        )
+                        else {}
+                    )
+
+                    structured_filename = str(
+                        feedback_meta.get(
+                            "structured_json_filename"
+                        )
+                        or graded_result_meta.get(
+                            "structured_json_filename"
+                        )
+                        or ""
+                    ).strip()
+
+                    if not structured_filename:
+                        files = (
+                            updated_work.get("files")
+                            if isinstance(
+                                updated_work.get("files"),
+                                list,
+                            )
+                            else []
+                        )
+
+                        structured_entry = next(
+                            (
+                                item
+                                for item in files
+                                if isinstance(item, dict)
+                                   and item.get("kind")
+                                   == "graded_result_json"
+                            ),
+                            None,
+                        )
+
+                        if structured_entry:
+                            structured_filename = str(
+                                structured_entry.get(
+                                    "filename"
+                                )
+                                or ""
+                            ).strip()
+
+                    if structured_filename:
+                        structured_url = (
+                            "/routes/student/work_file"
+                            f"?work_id={quote(source_work_id)}"
+                            f"&filename={quote(structured_filename)}"
+                        )
+
+                        response_headers[
+                            "X-MathGrade-Structured-Url"
+                        ] = structured_url
+
+                        response_headers[
+                            "X-MathGrade-Structured-Filename"
+                        ] = structured_filename
+
+                    response_headers[
+                        "X-MathGrade-Work-Id"
+                    ] = source_work_id
             except Exception as e:
                 trace.log(
                     "student_work_store",
@@ -1922,7 +2016,10 @@ async def _grade_tex_flow(
             push(job_id, f"Done. Sending file: {final_persistent_path.name}")
             done(job_id)
 
-        return _response_for_path(final_persistent_path)
+        return _response_for_path(
+            final_persistent_path,
+            headers=response_headers,
+        )
 
     except HTTPException as e:
         trace.error("http_exception", e)

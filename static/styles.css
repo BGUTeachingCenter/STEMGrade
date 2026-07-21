@@ -5447,3 +5447,135 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     flex-direction: column;
   }
 }
+
+/* =========================================================
+   Student feedback JSON renderer
+   ========================================================= */
+
+.mg-graded-question-section {
+  padding: 15px;
+  border: 1px solid #eadfd1;
+  border-radius: 17px;
+  background: #fffaf4;
+}
+
+.mg-graded-student-section {
+  padding: 15px;
+  border: 1px solid #e2ddd6;
+  border-radius: 17px;
+  background: #ffffff;
+}
+
+.mg-graded-rich-block {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.mg-graded-rich-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}
+
+.mg-graded-rich-text.is-hebrew {
+  direction: rtl;
+  text-align: right;
+  font-family:
+    Arial,
+    "Noto Sans Hebrew",
+    "Rubik",
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.85;
+}
+
+.mg-graded-feedback-summary {
+  display: grid;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid #cfe7d1;
+  border-radius: 15px;
+  background: #ffffff;
+}
+
+.mg-graded-next-step {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 14px 15px;
+  border: 1px solid #f1dcc0;
+  border-radius: 16px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243,154,30,.08),
+      transparent 42%
+    ),
+    #fffaf4;
+}
+
+.mg-graded-next-step > strong {
+  color: var(--primary-2);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.mg-graded-content-empty {
+  padding: 13px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 15px;
+  background: #faf8f5;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mg-graded-result-json-fallback {
+  min-height: 560px;
+  max-height: 75vh;
+  margin: 0;
+  padding: 22px;
+  overflow: auto;
+  border: 0;
+  background: #fffdfa;
+  color: var(--text);
+  font:
+    13px/1.55
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+}
+
+.mg-graded-rich-block
+.mg-ocr-preview-equation,
+.mg-graded-feedback-summary
+.mg-ocr-preview-equation,
+.mg-graded-next-step
+.mg-ocr-preview-equation {
+  margin: 4px 0;
+}
+
+.mg-view-saved-feedback-btn {
+  min-width: 150px;
+}
+
+@media (max-width: 700px) {
+  .mg-graded-question-section,
+  .mg-graded-student-section,
+  .mg-graded-feedback-section {
+    padding: 12px;
+  }
+
+  .mg-view-saved-feedback-btn {
+    width: 100%;
+    min-width: 0;
+  }
+}
