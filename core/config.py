@@ -42,7 +42,7 @@ DEFAULT_SUBJECT = env_str("DEFAULT_SUBJECT", "math")
 # We also push them into os.environ below with setdefault(...) so older code
 # that still reads os.getenv(...) directly sees the same values.
 DEFAULT_OLLAMA_MODEL = "gemma3:4b"
-DEFAULT_OPENAI_MODEL = "gpt-5.5"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-terra"
 DEFAULT_OPENAI_OCR_MODEL = "gpt-5.5"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_GEMINI_OCR_MODEL = "gemini-3.5-flash"
