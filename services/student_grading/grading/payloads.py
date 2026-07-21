@@ -89,6 +89,522 @@ _DOC_WRAPPER_RX = re.compile(
 )
 
 
+_REFERENCE_QUESTION_SECTION_RE = re.compile(
+    r"שאלה\s*(\d+)",
+    re.UNICODE,
+)
+
+_REFERENCE_PART_TITLE_RE = re.compile(
+    r"^\s*\(([^)]+)\)\s*(.*?)\s*$",
+    re.DOTALL,
+)
+
+
+def _is_escaped_character(
+    text: str,
+    index: int,
+) -> bool:
+    """
+    Return True when text[index] is preceded by an odd number of
+    backslashes.
+    """
+    slash_count = 0
+    cursor = index - 1
+
+    while (
+        cursor >= 0
+        and text[cursor] == "\\"
+    ):
+        slash_count += 1
+        cursor -= 1
+
+    return bool(
+        slash_count % 2
+    )
+
+
+def _scan_tex_command_titles(
+    tex: str,
+    command: str,
+) -> list[
+    tuple[int, int, str]
+]:
+    """
+    Read balanced-brace titles such as:
+
+      \\section*{שאלה 1}
+      \\subsection*{(א) \\( ... \\)}
+
+    A regular expression using [^}] cannot safely parse titles containing
+    nested commands such as \\frac{a}{b}.
+    """
+    pattern = re.compile(
+        rf"\\{re.escape(command)}"
+        rf"\*?\s*\{{"
+    )
+
+    results: list[
+        tuple[int, int, str]
+    ] = []
+
+    for match in pattern.finditer(
+        tex
+    ):
+        opening_brace = (
+            match.end() - 1
+        )
+
+        depth = 0
+        closing_brace: int | None = (
+            None
+        )
+
+        for index in range(
+            opening_brace,
+            len(tex),
+        ):
+            char = tex[index]
+
+            if (
+                char == "{"
+                and not _is_escaped_character(
+                    tex,
+                    index,
+                )
+            ):
+                depth += 1
+
+            elif (
+                char == "}"
+                and not _is_escaped_character(
+                    tex,
+                    index,
+                )
+            ):
+                depth -= 1
+
+                if depth == 0:
+                    closing_brace = index
+                    break
+
+        if closing_brace is None:
+            continue
+
+        title = tex[
+            opening_brace + 1:
+            closing_brace
+        ].strip()
+
+        results.append(
+            (
+                match.start(),
+                closing_brace + 1,
+                title,
+            )
+        )
+
+    return results
+
+
+def _parse_reference_part_titles(
+    source_tex: Path,
+) -> dict[Key, str]:
+    """
+    Extract the complete mathematical statement from subsection titles.
+
+    Example:
+
+      \\subsection*{
+        (ג) לכל ... מתקיים \\(\\frac{a}{b}<\\frac{c}{d}\\)
+      }
+
+    becomes:
+
+      (2, "c") ->
+      "לכל ... מתקיים \\(\\frac{a}{b}<\\frac{c}{d}\\)"
+    """
+    tex = source_tex.read_text(
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    events: list[
+        tuple[str, int, int, str]
+    ] = []
+
+    events.extend(
+        (
+            "section",
+            start,
+            end,
+            title,
+        )
+        for start, end, title
+        in _scan_tex_command_titles(
+            tex,
+            "section",
+        )
+    )
+
+    events.extend(
+        (
+            "subsection",
+            start,
+            end,
+            title,
+        )
+        for start, end, title
+        in _scan_tex_command_titles(
+            tex,
+            "subsection",
+        )
+    )
+
+    events.sort(
+        key=lambda item: item[1]
+    )
+
+    current_question: int | None = (
+        None
+    )
+
+    statements: dict[
+        Key,
+        str,
+    ] = {}
+
+    for (
+        event_type,
+        _start,
+        _end,
+        title,
+    ) in events:
+        if event_type == "section":
+            question_match = (
+                _REFERENCE_QUESTION_SECTION_RE.search(
+                    title
+                )
+            )
+
+            current_question = (
+                int(
+                    question_match.group(1)
+                )
+                if question_match
+                else None
+            )
+
+            continue
+
+        if current_question is None:
+            continue
+
+        part_match = (
+            _REFERENCE_PART_TITLE_RE.match(
+                title
+            )
+        )
+
+        if not part_match:
+            continue
+
+        part_label = (
+            part_match.group(1)
+        )
+
+        statement = (
+            part_match.group(2)
+            or ""
+        ).strip()
+
+        if not statement:
+            continue
+
+        key = _normalize_key(
+            (
+                current_question,
+                part_label,
+            )
+        )
+
+        statements[key] = statement
+
+    return statements
+
+
+def _load_reference_part_titles(
+    *,
+    reference_json: Path,
+    bundle: dict[str, Any],
+) -> dict[Key, str]:
+    """
+    Locate source TeX files named by full_solution_bundle.json and collect
+    their subsection statements.
+    """
+    source_names: set[str] = set()
+
+    raw_source_names = (
+        bundle.get("source_names")
+        if isinstance(
+            bundle.get("source_names"),
+            list,
+        )
+        else []
+    )
+
+    for source_name in raw_source_names:
+        safe_name = Path(
+            str(source_name or "")
+        ).name
+
+        if safe_name:
+            source_names.add(
+                safe_name
+            )
+
+    questions = (
+        bundle.get("questions")
+        if isinstance(
+            bundle.get("questions"),
+            list,
+        )
+        else []
+    )
+
+    for question in questions:
+        if not isinstance(
+            question,
+            dict,
+        ):
+            continue
+
+        parts = (
+            question.get("parts")
+            if isinstance(
+                question.get("parts"),
+                list,
+            )
+            else []
+        )
+
+        for part in parts:
+            if not isinstance(
+                part,
+                dict,
+            ):
+                continue
+
+            for field_name in (
+                "source_question_file",
+                "source_answer_file",
+            ):
+                safe_name = Path(
+                    str(
+                        part.get(
+                            field_name
+                        )
+                        or ""
+                    )
+                ).name
+
+                if safe_name:
+                    source_names.add(
+                        safe_name
+                    )
+
+    statements: dict[
+        Key,
+        str,
+    ] = {}
+
+    for source_name in sorted(
+        source_names
+    ):
+        source_path = (
+            reference_json.parent
+            / source_name
+        )
+
+        if (
+            not source_path.exists()
+            or source_path.suffix.lower()
+            not in {
+                ".tex",
+                ".txt",
+            }
+        ):
+            continue
+
+        try:
+            statements.update(
+                _parse_reference_part_titles(
+                    source_path
+                )
+            )
+        except Exception:
+            continue
+
+    return statements
+
+
+def _looks_like_broken_question_fragment(
+    line: str,
+) -> bool:
+    """
+    Detect incomplete tails produced when the beginning of a TeX
+    subsection title was lost.
+    """
+    text = str(
+        line or ""
+    ).strip()
+
+    if not text:
+        return False
+
+    if text.startswith(
+        (
+            "^",
+            "+",
+        )
+    ):
+        return True
+
+    if text.startswith("{") and any(
+        token in text
+        for token in (
+            r"\frac",
+            r"\right",
+            r"\binom",
+            r"\)",
+        )
+    ):
+        return True
+
+    return False
+
+
+def _clean_broken_question_text(
+    value: Any,
+) -> str:
+    text = _to_clean_text(
+        value
+    )
+
+    if not text:
+        return ""
+
+    lines = [
+        line.rstrip()
+        for line in text.splitlines()
+        if not (
+            _looks_like_broken_question_fragment(
+                line
+            )
+        )
+    ]
+
+    cleaned = "\n".join(
+        lines
+    )
+
+    cleaned = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        cleaned,
+    )
+
+    return cleaned.strip()
+
+
+def _merge_reference_question_statement(
+    question_text: Any,
+    subsection_statement: Any,
+) -> str:
+    """
+    Place the complete subsection statement after the general question
+    instruction and before supplemental text such as the definition of a
+    binomial coefficient.
+    """
+    cleaned_question = (
+        _clean_broken_question_text(
+            question_text
+        )
+    )
+
+    statement = _to_clean_text(
+        subsection_statement
+    )
+
+    if not statement:
+        return cleaned_question
+
+    normalized_question = re.sub(
+        r"\s+",
+        " ",
+        cleaned_question,
+    )
+
+    normalized_statement = re.sub(
+        r"\s+",
+        " ",
+        statement,
+    )
+
+    if (
+        normalized_statement
+        and normalized_statement
+        in normalized_question
+    ):
+        return cleaned_question
+
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(
+            r"\n\s*\n",
+            cleaned_question,
+        )
+        if paragraph.strip()
+    ]
+
+    if not paragraphs:
+        return statement
+
+    return "\n\n".join(
+        [
+            paragraphs[0],
+            statement,
+            *paragraphs[1:],
+        ]
+    ).strip()
+
+
+def _clean_reference_solution_text(
+    value: Any,
+) -> str:
+    """
+    Remove document-structure commands accidentally retained at the end
+    of an official solution.
+    """
+    text = _to_clean_text(
+        value
+    )
+
+    if not text:
+        return ""
+
+    text = re.split(
+        r"\\section\*?\{",
+        text,
+        maxsplit=1,
+    )[0]
+
+    text = text.replace(
+        r"\end{document}",
+        "",
+    )
+
+    return text.strip()
+
 # OCR review files currently use:
 #
 #   \subsection*{Question 1}
@@ -397,8 +913,23 @@ def _combine_labeled_sections(sections: list[tuple[str, str]]) -> str:
 
 def _build_reference_parts_from_full_solution_json(reference_json: Path, default_max_points: float) -> dict[Key, dict[str, Any]]:
     """Convert FullSolutionBundle JSON into keyed reference parts for grading."""
-    raw = json.loads(reference_json.read_text(encoding="utf-8"))
-    subject = _to_clean_text(raw.get("subject") or "math")
+    raw = json.loads(
+        reference_json.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    source_part_titles = (
+        _load_reference_part_titles(
+            reference_json=reference_json,
+            bundle=raw,
+        )
+    )
+
+    subject = _to_clean_text(
+        raw.get("subject")
+        or "math"
+    )
     grading_prompt_extra = _to_clean_text(raw.get("grading_prompt_extra"))
     questions = raw.get("questions") or []
     if not isinstance(questions, list):
@@ -429,9 +960,33 @@ def _build_reference_parts_from_full_solution_json(reference_json: Path, default
             raw_part = _to_clean_text(p.get("part_key") or p.get("part"))
             key = _normalize_key((qnum, raw_part))
 
-            question_text_raw = _to_clean_text(p.get("question_text"))
-            required_action_raw = _to_clean_text(p.get("required_action"))
-            official_solution_raw = _to_clean_text(p.get("official_solution"))
+            question_text_raw = (
+                _merge_reference_question_statement(
+                    p.get(
+                        "question_text"
+                    ),
+                    source_part_titles.get(
+                        key,
+                        "",
+                    ),
+                )
+            )
+
+            required_action_raw = (
+                _to_clean_text(
+                    p.get(
+                        "required_action"
+                    )
+                )
+            )
+
+            official_solution_raw = (
+                _clean_reference_solution_text(
+                    p.get(
+                        "official_solution"
+                    )
+                )
+            )
             expected_answer_raw = _to_clean_text(p.get("expected_answer"))
             grading_instructions_raw = _to_clean_text(p.get("grading_instructions"))
 

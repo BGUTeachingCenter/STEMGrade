@@ -991,12 +991,202 @@ async def _grade_tex_flow(
             mode_label = "manual" if manual_exam_id else "auto"
             push(job_id, f"Fetched: {exam_id} ({source_label}, {mode_label} reference, {ref_secs:.1f}s)")
 
-        ref_path = tmp_dir / Path(chosen_ref).name
+        ref_path = (
+                tmp_dir
+                / Path(chosen_ref).name
+        )
+
         ref_path.write_text(
-            Path(chosen_ref).read_text(encoding="utf-8", errors="replace"),
+            Path(chosen_ref).read_text(
+                encoding="utf-8",
+                errors="replace",
+            ),
             encoding="utf-8",
         )
-        matched_artifact_name = "matched_reference.json" if reference_source == "json" else "matched_reference.tex"
+
+        # A generated full_solution_bundle.json can lose formulas that
+        # originally appeared in TeX subsection titles. Copy its source
+        # TeX files into the temporary workspace so payloads.py can restore
+        # those titles deterministically.
+        if reference_source == "json":
+            try:
+                reference_bundle_data = (
+                    json.loads(
+                        Path(
+                            chosen_ref
+                        ).read_text(
+                            encoding="utf-8",
+                        )
+                    )
+                )
+
+                source_reference_names: set[
+                    str
+                ] = set()
+
+                source_names = (
+                    reference_bundle_data.get(
+                        "source_names"
+                    )
+                    if isinstance(
+                        reference_bundle_data,
+                        dict,
+                    )
+                    else []
+                )
+
+                if isinstance(
+                        source_names,
+                        list,
+                ):
+                    for source_name in source_names:
+                        safe_source_name = (
+                            Path(
+                                str(
+                                    source_name
+                                    or ""
+                                )
+                            ).name
+                        )
+
+                        if safe_source_name:
+                            source_reference_names.add(
+                                safe_source_name
+                            )
+
+                questions = (
+                    reference_bundle_data.get(
+                        "questions"
+                    )
+                    if isinstance(
+                        reference_bundle_data,
+                        dict,
+                    )
+                    else []
+                )
+
+                if isinstance(
+                        questions,
+                        list,
+                ):
+                    for question in questions:
+                        if not isinstance(
+                                question,
+                                dict,
+                        ):
+                            continue
+
+                        parts = (
+                            question.get(
+                                "parts"
+                            )
+                            if isinstance(
+                                question.get(
+                                    "parts"
+                                ),
+                                list,
+                            )
+                            else []
+                        )
+
+                        for part in parts:
+                            if not isinstance(
+                                    part,
+                                    dict,
+                            ):
+                                continue
+
+                            for field_name in (
+                                    "source_question_file",
+                                    "source_answer_file",
+                            ):
+                                safe_source_name = (
+                                    Path(
+                                        str(
+                                            part.get(
+                                                field_name
+                                            )
+                                            or ""
+                                        )
+                                    ).name
+                                )
+
+                                if safe_source_name:
+                                    source_reference_names.add(
+                                        safe_source_name
+                                    )
+
+                source_parent = (
+                    Path(chosen_ref).parent
+                )
+
+                for source_name in sorted(
+                        source_reference_names
+                ):
+                    source_path = (
+                            source_parent
+                            / source_name
+                    )
+
+                    if (
+                            not source_path.exists()
+                            or not source_path.is_file()
+                    ):
+                        trace.log(
+                            "reference_match",
+                            "reference_source_file_missing",
+                            status="warning",
+                            source_name=source_name,
+                            expected_path=str(
+                                source_path
+                            ),
+                        )
+                        continue
+
+                    copied_source_path = (
+                            tmp_dir
+                            / source_name
+                    )
+
+                    shutil.copy2(
+                        source_path,
+                        copied_source_path,
+                    )
+
+                    trace.save_file(
+                        copied_source_path,
+                        (
+                            "reference_sources/"
+                            f"{source_name}"
+                        ),
+                        stage="reference_match",
+                    )
+
+                    trace.log(
+                        "reference_match",
+                        "reference_source_file_copied",
+                        source_name=source_name,
+                        copied_path=str(
+                            copied_source_path
+                        ),
+                    )
+
+            except Exception as source_copy_error:
+                trace.log(
+                    "reference_match",
+                    "reference_source_copy_failed",
+                    status="warning",
+                    error=_safe_str(
+                        source_copy_error,
+                        500,
+                    ),
+                )
+
+        matched_artifact_name = (
+            "matched_reference.json"
+            if reference_source == "json"
+            else "matched_reference.tex"
+        )
         trace.save_file(ref_path, matched_artifact_name, stage="reference_match")
 
         # Compare student_summary.json to reference_summary.json before building payloads.
