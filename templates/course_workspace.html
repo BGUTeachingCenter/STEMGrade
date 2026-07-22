@@ -139,14 +139,15 @@
     <div class="card mg-chart-card">
       <div class="cardInner">
         <div class="mg-chart-head">
-          <div class="mg-card-title">Gemini tokens per code</div>
+          <div class="mg-card-title">Total tokens per code</div>
           <div class="mg-chart-peak" id="chartTokensPeak"></div>
         </div>
+        <div class="mg-chart-legend" id="chartTokensLegend" hidden></div>
         <div class="mg-chart-canvas-wrap">
           <canvas id="chartTokens"></canvas>
           <div class="mg-chart-tooltip" id="chartTokensTip" hidden></div>
         </div>
-        <div class="small">Histogram of total Gemini tokens used per student code.</div>
+        <div class="small">Total AI tokens used per student code, split by provider (Gemini vs GPT).</div>
       </div>
     </div>
   </div>
@@ -1177,7 +1178,7 @@ loadWorkspaceContext();
     const canvas = $(canvasId);
     if (!state || !canvas) return;
 
-    const { labels, values, empty } = state;
+    const { labels, series, empty } = state;
     const { ctx, W, H } = prepareCanvas(canvas);
     state.bars = [];
 
@@ -1185,17 +1186,27 @@ loadWorkspaceContext();
     const plotW = Math.max(1, W - padX * 2);
     const plotH = Math.max(1, H - padT - padB);
     const baseY = padT + plotH;
+    const n = labels.length;
 
     ctx.textBaseline = "alphabetic";
 
     // Empty / message state
-    if (empty || !values.length) {
+    if (empty || !n) {
       ctx.fillStyle = "rgba(79,79,82,.5)";
       ctx.font = "600 13px Inter, ui-sans-serif, system-ui";
       ctx.textAlign = "center";
       ctx.fillText(String((labels && labels[0]) || "No data"), W / 2, H / 2);
       return;
     }
+
+    // Per-bar totals (sum of every series at that index)
+    const totals = [];
+    for (let i = 0; i < n; i++) {
+      let t = 0;
+      for (const s of series) t += Number(s.values[i] || 0);
+      totals.push(t);
+    }
+    const maxV = Math.max(1, ...totals);
 
     // Baseline
     ctx.strokeStyle = "rgba(79,79,82,.14)";
@@ -1205,34 +1216,60 @@ loadWorkspaceContext();
     ctx.lineTo(W - padX, baseY + 0.5);
     ctx.stroke();
 
-    const n = values.length;
-    const maxV = Math.max(1, ...values);
     const slot = plotW / n;
     const barW = Math.max(4, Math.min(46, slot * 0.62));
+    const radius = Math.min(5, barW / 2);
 
-    const grad = ctx.createLinearGradient(0, padT, 0, baseY);
-    grad.addColorStop(0, "#f39a1e");
-    grad.addColorStop(1, "#f8b74e");
-    const gradHi = ctx.createLinearGradient(0, padT, 0, baseY);
-    gradHi.addColorStop(0, "#e07d00");
-    gradHi.addColorStop(1, "#f39a1e");
+    // Single-series charts keep the soft brand gradient; stacked charts use
+    // each series' solid provider colour.
+    let grad = null;
+    if (state.gradient) {
+      grad = ctx.createLinearGradient(0, padT, 0, baseY);
+      grad.addColorStop(0, "#f39a1e");
+      grad.addColorStop(1, "#f8b74e");
+    }
 
-    // Bars (store geometry for hover hit-testing)
     for (let i = 0; i < n; i++) {
-      const v = values[i] || 0;
-      const bh = Math.max(v > 0 ? 2 : 0, plotH * (v / maxV));
       const x = padX + i * slot + (slot - barW) / 2;
-      const y = baseY - bh;
       const cx = x + barW / 2;
 
-      ctx.fillStyle = state.hover === i ? gradHi : grad;
-      roundedTopRect(ctx, x, y, barW, bh, Math.min(5, barW / 2));
+      // Which series is the topmost non-empty one (gets the rounded top)?
+      let topIdx = -1;
+      for (let s = 0; s < series.length; s++) {
+        if (Number(series[s].values[i] || 0) > 0) topIdx = s;
+      }
+
+      let acc = 0; // height stacked from the baseline up
+      for (let s = 0; s < series.length; s++) {
+        const val = Number(series[s].values[i] || 0);
+        if (val <= 0) continue;
+        const h = Math.max(1.5, plotH * (val / maxV));
+        const segTop = baseY - acc - h;
+        ctx.fillStyle = state.gradient ? grad : series[s].color;
+        if (s === topIdx) {
+          // Overlap the segment below by 0.5px to avoid a seam line.
+          roundedTopRect(ctx, x, segTop, barW, h + (acc > 0 ? 0.5 : 0), radius);
+        } else {
+          ctx.fillRect(x, segTop, barW, h + 0.5);
+        }
+        acc += h;
+      }
+
+      const barTop = baseY - acc;
+
+      // Hover highlight: a subtle dark tint over the whole column.
+      if (state.hover === i && acc > 0) {
+        ctx.fillStyle = "rgba(0,0,0,.10)";
+        roundedTopRect(ctx, x, barTop, barW, acc, radius);
+      }
 
       state.bars.push({
-        i, cx, barTop: y, barW,
+        i, cx, barTop, barW,
         slotL: padX + i * slot,
         slotR: padX + (i + 1) * slot,
-        value: v, label: String(labels[i] ?? ""),
+        total: totals[i],
+        segValues: series.map(s => Number(s.values[i] || 0)),
+        label: String(labels[i] ?? ""),
       });
     }
 
@@ -1249,12 +1286,9 @@ loadWorkspaceContext();
 
     // Peak readout in the card header
     if (state.peakEl) {
-      let peakIdx = 0;
-      for (let i = 1; i < values.length; i++) {
-        if (values[i] > values[peakIdx]) peakIdx = i;
-      }
-      state.peakEl.innerHTML = values[peakIdx] > 0
-        ? `peak <strong>${formatCount(values[peakIdx])}</strong>`
+      const peak = Math.max(0, ...totals);
+      state.peakEl.innerHTML = peak > 0
+        ? `peak <strong>${formatCount(peak)}</strong>`
         : "";
     }
   }
@@ -1272,7 +1306,7 @@ loadWorkspaceContext();
       return;
     }
 
-    tip.innerHTML = state.tipFormat(bar.label, bar.value);
+    tip.innerHTML = state.tipFormat(bar, state.series);
     tip.hidden = false;
 
     const left = canvas.offsetLeft + bar.cx;
@@ -1311,27 +1345,43 @@ loadWorkspaceContext();
     });
   }
 
-  function drawBars(canvasId, labels, values, opts = {}) {
-    const c = $(canvasId);
-    if (!c) return;
+  function renderLegend(legendEl, series) {
+    if (!legendEl) return;
+    const items = (series || []).filter(s => s && s.name);
+    if (!items.length) {
+      legendEl.hidden = true;
+      legendEl.innerHTML = "";
+      return;
+    }
+    legendEl.hidden = false;
+    legendEl.innerHTML = items.map(s =>
+      `<span class="mg-chart-legend-item">` +
+        `<span class="mg-chart-swatch" style="background:${s.color}"></span>` +
+        `${escapeHtml(s.name)}` +
+      `</span>`
+    ).join("");
+  }
 
-    const isEmpty = !!opts.empty ||
-      (values.length === 1 && !values[0] &&
-        /no data|unauthorized|failed/i.test(String(labels[0] || "")));
+  function commitChart(canvasId, cfg) {
+    if (!$(canvasId)) return;
+    const prev = CHART_STATE[canvasId];
 
     CHART_STATE[canvasId] = {
-      labels, values,
-      empty: isEmpty,
+      labels: cfg.labels,
+      series: cfg.series,
+      gradient: !!cfg.gradient,
+      empty: !!cfg.empty,
       hover: -1,
       bars: [],
-      wired: CHART_STATE[canvasId] ? CHART_STATE[canvasId].wired : false,
-      peakEl: opts.peakId ? $(opts.peakId) : null,
-      tipEl: opts.tipId ? $(opts.tipId) : null,
-      tipFormat: opts.tipFormat ||
-        ((label, v) => `<strong>${escapeHtml(label)}</strong> · ${formatCount(v)}`),
+      wired: prev ? prev.wired : false,
+      peakEl: cfg.peakId ? $(cfg.peakId) : null,
+      tipEl: cfg.tipId ? $(cfg.tipId) : null,
+      tipFormat: cfg.tipFormat,
     };
 
-    if (isEmpty && CHART_STATE[canvasId].peakEl) {
+    renderLegend(cfg.legendId ? $(cfg.legendId) : null, cfg.empty ? [] : cfg.series);
+
+    if (cfg.empty && CHART_STATE[canvasId].peakEl) {
       CHART_STATE[canvasId].peakEl.innerHTML = "";
     }
 
@@ -1340,39 +1390,43 @@ loadWorkspaceContext();
     wireChartHover(canvasId);
   }
 
-  function drawHistogram(canvasId, values, binCount = 8, opts = {}) {
-    const vals = values.filter(v => Number.isFinite(v));
-    if (!vals.length) {
-      drawBars(canvasId, ["No data"], [0], { ...opts, empty: true });
-      return;
-    }
+  function drawBars(canvasId, labels, values, opts = {}) {
+    const isEmpty = !!opts.empty ||
+      (values.length === 1 && !values[0] &&
+        /no data|unauthorized|failed/i.test(String(labels[0] || "")));
 
-    const minV = Math.min(...vals);
-    const maxV = Math.max(...vals);
-
-    // Small integer ranges get one bin per value; wider ranges are bucketed.
-    const span = maxV - minV;
-    const bins_n = span <= 0 ? 1 : Math.min(binCount, Math.max(1, Math.round(span) + 1));
-    const width = span <= 0 ? 1 : span / bins_n;
-    const bins = new Array(bins_n).fill(0);
-
-    for (const v of vals) {
-      let idx = span <= 0 ? 0 : Math.floor((v - minV) / width);
-      if (idx >= bins_n) idx = bins_n - 1;
-      bins[idx] += 1;
-    }
-
-    const labels = bins.map((_, i) => {
-      if (span <= 0) return formatCompact(Math.round(minV));
-      const a = Math.round(minV + width * i);
-      const b = Math.round(i === bins_n - 1 ? maxV : minV + width * (i + 1));
-      return a === b ? formatCompact(a) : `${formatCompact(a)}–${formatCompact(b)}`;
+    commitChart(canvasId, {
+      labels,
+      series: [{ name: "", color: "#f39a1e", values }],
+      gradient: true,
+      empty: isEmpty,
+      peakId: opts.peakId,
+      tipId: opts.tipId,
+      legendId: opts.legendId,
+      tipFormat: opts.tipFormat ||
+        ((bar) => `<strong>${escapeHtml(bar.label)}</strong> · ${formatCount(bar.total)}`),
     });
+  }
 
-    drawBars(canvasId, labels, bins, {
-      ...opts,
-      tipFormat: (label, v) =>
-        `<strong>${escapeHtml(label)} tokens</strong> · ${formatCount(v)} code${v === 1 ? "" : "s"}`,
+  // Stacked bar chart: series = [{ name, color, values: [] }, …].
+  function drawStacked(canvasId, labels, series, opts = {}) {
+    commitChart(canvasId, {
+      labels,
+      series,
+      gradient: false,
+      empty: !!opts.empty || !labels.length,
+      peakId: opts.peakId,
+      tipId: opts.tipId,
+      legendId: opts.legendId,
+      tipFormat: opts.tipFormat || ((bar, ser) => {
+        const parts = ser
+          .map((s, i) =>
+            `<span class="mg-tip-dot" style="background:${s.color}"></span>` +
+            `${escapeHtml(s.name)} ${formatCount(bar.segValues[i])}`)
+          .join("<br>");
+        return `<strong>${escapeHtml(bar.label)}</strong><br>${parts}` +
+          `<br>Total ${formatCount(bar.total)}`;
+      }),
     });
   }
 
@@ -1652,7 +1706,7 @@ loadWorkspaceContext();
       if(!r.ok){
         console.log("Stats error:", await r.text());
         drawBars("chartPerDay", ["unauthorized"], [0], { empty: true, peakId: "chartPerDayPeak", tipId: "chartPerDayTip" });
-        drawBars("chartTokens", ["unauthorized"], [0], { empty: true, peakId: "chartTokensPeak", tipId: "chartTokensTip" });
+        drawBars("chartTokens", ["unauthorized"], [0], { empty: true, peakId: "chartTokensPeak", tipId: "chartTokensTip", legendId: "chartTokensLegend" });
 
         if ($("workProgressGrid")) {
           $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
@@ -1680,16 +1734,39 @@ loadWorkspaceContext();
         {
           peakId: "chartPerDayPeak",
           tipId: "chartPerDayTip",
-          tipFormat: (label, v) =>
-            `<strong>${escapeHtml(label)}</strong> · ${formatCount(v)} upload${v === 1 ? "" : "s"}`,
+          tipFormat: (bar) =>
+            `<strong>${escapeHtml(bar.label)}</strong> · ` +
+            `${formatCount(bar.total)} upload${bar.total === 1 ? "" : "s"}`,
         }
       );
 
-      const tokens = (j.gemini_tokens_per_code || []).map(x => Number(x.tokens || 0));
-      drawHistogram("chartTokens", tokens, 8, {
-        peakId: "chartTokensPeak",
-        tipId: "chartTokensTip",
-      });
+      // Total tokens per code, split by provider, tallest first.
+      const tpc = (j.tokens_per_code || [])
+        .slice()
+        .sort((a, b) => Number(b.total_tokens || 0) - Number(a.total_tokens || 0));
+
+      drawStacked(
+        "chartTokens",
+        tpc.map(x => String(x.code || "").slice(-6) || "—"),
+        [
+          { name: "Gemini", color: "#f39a1e", values: tpc.map(x => Number(x.gemini_tokens || 0)) },
+          { name: "GPT", color: "#12a89b", values: tpc.map(x => Number(x.gpt_tokens || 0)) },
+        ],
+        {
+          peakId: "chartTokensPeak",
+          tipId: "chartTokensTip",
+          legendId: "chartTokensLegend",
+          empty: !tpc.length,
+          tipFormat: (bar, ser) => {
+            const full = (tpc[bar.i] && tpc[bar.i].code) || bar.label;
+            const parts = ser.map((s, i) =>
+              `<span class="mg-tip-dot" style="background:${s.color}"></span>` +
+              `${escapeHtml(s.name)} ${formatCount(bar.segValues[i])}`).join("<br>");
+            return `<strong>${escapeHtml(full)}</strong><br>${parts}` +
+              `<br>Total ${formatCount(bar.total)}`;
+          },
+        }
+      );
 
     }catch(e){
       console.log("Stats exception:", e);

@@ -390,26 +390,50 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         if x.get("is_matched_exam")
     ]
 
-    tokens_by_code = Counter()
-    for r in rows:
-        provider = (r.get("provider") or "").strip().lower()
-        if provider not in ("google", "gemini", "google_ai_studio", "aistudio"):
-            continue
+    # Total tokens per student code, split by AI provider. The submissions log
+    # stores each call's total token count in the (historically named)
+    # "gemini_tokens" column and identifies the provider in "provider".
+    GEMINI_PROVIDERS = ("google", "gemini", "google_ai_studio", "aistudio")
+    GPT_PROVIDERS = ("openai", "gpt", "chatgpt", "openai_gpt", "azure_openai")
 
+    gemini_by_code = Counter()
+    gpt_by_code = Counter()
+    for r in rows:
         code = (r.get("code") or "").strip()
         if not code:
             continue
+
+        provider = (r.get("provider") or "").strip().lower()
 
         try:
             tok_i = int(r.get("gemini_tokens") or 0)
         except Exception:
             tok_i = 0
 
-        tokens_by_code[code] += tok_i
+        if provider in GEMINI_PROVIDERS:
+            gemini_by_code[code] += tok_i
+        elif provider in GPT_PROVIDERS:
+            gpt_by_code[code] += tok_i
+        else:
+            # Unknown/legacy provider — attribute to Gemini so totals stay whole.
+            gemini_by_code[code] += tok_i
 
+    all_token_codes = sorted(set(gemini_by_code) | set(gpt_by_code))
+    tokens_per_code = [
+        {
+            "code": c,
+            "gemini_tokens": int(gemini_by_code[c]),
+            "gpt_tokens": int(gpt_by_code[c]),
+            "total_tokens": int(gemini_by_code[c] + gpt_by_code[c]),
+        }
+        for c in all_token_codes
+    ]
+
+    # Backward-compatible field kept for any older client.
     gemini_tokens_per_code = [
-        {"code": c, "tokens": int(tokens_by_code[c])}
-        for c in sorted(tokens_by_code.keys())
+        {"code": row["code"], "tokens": row["gemini_tokens"]}
+        for row in tokens_per_code
+        if row["gemini_tokens"]
     ]
 
     recent_uploads.sort(key=lambda x: x.get("uploaded_at") or "", reverse=True)
@@ -426,6 +450,7 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         "work_progress": work_progress,
         "student_progress": student_progress,
         "codes_per_exam": codes_per_exam,
+        "tokens_per_code": tokens_per_code,
         "gemini_tokens_per_code": gemini_tokens_per_code,
         "recent_uploads": recent_uploads,
     }

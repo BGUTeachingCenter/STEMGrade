@@ -1745,6 +1745,39 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   font-weight: 950;
 }
 
+/* Legend + tooltip swatches for stacked (per-provider) charts. */
+.mg-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 8px 0 2px;
+}
+
+.mg-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.mg-chart-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.mg-chart-tooltip .mg-tip-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 .mg-chart-canvas-wrap {
   position: relative;
   width: 100%;
