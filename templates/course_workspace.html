@@ -124,9 +124,13 @@
   <div class="statsLayout mg-stats-two">
     <div class="card mg-chart-card">
       <div class="cardInner">
-        <div class="mg-card-title">Uploads per day</div>
+        <div class="mg-chart-head">
+          <div class="mg-card-title">Uploads per day</div>
+          <div class="mg-chart-peak" id="chartPerDayPeak"></div>
+        </div>
         <div class="mg-chart-canvas-wrap">
           <canvas id="chartPerDay"></canvas>
+          <div class="mg-chart-tooltip" id="chartPerDayTip" hidden></div>
         </div>
         <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
       </div>
@@ -134,9 +138,13 @@
 
     <div class="card mg-chart-card">
       <div class="cardInner">
-        <div class="mg-card-title">Gemini tokens per code</div>
+        <div class="mg-chart-head">
+          <div class="mg-card-title">Gemini tokens per code</div>
+          <div class="mg-chart-peak" id="chartTokensPeak"></div>
+        </div>
         <div class="mg-chart-canvas-wrap">
           <canvas id="chartTokens"></canvas>
+          <div class="mg-chart-tooltip" id="chartTokensTip" hidden></div>
         </div>
         <div class="small">Histogram of total Gemini tokens used per student code.</div>
       </div>
@@ -1112,13 +1120,25 @@ loadWorkspaceContext();
       .replaceAll("'","&#039;");
   }
 
-  // --------- STATS CHARTS (crisp, responsive canvas, no external libs) ----------
-  // Remember the latest data per canvas so charts can be re-rendered sharply
-  // whenever the container is resized (window resize, sidebar, orientation…).
+  // --------- STATS CHARTS (crisp, responsive, interactive; no external libs) ---
+  // Clean bar charts styled after the "Tokens per day" plot: capped bar width,
+  // rounded tops, per-bar labels, a peak readout, and hover tooltips. State per
+  // canvas lets us re-render sharply on resize and hit-test on hover.
   const CHART_STATE = {};
-  const CHART_INK = "#6a6a6d";        // matches --muted
-  const CHART_AXIS = "rgba(79,79,82,.16)";
-  const CHART_GRID = "rgba(79,79,82,.08)";
+  const CHART_INK = "#8a8a8d";
+
+  function formatCount(n) {
+    return Number(n || 0).toLocaleString();
+  }
+
+  // Compact number for tight axis labels: 900, 2.7k, 3.9M.
+  function formatCompact(n) {
+    n = Number(n) || 0;
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
+    if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "k";
+    return String(Math.round(n));
+  }
 
   // Size the canvas bitmap to its CSS box × devicePixelRatio so bars and text
   // stay sharp on high-DPI screens, and return the CSS-pixel drawing size.
@@ -1152,117 +1172,216 @@ loadWorkspaceContext();
     ctx.fill();
   }
 
-  function renderBars(canvas, labels, values) {
-    const { ctx, W, H } = prepareCanvas(canvas);
+  function renderChart(canvasId) {
+    const state = CHART_STATE[canvasId];
+    const canvas = $(canvasId);
+    if (!state || !canvas) return;
 
-    const padL = 46, padR = 14, padT = 16, padB = 38;
-    const plotW = Math.max(1, W - padL - padR);
+    const { labels, values, empty } = state;
+    const { ctx, W, H } = prepareCanvas(canvas);
+    state.bars = [];
+
+    const padX = 8, padT = 16, padB = 26;
+    const plotW = Math.max(1, W - padX * 2);
     const plotH = Math.max(1, H - padT - padB);
-    const n = Math.max(1, values.length);
-    const maxV = Math.max(1, ...values);
+    const baseY = padT + plotH;
 
     ctx.textBaseline = "alphabetic";
 
-    // Empty state
-    if (!values.length || (values.length === 1 && !values[0] && String(labels[0] || "").match(/no data|unauthorized/i))) {
+    // Empty / message state
+    if (empty || !values.length) {
       ctx.fillStyle = "rgba(79,79,82,.5)";
       ctx.font = "600 13px Inter, ui-sans-serif, system-ui";
       ctx.textAlign = "center";
-      ctx.fillText(String(labels[0] || "No data"), W / 2, H / 2);
+      ctx.fillText(String((labels && labels[0]) || "No data"), W / 2, H / 2);
       return;
     }
 
-    // Horizontal gridlines + y tick labels (0, mid, max)
-    ctx.font = "11px Inter, ui-sans-serif, system-ui";
-    ctx.textAlign = "right";
-    const ticks = 4;
-    for (let t = 0; t <= ticks; t++) {
-      const frac = t / ticks;
-      const y = padT + plotH * (1 - frac);
-      const val = Math.round(maxV * frac);
+    // Baseline
+    ctx.strokeStyle = "rgba(79,79,82,.14)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padX, baseY + 0.5);
+    ctx.lineTo(W - padX, baseY + 0.5);
+    ctx.stroke();
 
-      ctx.strokeStyle = t === 0 ? CHART_AXIS : CHART_GRID;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(padL, y + 0.5);
-      ctx.lineTo(W - padR, y + 0.5);
-      ctx.stroke();
+    const n = values.length;
+    const maxV = Math.max(1, ...values);
+    const slot = plotW / n;
+    const barW = Math.max(4, Math.min(46, slot * 0.62));
 
-      ctx.fillStyle = CHART_INK;
-      ctx.fillText(String(val), padL - 8, y + 4);
-    }
+    const grad = ctx.createLinearGradient(0, padT, 0, baseY);
+    grad.addColorStop(0, "#f39a1e");
+    grad.addColorStop(1, "#f8b74e");
+    const gradHi = ctx.createLinearGradient(0, padT, 0, baseY);
+    gradHi.addColorStop(0, "#e07d00");
+    gradHi.addColorStop(1, "#f39a1e");
 
-    // Bars with a soft vertical gradient in the brand orange
-    const gap = Math.min(14, Math.max(3, plotW / n * 0.28));
-    const barW = Math.max(3, (plotW - gap * (n - 1)) / n);
-    const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
-    grad.addColorStop(0, "rgba(243,154,30,.95)");
-    grad.addColorStop(1, "rgba(245,158,11,.55)");
-
+    // Bars (store geometry for hover hit-testing)
     for (let i = 0; i < n; i++) {
       const v = values[i] || 0;
-      const bh = plotH * (v / maxV);
-      const x = padL + i * (barW + gap);
-      const y = padT + plotH - bh;
-      ctx.fillStyle = grad;
-      roundedTopRect(ctx, x, y, barW, bh, Math.min(6, barW / 2));
+      const bh = Math.max(v > 0 ? 2 : 0, plotH * (v / maxV));
+      const x = padX + i * slot + (slot - barW) / 2;
+      const y = baseY - bh;
+      const cx = x + barW / 2;
+
+      ctx.fillStyle = state.hover === i ? gradHi : grad;
+      roundedTopRect(ctx, x, y, barW, bh, Math.min(5, barW / 2));
+
+      state.bars.push({
+        i, cx, barTop: y, barW,
+        slotL: padX + i * slot,
+        slotR: padX + (i + 1) * slot,
+        value: v, label: String(labels[i] ?? ""),
+      });
     }
 
-    // X labels (sampled so they never overlap)
+    // X labels — horizontal, sampled so they never collide
     ctx.fillStyle = CHART_INK;
     ctx.font = "11px Inter, ui-sans-serif, system-ui";
-    const step = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 60))));
+    ctx.textAlign = "center";
+    const maxLabels = Math.max(1, Math.floor(plotW / 46));
+    const step = Math.max(1, Math.ceil(n / maxLabels));
     for (let i = 0; i < n; i += step) {
-      const lbl = String(labels[i] ?? "");
-      const x = padL + i * (barW + gap) + barW / 2;
-      ctx.save();
-      ctx.translate(x, H - 12);
-      ctx.rotate(-0.42);
-      ctx.textAlign = "right";
-      ctx.fillText(lbl.slice(0, 12), 0, 0);
-      ctx.restore();
+      const b = state.bars[i];
+      ctx.fillText(b.label.slice(0, 11), b.cx, H - 9);
+    }
+
+    // Peak readout in the card header
+    if (state.peakEl) {
+      let peakIdx = 0;
+      for (let i = 1; i < values.length; i++) {
+        if (values[i] > values[peakIdx]) peakIdx = i;
+      }
+      state.peakEl.innerHTML = values[peakIdx] > 0
+        ? `peak <strong>${formatCount(values[peakIdx])}</strong>`
+        : "";
     }
   }
 
-  function drawBars(canvasId, labels, values) {
-    const c = $(canvasId);
-    if (!c) return;
-    CHART_STATE[canvasId] = { type: "bars", labels, values };
-    renderBars(c, labels, values);
-  }
+  // Position the HTML tooltip over the hovered bar, or hide it.
+  function updateChartTooltip(canvasId) {
+    const state = CHART_STATE[canvasId];
+    if (!state || !state.tipEl) return;
+    const tip = state.tipEl;
+    const canvas = $(canvasId);
 
-  function drawHistogram(canvasId, values, binCount = 8) {
-    const vals = values.filter(v => Number.isFinite(v));
-    if (!vals.length) {
-      drawBars(canvasId, ["No data"], [0]);
+    const bar = state.bars && state.bars[state.hover];
+    if (!bar || !canvas) {
+      tip.hidden = true;
       return;
     }
+
+    tip.innerHTML = state.tipFormat(bar.label, bar.value);
+    tip.hidden = false;
+
+    const left = canvas.offsetLeft + bar.cx;
+    const top = canvas.offsetTop + bar.barTop - 10;
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  }
+
+  function wireChartHover(canvasId) {
+    const canvas = $(canvasId);
+    const state = CHART_STATE[canvasId];
+    if (!canvas || !state || state.wired) return;
+    state.wired = true;
+
+    canvas.addEventListener("mousemove", (e) => {
+      const s = CHART_STATE[canvasId];
+      if (!s || !s.bars) return;
+      const mx = e.offsetX;
+      let hit = -1;
+      for (const b of s.bars) {
+        if (mx >= b.slotL && mx < b.slotR) { hit = b.i; break; }
+      }
+      if (hit !== s.hover) {
+        s.hover = hit;
+        renderChart(canvasId);
+        updateChartTooltip(canvasId);
+      }
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      const s = CHART_STATE[canvasId];
+      if (!s || s.hover === -1) return;
+      s.hover = -1;
+      renderChart(canvasId);
+      updateChartTooltip(canvasId);
+    });
+  }
+
+  function drawBars(canvasId, labels, values, opts = {}) {
+    const c = $(canvasId);
+    if (!c) return;
+
+    const isEmpty = !!opts.empty ||
+      (values.length === 1 && !values[0] &&
+        /no data|unauthorized|failed/i.test(String(labels[0] || "")));
+
+    CHART_STATE[canvasId] = {
+      labels, values,
+      empty: isEmpty,
+      hover: -1,
+      bars: [],
+      wired: CHART_STATE[canvasId] ? CHART_STATE[canvasId].wired : false,
+      peakEl: opts.peakId ? $(opts.peakId) : null,
+      tipEl: opts.tipId ? $(opts.tipId) : null,
+      tipFormat: opts.tipFormat ||
+        ((label, v) => `<strong>${escapeHtml(label)}</strong> · ${formatCount(v)}`),
+    };
+
+    if (isEmpty && CHART_STATE[canvasId].peakEl) {
+      CHART_STATE[canvasId].peakEl.innerHTML = "";
+    }
+
+    renderChart(canvasId);
+    updateChartTooltip(canvasId); // clear any stale tooltip from prior data
+    wireChartHover(canvasId);
+  }
+
+  function drawHistogram(canvasId, values, binCount = 8, opts = {}) {
+    const vals = values.filter(v => Number.isFinite(v));
+    if (!vals.length) {
+      drawBars(canvasId, ["No data"], [0], { ...opts, empty: true });
+      return;
+    }
+
     const minV = Math.min(...vals);
     const maxV = Math.max(...vals);
-    const span = Math.max(1, maxV - minV);
-    const bins = new Array(binCount).fill(0);
+
+    // Small integer ranges get one bin per value; wider ranges are bucketed.
+    const span = maxV - minV;
+    const bins_n = span <= 0 ? 1 : Math.min(binCount, Math.max(1, Math.round(span) + 1));
+    const width = span <= 0 ? 1 : span / bins_n;
+    const bins = new Array(bins_n).fill(0);
 
     for (const v of vals) {
-      let idx = Math.floor(((v - minV) / span) * binCount);
-      if (idx === binCount) idx = binCount - 1;
+      let idx = span <= 0 ? 0 : Math.floor((v - minV) / width);
+      if (idx >= bins_n) idx = bins_n - 1;
       bins[idx] += 1;
     }
 
     const labels = bins.map((_, i) => {
-      const a = Math.round(minV + (span / binCount) * i);
-      const b = Math.round(i === binCount - 1 ? maxV : (minV + (span / binCount) * (i + 1)));
-      return `${a}-${b}`;
+      if (span <= 0) return formatCompact(Math.round(minV));
+      const a = Math.round(minV + width * i);
+      const b = Math.round(i === bins_n - 1 ? maxV : minV + width * (i + 1));
+      return a === b ? formatCompact(a) : `${formatCompact(a)}–${formatCompact(b)}`;
     });
 
-    drawBars(canvasId, labels, bins);
+    drawBars(canvasId, labels, bins, {
+      ...opts,
+      tipFormat: (label, v) =>
+        `<strong>${escapeHtml(label)} tokens</strong> · ${formatCount(v)} code${v === 1 ? "" : "s"}`,
+    });
   }
 
   // Redraw all known charts at the correct resolution when the layout changes.
   let _chartResizeRAF = 0;
   function redrawAllCharts() {
-    for (const [canvasId, state] of Object.entries(CHART_STATE)) {
-      const c = $(canvasId);
-      if (c && state) renderBars(c, state.labels, state.values);
+    for (const canvasId of Object.keys(CHART_STATE)) {
+      renderChart(canvasId);
+      updateChartTooltip(canvasId);
     }
   }
   window.addEventListener("resize", () => {
@@ -1532,8 +1651,8 @@ loadWorkspaceContext();
 
       if(!r.ok){
         console.log("Stats error:", await r.text());
-        drawBars("chartPerDay", ["unauthorized"], [0]);
-        drawBars("chartTokens", ["unauthorized"], [0]);
+        drawBars("chartPerDay", ["unauthorized"], [0], { empty: true, peakId: "chartPerDayPeak", tipId: "chartPerDayTip" });
+        drawBars("chartTokens", ["unauthorized"], [0], { empty: true, peakId: "chartTokensPeak", tipId: "chartTokensTip" });
 
         if ($("workProgressGrid")) {
           $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
@@ -1557,11 +1676,20 @@ loadWorkspaceContext();
       drawBars(
         "chartPerDay",
         perDay.map(x => x.day),
-        perDay.map(x => x.count)
+        perDay.map(x => x.count),
+        {
+          peakId: "chartPerDayPeak",
+          tipId: "chartPerDayTip",
+          tipFormat: (label, v) =>
+            `<strong>${escapeHtml(label)}</strong> · ${formatCount(v)} upload${v === 1 ? "" : "s"}`,
+        }
       );
 
       const tokens = (j.gemini_tokens_per_code || []).map(x => Number(x.tokens || 0));
-      drawHistogram("chartTokens", tokens, 8);
+      drawHistogram("chartTokens", tokens, 8, {
+        peakId: "chartTokensPeak",
+        tipId: "chartTokensTip",
+      });
 
     }catch(e){
       console.log("Stats exception:", e);
