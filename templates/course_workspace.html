@@ -251,8 +251,15 @@
         <div class="mg-student-code-toolbox">
           <div class="mg-card-title">Import code edits</div>
           <p class="small">Download the Excel file, edit <strong>student_name</strong>, <strong>student_email</strong>, <strong>course_label</strong>, <strong>note</strong>, or <strong>status</strong>, then upload it here. The code column is used only to match existing students.</p>
-          <div class="mg-student-code-upload-row">
+          <div class="drop mg-student-code-drop" id="dropStudentCodes">
+            <div class="labelBig">📥 Upload edited student Excel</div>
+            <div class="hint">Drag &amp; drop the edited <b>.xlsx</b> file here, or click to choose.</div>
+            <div class="chip" id="studentCodesChip" style="display:none;">
+              <span>Selected:</span> <span id="studentCodesName" style="color:var(--text)"></span>
+            </div>
             <input id="studentCodesImportFile" type="file" accept=".xlsx" />
+          </div>
+          <div class="mg-upload-reference-actions">
             <button id="importStudentCodesBtn" type="button" class="secondary-btn">Upload Excel edits</button>
           </div>
         </div>
@@ -919,6 +926,7 @@ async function loadWorkspaceContext() {
         status.classList.add("ok");
       }
       if (input) input.value = "";
+      updateStudentCodesChip();
       await loadStudentCodes();
       await loadStatsAndRender();
     } catch (e) {
@@ -930,12 +938,62 @@ async function loadWorkspaceContext() {
     }
   }
 
+  // Reflect the chosen Excel file name inside the student-import drop zone.
+  function updateStudentCodesChip() {
+    const input = $("studentCodesImportFile");
+    const chip = $("studentCodesChip");
+    const nameEl = $("studentCodesName");
+    if (!input || !chip || !nameEl) return;
+
+    const f = input.files && input.files[0];
+    if (f) {
+      chip.style.display = "inline-flex";
+      nameEl.textContent = f.name;
+    } else {
+      chip.style.display = "none";
+      nameEl.textContent = "";
+    }
+  }
+
+  // Click-or-drag drop zone for the student-code Excel import.
+  function wireStudentCodesDrop() {
+    const zone = $("dropStudentCodes");
+    const input = $("studentCodesImportFile");
+    if (!zone || !input) return;
+
+    const rejectType = () => {
+      const status = $("studentCodesStatus");
+      if (status) {
+        status.textContent = "Wrong file type. Upload the .xlsx Excel file.";
+        status.classList.remove("ok", "work");
+        status.classList.add("err");
+      }
+    };
+
+    zone.addEventListener("click", () => input.click());
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("drag");
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      if (!/\.xlsx$/i.test(file.name)) { rejectType(); return; }
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      updateStudentCodesChip();
+    });
+    input.addEventListener("change", updateStudentCodesChip);
+  }
+
   if ($("addStudentCodeBtn")) {
     $("addStudentCodeBtn").addEventListener("click", addStudentCode);
   }
   if ($("importStudentCodesBtn")) {
     $("importStudentCodesBtn").addEventListener("click", importStudentCodesExcel);
   }
+  wireStudentCodesDrop();
   loadStudentCodes();
 async function saveCourseSettings() {
   const payload = {
