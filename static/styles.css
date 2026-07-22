@@ -187,6 +187,11 @@ label{font-size:13px;color:var(--muted);font-weight:800;}
 
 input[type="text"],
 input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
 select,
 .loginInput{
   width:100%;
@@ -3287,12 +3292,16 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   margin-bottom: 6px;
 }
 
-.mg-student-code-upload-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin-top: 12px;
+/* Excel-import drop zone: same look as the reference-bank drops, sized to
+   fit inside the narrower student-tools column. */
+.mg-teacher-page .drop.mg-student-code-drop {
+  min-height: 128px;
+  padding: 20px 22px;
+  border-radius: 20px;
+}
+
+.mg-teacher-page .drop.mg-student-code-drop .labelBig {
+  font-size: 17px;
 }
 
 .mg-student-add-grid {
@@ -3393,8 +3402,7 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     grid-template-columns: 1fr;
   }
 
-  .mg-student-add-grid,
-  .mg-student-code-upload-row {
+  .mg-student-add-grid {
     grid-template-columns: 1fr;
   }
 }
