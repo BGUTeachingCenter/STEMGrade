@@ -202,9 +202,25 @@ select,
 }
 .loginInput{flex:1;min-width:0;}
 input:focus,
-select:focus{
+select:focus,
+textarea:focus{
   border-color:var(--primary);
   box-shadow:0 0 0 4px rgba(243,154,30,.14);
+}
+/* Base textarea styling so every multi-line field matches the input boxes. */
+textarea{
+  width:100%;
+  min-height:110px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:white;
+  color:var(--text);
+  font-size:15px;
+  font-family:inherit;
+  line-height:1.5;
+  outline:none;
+  resize:vertical;
 }
 select{
   appearance:none;
@@ -272,7 +288,11 @@ button.secondary:hover,
 button.danger{background:#fff1ef;color:#b93d30;border:1px solid #f2c4bd;box-shadow:none;}
 button.danger:hover{background:#ffe5e1;color:#9f2f25;transform:translateY(-1px);}
 button:disabled{opacity:.55;cursor:not-allowed;transform:none!important;}
-.secondary-btn.small{min-height:40px;padding:10px 14px;font-size:14px;border-radius:999px;}
+.secondary-btn.small,
+.primary-btn.small,
+button.small,
+button.secondary.small,
+button.danger.small{min-height:40px;padding:10px 16px;font-size:14px;border-radius:999px;}
 
 .drop{
   position:relative;
@@ -1698,17 +1718,53 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   color: var(--text);
 }
 
-.mg-teacher-page canvas {
+/* Chart cards: a framed, fixed-height box the canvas fills. The canvas bitmap
+   is sized to this box × devicePixelRatio in JS so plots stay crisp. */
+.mg-chart-card .mg-card-title {
+  margin-bottom: 4px;
+}
+
+.mg-chart-canvas-wrap {
+  position: relative;
+  width: 100%;
   height: 260px;
+  margin: 16px 0 10px;
+  padding: 10px 12px;
   border-radius: 22px;
   background: #fffdfa;
   border: 1px solid #ece6dd;
+  box-sizing: border-box;
+}
+
+.mg-teacher-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 760px) {
+  .mg-chart-canvas-wrap {
+    height: 220px;
+  }
 }
 
 .mg-teacher-page input[type="text"],
+.mg-teacher-page input[type="password"],
+.mg-teacher-page input[type="email"],
+.mg-teacher-page input[type="number"],
+.mg-teacher-page input[type="search"],
+.mg-teacher-page input[type="url"],
 .mg-teacher-page select {
   min-height: 58px;
   padding: 0 18px;
+  border-radius: 18px;
+  font-size: 17px;
+}
+
+/* Multi-line fields on the teacher pages share the same rounded look. */
+.mg-teacher-page textarea {
+  min-height: 130px;
+  padding: 15px 18px;
   border-radius: 18px;
   font-size: 17px;
 }
@@ -1755,7 +1811,9 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   font-size: 14px;
 }
 
-.mg-teacher-page button {
+.mg-teacher-page button,
+.mg-teacher-page .primary-btn,
+.mg-teacher-page .secondary-btn {
   border-radius: 999px;
 }
 
@@ -2669,14 +2727,6 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 .mg-legacy-login-box summary {
   cursor: pointer;
   font-weight: 800;
-}
-
-.mg-teacher-profile-section textarea,
-.mg-upload-reference-section textarea,
-.mg-teacher-register-page textarea {
-  width: 100%;
-  resize: vertical;
-  min-height: 110px;
 }
 
 /* Student course dashboard */
@@ -4167,25 +4217,6 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   margin-bottom: 20px;
-}
-
-.mg-profile-create-course-section textarea {
-  width: 100%;
-  min-height: 130px;
-  padding: 15px 16px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: white;
-  color: var(--text);
-  font: inherit;
-  line-height: 1.5;
-  resize: vertical;
-  outline: none;
-}
-
-.mg-profile-create-course-section textarea:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(243,154,30,.14);
 }
 
 .mg-profile-created-codes {
