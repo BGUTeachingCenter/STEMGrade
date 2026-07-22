@@ -55,6 +55,95 @@
       <a href="#uploadReference">Upload to Bank</a>
     </nav>
 
+  <!-- OVERVIEW / STATS ROW -->
+  <section class="mg-teacher-section" id="teacherStats">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Overview</h2>
+      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
+    </div>
+  </div>
+
+  <div class="mg-dashboard-tools">
+    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
+      <div class="mg-kpi-card">
+        <span>Active students</span>
+        <strong id="statsTotalStudents">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Recognized works</span>
+        <strong id="statsRecognizedWorks">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Total uploads</span>
+        <strong id="statsTotalUploads">…</strong>
+      </div>
+    </div>
+
+    <div class="mg-upload-log-download">
+      <label for="uploadLogVoucherSelect">Download upload log</label>
+      <div class="mg-upload-log-controls">
+        <select id="uploadLogVoucherSelect"></select>
+        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
+      </div>
+      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
+    </div>
+  </div>
+
+  <div class="card mg-work-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Submission progress by work</div>
+          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
+        </div>
+      </div>
+
+      <div id="workProgressGrid" class="mg-work-progress-grid">
+        <div class="emptyState">Loading upload progress…</div>
+      </div>
+
+      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card mg-student-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Current students</div>
+          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
+        </div>
+      </div>
+      <div id="studentProgressList" class="mg-student-progress-list">
+        <div class="emptyState">Loading current students…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statsLayout mg-stats-two">
+    <div class="card mg-chart-card">
+      <div class="cardInner">
+        <div class="mg-card-title">Uploads per day</div>
+        <div class="mg-chart-canvas-wrap">
+          <canvas id="chartPerDay"></canvas>
+        </div>
+        <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
+      </div>
+    </div>
+
+    <div class="card mg-chart-card">
+      <div class="cardInner">
+        <div class="mg-card-title">Gemini tokens per code</div>
+        <div class="mg-chart-canvas-wrap">
+          <canvas id="chartTokens"></canvas>
+        </div>
+        <div class="small">Histogram of total Gemini tokens used per student code.</div>
+      </div>
+    </div>
+  </div>
+  </section>
+
 
 <section
   class="mg-teacher-section mg-course-settings-section"
@@ -197,91 +286,6 @@
     </div>
   </div>
 </section>
-
-  <!-- STATS ROW -->
-  <section class="mg-teacher-section" id="teacherStats">
-  <div class="mg-teacher-section-head">
-    <div>
-      <h2>Overview</h2>
-      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
-    </div>
-  </div>
-
-  <div class="mg-dashboard-tools">
-    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
-      <div class="mg-kpi-card">
-        <span>Active students</span>
-        <strong id="statsTotalStudents">…</strong>
-      </div>
-      <div class="mg-kpi-card">
-        <span>Recognized works</span>
-        <strong id="statsRecognizedWorks">…</strong>
-      </div>
-      <div class="mg-kpi-card">
-        <span>Total uploads</span>
-        <strong id="statsTotalUploads">…</strong>
-      </div>
-    </div>
-
-    <div class="mg-upload-log-download">
-      <label for="uploadLogVoucherSelect">Download upload log</label>
-      <div class="mg-upload-log-controls">
-        <select id="uploadLogVoucherSelect"></select>
-        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
-      </div>
-      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
-    </div>
-  </div>
-
-  <div class="card mg-work-progress-card">
-    <div class="cardInner">
-      <div class="mg-card-title-row">
-        <div>
-          <div class="mg-card-title">Submission progress by work</div>
-          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
-        </div>
-      </div>
-
-      <div id="workProgressGrid" class="mg-work-progress-grid">
-        <div class="emptyState">Loading upload progress…</div>
-      </div>
-
-      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
-    </div>
-  </div>
-
-  <div class="card mg-student-progress-card">
-    <div class="cardInner">
-      <div class="mg-card-title-row">
-        <div>
-          <div class="mg-card-title">Current students</div>
-          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
-        </div>
-      </div>
-      <div id="studentProgressList" class="mg-student-progress-list">
-        <div class="emptyState">Loading current students…</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="statsLayout mg-stats-two">
-    <div class="card">
-      <div class="cardInner">
-        <div style="font-weight:900; margin-bottom:8px;">Uploads per day</div>
-        <canvas id="chartPerDay" width="520" height="220"></canvas>
-        <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="cardInner">
-        <div style="font-weight:900; margin-bottom:8px;">Gemini tokens per code</div>
-        <canvas id="chartTokens" width="520" height="220"></canvas>
-        <div class="small">Histogram of total Gemini tokens used per student code.</div>
-      </div>
-    </div>
-  </div>
-      </section>
 
   <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
   <div class="mg-teacher-section-head">
@@ -1033,72 +1037,129 @@ loadWorkspaceContext();
       .replaceAll("'","&#039;");
   }
 
-  // --------- STATS CHARTS (simple canvas, no external libs) ----------
-  function drawBars(canvasId, labels, values) {
-    const c = $(canvasId);
-    if (!c) return;
-    const ctx = c.getContext("2d");
+  // --------- STATS CHARTS (crisp, responsive canvas, no external libs) ----------
+  // Remember the latest data per canvas so charts can be re-rendered sharply
+  // whenever the container is resized (window resize, sidebar, orientation…).
+  const CHART_STATE = {};
+  const CHART_INK = "#6a6a6d";        // matches --muted
+  const CHART_AXIS = "rgba(79,79,82,.16)";
+  const CHART_GRID = "rgba(79,79,82,.08)";
 
-    const W = c.width, H = c.height;
-    ctx.clearRect(0,0,W,H);
+  // Size the canvas bitmap to its CSS box × devicePixelRatio so bars and text
+  // stay sharp on high-DPI screens, and return the CSS-pixel drawing size.
+  function prepareCanvas(canvas) {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const rect = canvas.getBoundingClientRect();
+    const cssW = Math.max(1, Math.round(rect.width || canvas.clientWidth || 520));
+    const cssH = Math.max(1, Math.round(rect.height || canvas.clientHeight || 240));
 
-    const padL = 44, padR = 10, padT = 12, padB = 34;
-    const maxV = Math.max(1, ...values);
-    const n = Math.max(1, values.length);
+    if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
+      canvas.width = cssW * dpr;
+      canvas.height = cssH * dpr;
+    }
 
-    // axes
-    ctx.strokeStyle = "rgba(79,79,82,.18)";
-    ctx.lineWidth = 1;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    return { ctx, W: cssW, H: cssH };
+  }
+
+  function roundedTopRect(ctx, x, y, w, h, r) {
+    const rr = Math.max(0, Math.min(r, w / 2, h));
     ctx.beginPath();
-    ctx.moveTo(padL, padT);
-    ctx.lineTo(padL, H - padB);
-    ctx.lineTo(W - padR, H - padB);
-    ctx.stroke();
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x, y + rr);
+    ctx.arcTo(x, y, x + rr, y, rr);
+    ctx.lineTo(x + w - rr, y);
+    ctx.arcTo(x + w, y, x + w, y + rr, rr);
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath();
+    ctx.fill();
+  }
 
-    // bars
-    const gap = 6;
-    const barW = Math.max(4, ((W - padL - padR) - gap*(n-1)) / n);
-    ctx.fillStyle = "rgba(245,158,11,.65)";
+  function renderBars(canvas, labels, values) {
+    const { ctx, W, H } = prepareCanvas(canvas);
 
-    for (let i=0;i<n;i++){
-      const v = values[i] || 0;
-      const bh = (H - padT - padB) * (v / maxV);
-      const x = padL + i*(barW+gap);
-      const y = (H - padB) - bh;
-      ctx.fillRect(x, y, barW, bh);
-    }
+    const padL = 46, padR = 14, padT = 16, padB = 38;
+    const plotW = Math.max(1, W - padL - padR);
+    const plotH = Math.max(1, H - padT - padB);
+    const n = Math.max(1, values.length);
+    const maxV = Math.max(1, ...values);
 
-    // y labels
-    ctx.fillStyle = "rgba(79,79,82,.70)";
-    ctx.font = "11px ui-sans-serif, system-ui";
-    ctx.fillText(String(maxV), 8, padT+10);
-    ctx.fillText("0", 22, H - padB + 12);
+    ctx.textBaseline = "alphabetic";
 
-    // x labels (sampled)
-    ctx.fillStyle = "rgba(79,79,82,.62)";
-    ctx.font = "11px ui-sans-serif, system-ui";
-    const step = Math.max(1, Math.ceil(n / 6));
-    for (let i=0;i<n;i+=step){
-      const lbl = labels[i] ?? "";
-      const x = padL + i*(barW+gap);
-      ctx.save();
-      ctx.translate(x + barW/2, H - 8);
-      ctx.rotate(-0.4);
+    // Empty state
+    if (!values.length || (values.length === 1 && !values[0] && String(labels[0] || "").match(/no data|unauthorized/i))) {
+      ctx.fillStyle = "rgba(79,79,82,.5)";
+      ctx.font = "600 13px Inter, ui-sans-serif, system-ui";
       ctx.textAlign = "center";
-      ctx.fillText(String(lbl).slice(0, 12), 0, 0);
-      ctx.restore();
+      ctx.fillText(String(labels[0] || "No data"), W / 2, H / 2);
+      return;
     }
 
-    if (!values.length){
-      ctx.fillStyle = "rgba(79,79,82,.55)";
-      ctx.fillText("No data", padL + 8, padT + 18);
+    // Horizontal gridlines + y tick labels (0, mid, max)
+    ctx.font = "11px Inter, ui-sans-serif, system-ui";
+    ctx.textAlign = "right";
+    const ticks = 4;
+    for (let t = 0; t <= ticks; t++) {
+      const frac = t / ticks;
+      const y = padT + plotH * (1 - frac);
+      const val = Math.round(maxV * frac);
+
+      ctx.strokeStyle = t === 0 ? CHART_AXIS : CHART_GRID;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, y + 0.5);
+      ctx.lineTo(W - padR, y + 0.5);
+      ctx.stroke();
+
+      ctx.fillStyle = CHART_INK;
+      ctx.fillText(String(val), padL - 8, y + 4);
+    }
+
+    // Bars with a soft vertical gradient in the brand orange
+    const gap = Math.min(14, Math.max(3, plotW / n * 0.28));
+    const barW = Math.max(3, (plotW - gap * (n - 1)) / n);
+    const grad = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+    grad.addColorStop(0, "rgba(243,154,30,.95)");
+    grad.addColorStop(1, "rgba(245,158,11,.55)");
+
+    for (let i = 0; i < n; i++) {
+      const v = values[i] || 0;
+      const bh = plotH * (v / maxV);
+      const x = padL + i * (barW + gap);
+      const y = padT + plotH - bh;
+      ctx.fillStyle = grad;
+      roundedTopRect(ctx, x, y, barW, bh, Math.min(6, barW / 2));
+    }
+
+    // X labels (sampled so they never overlap)
+    ctx.fillStyle = CHART_INK;
+    ctx.font = "11px Inter, ui-sans-serif, system-ui";
+    const step = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(plotW / 60))));
+    for (let i = 0; i < n; i += step) {
+      const lbl = String(labels[i] ?? "");
+      const x = padL + i * (barW + gap) + barW / 2;
+      ctx.save();
+      ctx.translate(x, H - 12);
+      ctx.rotate(-0.42);
+      ctx.textAlign = "right";
+      ctx.fillText(lbl.slice(0, 12), 0, 0);
+      ctx.restore();
     }
   }
 
-  function drawHistogram(canvasId, values, binCount=8) {
+  function drawBars(canvasId, labels, values) {
+    const c = $(canvasId);
+    if (!c) return;
+    CHART_STATE[canvasId] = { type: "bars", labels, values };
+    renderBars(c, labels, values);
+  }
+
+  function drawHistogram(canvasId, values, binCount = 8) {
     const vals = values.filter(v => Number.isFinite(v));
     if (!vals.length) {
-      drawBars(canvasId, ["no data"], [0]);
+      drawBars(canvasId, ["No data"], [0]);
       return;
     }
     const minV = Math.min(...vals);
@@ -1106,20 +1167,33 @@ loadWorkspaceContext();
     const span = Math.max(1, maxV - minV);
     const bins = new Array(binCount).fill(0);
 
-    for (const v of vals){
+    for (const v of vals) {
       let idx = Math.floor(((v - minV) / span) * binCount);
       if (idx === binCount) idx = binCount - 1;
       bins[idx] += 1;
     }
 
-    const labels = bins.map((_,i) => {
-      const a = Math.round(minV + (span/binCount)*i);
-      const b = Math.round(i === binCount-1 ? maxV : (minV + (span/binCount)*(i+1)));
+    const labels = bins.map((_, i) => {
+      const a = Math.round(minV + (span / binCount) * i);
+      const b = Math.round(i === binCount - 1 ? maxV : (minV + (span / binCount) * (i + 1)));
       return `${a}-${b}`;
     });
 
     drawBars(canvasId, labels, bins);
   }
+
+  // Redraw all known charts at the correct resolution when the layout changes.
+  let _chartResizeRAF = 0;
+  function redrawAllCharts() {
+    for (const [canvasId, state] of Object.entries(CHART_STATE)) {
+      const c = $(canvasId);
+      if (c && state) renderBars(c, state.labels, state.values);
+    }
+  }
+  window.addEventListener("resize", () => {
+    if (_chartResizeRAF) cancelAnimationFrame(_chartResizeRAF);
+    _chartResizeRAF = requestAnimationFrame(redrawAllCharts);
+  });
 
   let latestTeacherStats = null;
 
