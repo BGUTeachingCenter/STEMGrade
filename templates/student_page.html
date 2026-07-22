@@ -3881,10 +3881,16 @@ function parseStructuredOcrPreview(value) {
       documentPreview.appendChild(summary);
 
       answers.forEach((answer, index) => {
-        const card = document.createElement("article");
+        const card = document.createElement("details");
         card.className = "mg-ocr-preview-answer";
 
-        const header = document.createElement("div");
+        /*
+         * Match the graded-result accordion: keep the first OCR answer
+         * open so it is immediately obvious that the rows expand.
+         */
+        card.open = index === 0;
+
+        const header = document.createElement("summary");
         header.className = "mg-ocr-preview-answer-head";
 
         const titleGroup = document.createElement("div");
@@ -3941,11 +3947,22 @@ function parseStructuredOcrPreview(value) {
           reviewFlag.textContent = "Needs review";
           meta.appendChild(reviewFlag);
         }
+        const collapseIcon = document.createElement("span");
+        collapseIcon.className = "mg-graded-collapse-icon";
+        collapseIcon.setAttribute(
+          "aria-hidden",
+          "true"
+        );
+        collapseIcon.textContent = "⌄";
 
         header.append(
           titleGroup,
-          meta
+          meta,
+          collapseIcon
         );
+
+        const content = document.createElement("div");
+        content.className = "mg-ocr-preview-answer-content";
 
         const body = document.createElement("div");
         body.className = "mg-ocr-preview-answer-body";
@@ -3956,10 +3973,7 @@ function parseStructuredOcrPreview(value) {
           answer.answerText
         );
 
-        card.append(
-          header,
-          body
-        );
+        content.appendChild(body);
 
         if (answer.warnings.length) {
           const warnings = document.createElement("div");
@@ -3976,8 +3990,13 @@ function parseStructuredOcrPreview(value) {
             warnings.appendChild(warning);
           });
 
-          card.appendChild(warnings);
+          content.appendChild(warnings);
         }
+
+        card.append(
+          header,
+          content
+        );
 
         documentPreview.appendChild(card);
       });

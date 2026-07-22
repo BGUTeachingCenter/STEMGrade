@@ -4470,7 +4470,8 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 }
 
 .mg-ocr-preview-answer {
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 20px;
   background:
@@ -4481,15 +4482,70 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     ),
     #fffdfa;
   box-shadow: 0 10px 26px rgba(79, 79, 82, 0.055);
+  transition:
+    border-color .18s ease,
+    box-shadow .18s ease,
+    transform .18s ease;
+}
+
+.mg-ocr-preview-answer:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 15px 34px rgba(79, 79, 82, 0.09);
+}
+
+.mg-ocr-preview-answer[open] {
+  border-color: #e4c89f;
+  box-shadow: 0 17px 40px rgba(79, 79, 82, 0.10);
 }
 
 .mg-ocr-preview-answer-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding-bottom: 12px;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto
+    auto;
+  align-items: center;
+  gap: 15px;
+  padding: 17px 20px;
+  border-bottom: 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background .18s ease;
+}
+
+.mg-ocr-preview-answer-head:hover {
+  background: #fff8ef;
+}
+
+.mg-ocr-preview-answer[open]
+.mg-ocr-preview-answer-head {
   border-bottom: 1px dashed #e6ded3;
+  background:
+    linear-gradient(
+      180deg,
+      #fffaf4,
+      #fffdfa
+    );
+}
+
+.mg-ocr-preview-answer-head::-webkit-details-marker {
+  display: none;
+}
+
+.mg-ocr-preview-answer-head::marker {
+  content: "";
+}
+
+.mg-ocr-preview-answer[open]
+.mg-graded-collapse-icon {
+  transform: rotate(180deg);
+  border-color: #f0bd75;
+  color: var(--primary-2);
+}
+
+.mg-ocr-preview-answer-content {
+  padding: 0 20px 20px;
 }
 
 .mg-ocr-preview-answer-title {
@@ -4658,11 +4714,25 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 
 @media (max-width: 700px) {
   .mg-ocr-preview-answer-head {
-    flex-direction: column;
+    grid-template-columns:
+      minmax(0, 1fr)
+      auto;
+    padding: 15px;
   }
 
   .mg-ocr-preview-answer-meta {
+    grid-column: 1 / -1;
     justify-content: flex-start;
+  }
+
+  .mg-ocr-preview-answer-head
+  .mg-graded-collapse-icon {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .mg-ocr-preview-answer-content {
+    padding: 0 14px 16px;
   }
 }
 
