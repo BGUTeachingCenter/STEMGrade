@@ -250,7 +250,7 @@
       <div class="mg-student-code-tools">
         <div class="mg-student-code-toolbox">
           <div class="mg-card-title">Import code edits</div>
-          <p class="small">Download the Excel file, edit <strong>student_name</strong>, <strong>student_email</strong>, <strong>course_label</strong>, <strong>note</strong>, or <strong>status</strong>, then upload it here. The code column is used only to match existing students.</p>
+          <p class="small">Download the Excel file, edit <strong>student_name</strong>, <strong>student_email</strong>, <strong>course_label</strong>, <strong>note</strong>, or <strong>status</strong>, then upload it here. An existing <strong>code</strong> updates that student; add a row with a new <strong>code</strong> to create a new student.</p>
           <div class="drop mg-student-code-drop" id="dropStudentCodes">
             <div class="labelBig">📥 Upload edited student Excel</div>
             <div class="hint">Drag &amp; drop the edited <b>.xlsx</b> file here, or click to choose.</div>
@@ -921,10 +921,27 @@ async function loadWorkspaceContext() {
 
       if (status) {
         const errors = (j.errors || []).length ? ` Warnings: ${(j.errors || []).slice(0, 3).join(" ")}` : "";
-        status.textContent = `Imported edits. Updated ${j.updated || 0}; skipped ${j.skipped || 0}.${errors}`;
+        status.textContent =
+          `Imported edits. Updated ${j.updated || 0}; added ${j.created || 0}; ` +
+          `skipped ${j.skipped || 0}.${errors}`;
         status.classList.remove("work", "err");
         status.classList.add("ok");
       }
+
+      // Surface any newly created student codes so the teacher can confirm them.
+      const createdCodes = j.created_codes || [];
+      const box = $("newStudentCodesBox");
+      if (box && createdCodes.length) {
+        box.style.display = "block";
+        box.classList.remove("work", "err");
+        box.classList.add("ok");
+        box.innerHTML =
+          `<strong>Added ${createdCodes.length} student${createdCodes.length === 1 ? "" : "s"}.</strong> ` +
+          createdCodes
+            .map((c) => `<code style="font-weight:900;">${escapeHtml(c.code || "")}</code>`)
+            .join(", ");
+      }
+
       if (input) input.value = "";
       updateStudentCodesChip();
       await loadStudentCodes();
