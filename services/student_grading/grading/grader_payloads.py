@@ -761,6 +761,7 @@ def grade_payload_manifest(
                 qid=qid,
                 max_points=max_points,
                 score=score,
+                correctness_level=correctness_level,
                 summary=summary,
                 what_was_correct=what_was_correct,
                 main_mistakes=main_mistakes,
@@ -792,18 +793,25 @@ def grade_payload_manifest(
 
     bundle_dict = bundle.to_dict()
 
-    question_grade_dicts = (
-        bundle_dict.get(
+    question_grade_dicts = bundle_dict.get(
+        "questions"
+    )
+
+    # Backward-compatible fallback in case an older BundleGrades
+    # implementation uses the previous key.
+    if not isinstance(
+            question_grade_dicts,
+            list,
+    ):
+        question_grade_dicts = bundle_dict.get(
             "question_grades"
         )
-        if isinstance(
-            bundle_dict.get(
-                "question_grades"
-            ),
+
+    if not isinstance(
+            question_grade_dicts,
             list,
-        )
-        else []
-    )
+    ):
+        question_grade_dicts = []
 
     scored_count = 0
 
