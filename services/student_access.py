@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -178,27 +179,67 @@ def create_student_codes(
     return created
 
 
+# A teacher-supplied login code must be a plausible credential: 4–64 chars,
+# letters/digits plus dash or underscore. Codes are normalized to uppercase
+# (spaces removed) before this check, matching how they are stored and how
+# students type them at login.
+_CODE_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9_-]{3,63}$")
+
+
+def _validate_new_student_code(normalized: str) -> str:
+    """Return an error message for an invalid new code, or "" if it is valid."""
+    if len(normalized) < 4:
+        return "code must be at least 4 characters."
+    if len(normalized) > 64:
+        return "code must be at most 64 characters."
+    if not _CODE_PATTERN.match(normalized):
+        return "code may only contain letters, digits, '-' and '_'."
+    return ""
+
+
 def update_student_codes_for_teacher(
     teacher_id: str,
     rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """
-    Update editable fields for this teacher's existing student-code records.
+    Apply an Excel import of student codes for this teacher.
 
-    Intended for Excel import from the teacher portal. The access code itself is
-    not editable here, because it is the login credential and its hash is the
-    storage key. Blank cells leave the previous value unchanged.
+    Each row is matched by its access code:
+
+    * an existing code owned by this teacher has its editable fields updated
+      (blank cells leave the previous value unchanged); the code itself is
+      never rewritten, since its hash is the storage key;
+    * a code that does not exist yet creates a new student for this teacher,
+      using the code exactly as typed (validated, and rejected if it collides
+      with any existing code);
+    * a code owned by another teacher, a blank code, or an invalid code is
+      skipped with a warning.
     """
     teacher_id = (teacher_id or "").strip()
     if not teacher_id:
         raise HTTPException(status_code=400, detail="Missing teacher profile.")
 
+    teacher = get_teacher(teacher_id) or {}
+    active_course = teacher.get("active_course") if isinstance(teacher.get("active_course"), dict) else {}
+    default_course_label = str(teacher.get("course_label") or "").strip()
+
     allowed_statuses = {"active", "disabled", "inactive"}
     editable_fields = {"student_name", "student_email", "course_label", "note"}
 
     updated = 0
+    created = 0
     skipped = 0
     errors: list[str] = []
+    created_codes: list[dict[str, Any]] = []
+
+    def _row_status(row: dict[str, Any], row_index: int) -> tuple[str, str]:
+        """Return (status, error). status is "" when not supplied."""
+        if "status" not in row:
+            return "", ""
+        status = str(row.get("status") or "").strip().lower()
+        if status and status not in allowed_statuses:
+            return "", f"Row {row_index}: status must be active, disabled, or inactive."
+        return status, ""
 
     with _LOCK:
         data = _load()
@@ -214,45 +255,93 @@ def update_student_codes_for_teacher(
                 skipped += 1
                 continue
 
-            digest = _hash_code(raw_code)
+            normalized = normalize_student_code(raw_code)
+            digest = _hash_code(normalized)
             rec = codes.get(digest)
-            if not isinstance(rec, dict) or rec.get("teacher_id") != teacher_id:
-                skipped += 1
-                errors.append(f"Row {row_index}: code not found for this teacher.")
-                continue
 
-            changed = False
-            for field in editable_fields:
-                if field not in row:
+            # --- Existing code: update editable fields ---
+            if isinstance(rec, dict):
+                if rec.get("teacher_id") != teacher_id:
+                    skipped += 1
+                    errors.append(f"Row {row_index}: code already in use.")
                     continue
-                value = str(row.get(field) or "").strip()
-                if field == "student_email":
-                    value = value.lower()
-                if value != "" and value != str(rec.get(field) or ""):
-                    rec[field] = value
-                    changed = True
 
-            if "status" in row:
-                status = str(row.get("status") or "").strip().lower()
-                if status:
-                    if status not in allowed_statuses:
-                        skipped += 1
-                        errors.append(f"Row {row_index}: status must be active, disabled, or inactive.")
+                changed = False
+                for field in editable_fields:
+                    if field not in row:
                         continue
-                    if status != str(rec.get("status") or ""):
-                        rec["status"] = status
+                    value = str(row.get(field) or "").strip()
+                    if field == "student_email":
+                        value = value.lower()
+                    if value != "" and value != str(rec.get(field) or ""):
+                        rec[field] = value
                         changed = True
 
-            if changed:
-                rec["updated_at"] = _now()
-                updated += 1
+                status, status_err = _row_status(row, row_index)
+                if status_err:
+                    skipped += 1
+                    errors.append(status_err)
+                    continue
+                if status and status != str(rec.get("status") or ""):
+                    rec["status"] = status
+                    changed = True
+
+                if changed:
+                    rec["updated_at"] = _now()
+                    updated += 1
+                continue
+
+            # --- New code: create a student using the typed code ---
+            code_err = _validate_new_student_code(normalized)
+            if code_err:
+                skipped += 1
+                errors.append(f"Row {row_index}: {code_err}")
+                continue
+
+            status, status_err = _row_status(row, row_index)
+            if status_err:
+                skipped += 1
+                errors.append(status_err)
+                continue
+
+            course_label = str(row.get("course_label") or "").strip() or default_course_label
+
+            new_rec = {
+                "code": normalized,
+                "code_hash": digest,
+                "teacher_id": teacher_id,
+                "teacher_name": teacher.get("name", ""),
+                "teacher_email": teacher.get("email", ""),
+                "voucher_id": active_course.get("voucher_id") or teacher.get("voucher_id", ""),
+                "voucher_hash": active_course.get("voucher_hash") or teacher.get("voucher_hash", ""),
+                "voucher_code": active_course.get("voucher_code") or teacher.get("voucher_code", ""),
+                "course_id": active_course.get("course_id") or teacher.get("active_course_id", ""),
+                "subject": active_course.get("subject") or teacher.get("subject", "math"),
+                "subject_label": active_course.get("subject_label") or teacher.get("subject_label", teacher.get("subject", "math")),
+                "course_label": course_label,
+                "student_name": str(row.get("student_name") or "").strip(),
+                "student_email": str(row.get("student_email") or "").strip().lower(),
+                "note": str(row.get("note") or "").strip(),
+                "status": status or "active",
+                "created_at": _now(),
+                "last_used_at": "",
+                "uses": 0,
+            }
+            codes[digest] = new_rec
+            created += 1
+
+            public = dict(new_rec)
+            public.pop("code_hash", None)
+            created_codes.append(public)
 
         _save(data)
 
     return {
         "updated": updated,
+        "created": created,
         "skipped": skipped,
         "errors": errors[:20],
+        "created_codes": created_codes,
     }
 
 
