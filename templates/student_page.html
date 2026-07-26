@@ -2416,24 +2416,79 @@ function appendGradedList(
     return;
   }
 
-  const block = document.createElement("div");
+  const block =
+    document.createElement("div");
+
   block.className =
     `mg-graded-list ${kind}`.trim();
 
-  const heading = document.createElement("strong");
+  /*
+   * The section title remains in the interface language.
+   * Every list item determines its own writing direction.
+   */
+  const heading =
+    document.createElement("strong");
+
   heading.textContent = title;
 
-  const list = document.createElement("ul");
+  const list =
+    document.createElement("ul");
 
   items.forEach((item) => {
+    const itemText =
+      String(item || "").trim();
+
+    if (!itemText) {
+      return;
+    }
+
+    const isHebrew =
+      lineContainsHebrew(itemText);
+
     const listItem =
       document.createElement("li");
 
-    listItem.textContent = item;
+    listItem.className = isHebrew
+      ? "mg-graded-list-item is-hebrew"
+      : "mg-graded-list-item is-ltr";
+
+    listItem.dir = isHebrew
+      ? "rtl"
+      : "ltr";
+
+    if (isHebrew) {
+      listItem.lang = "he";
+    }
+
+    /*
+     * Wrapping the text separately lets CSS place the bullet on
+     * the correct side without interfering with MathJax.
+     */
+    const text =
+      document.createElement("span");
+
+    text.className =
+      "mg-graded-list-text";
+
+    text.dir = isHebrew
+      ? "rtl"
+      : "ltr";
+
+    if (isHebrew) {
+      text.lang = "he";
+    }
+
+    text.textContent = itemText;
+
+    listItem.appendChild(text);
     list.appendChild(listItem);
   });
 
-  block.append(heading, list);
+  block.append(
+    heading,
+    list
+  );
+
   card.appendChild(block);
 }
 
@@ -3505,16 +3560,27 @@ if (resultType === "tex") {
             title: `${titlePrefix} · Mistake or missing step`,
             text: [
               mistake,
-              improvement ? `How to improve: ${improvement}` : ""
+              improvement
+                ? (
+                    lineContainsHebrew(improvement)
+                      ? `כיצד לשפר: ${improvement}`
+                      : `How to improve: ${improvement}`
+                  )
+                : ""
             ].filter(Boolean).join("\n")
           });
         });
 
         improvements.slice(mistakes.length, 4).forEach((improvement) => {
+          const improvementLabel =
+            lineContainsHebrew(improvement)
+              ? "כיצד לשפר"
+              : "How to improve";
+
           specs.push({
             category: "suggestion",
             severity: "warning",
-            title: `${titlePrefix} · How to improve`,
+            title: `${titlePrefix} · ${improvementLabel}`,
             text: improvement
           });
         });
@@ -3646,8 +3712,141 @@ if (resultType === "tex") {
 
     function normalizeOverlayNumber(value, size, fallback) {
       const number = Number(value);
-      if (!Number.isFinite(number)) return fallback;
-      return number >= 0 && number <= 1 ? number * size : number;
+
+      if (!Number.isFinite(number)) {
+        return fallback;
+      }
+
+      return number >= 0 && number <= 1
+        ? number * size
+        : number;
+    }
+
+    /*
+     * Render feedback containing Hebrew prose and LaTeX equations.
+     *
+     * Hebrew prose remains native RTL browser text, while every
+     * mathematical fragment is isolated as LTR and later rendered
+     * by MathJax.
+     */
+    function appendFeedbackOverlayRichLine(
+      container,
+      value
+    ) {
+      let line = String(value || "").trim();
+
+      if (!line) {
+        return;
+      }
+
+      const containsHebrew =
+        lineContainsHebrew(line);
+
+      /*
+       * The frontend adds this English prefix itself. Translate it
+       * when the actual feedback is Hebrew so it does not disrupt
+       * the bidirectional line.
+       */
+      if (containsHebrew) {
+        line = line
+          .replace(
+            /^How to improve:\s*/i,
+            "כיצד לשפר: "
+          )
+          .replace(
+            /^Suggested next step:\s*/i,
+            "הצעד הבא המומלץ: "
+          );
+      }
+
+      const paragraph =
+        document.createElement("p");
+
+      paragraph.className = containsHebrew
+        ? "mg-feedback-overlay-text is-hebrew"
+        : "mg-feedback-overlay-text is-ltr";
+
+      paragraph.dir = containsHebrew
+        ? "rtl"
+        : "ltr";
+
+      if (containsHebrew) {
+        paragraph.lang = "he";
+      }
+
+      /*
+       * Support the MathJax delimiters currently accepted elsewhere
+       * on the student page:
+       *
+       * \( ... \)
+       * \[ ... \]
+       * $ ... $
+       * $$ ... $$
+       */
+      const mathPattern =
+        /(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$(?!\$)[^$\n]+?\$)/g;
+
+      let cursor = 0;
+      let match = null;
+      let mathFound = false;
+
+      while (
+        (
+          match =
+            mathPattern.exec(line)
+        ) !== null
+      ) {
+        mathFound = true;
+
+        const proseBeforeMath =
+          line.slice(
+            cursor,
+            match.index
+          );
+
+        if (proseBeforeMath) {
+          paragraph.appendChild(
+            document.createTextNode(
+              proseBeforeMath
+            )
+          );
+        }
+
+        const math =
+          document.createElement("span");
+
+        math.className =
+          "mg-feedback-overlay-math";
+
+        math.dir = "ltr";
+        math.lang = "en";
+        math.textContent = match[0];
+
+        paragraph.appendChild(math);
+
+        cursor =
+          match.index +
+          match[0].length;
+      }
+
+      if (mathFound) {
+        const proseAfterMath =
+          line.slice(cursor);
+
+        if (proseAfterMath) {
+          paragraph.appendChild(
+            document.createTextNode(
+              proseAfterMath
+            )
+          );
+        }
+      } else {
+        paragraph.textContent = line;
+      }
+
+      container.appendChild(
+        paragraph
+      );
     }
 
     function setFeedbackOverlayActive(annotationId, options = {}) {
@@ -3823,35 +4022,78 @@ if (resultType === "tex") {
           }
         });
 
-        const card = document.createElement("section");
-        card.className = `mg-feedback-overlay-note ${severityClass}`;
-        card.dataset.overlayId = annotation.id;
-        card.dataset.overlayCategory = category;
-        card.dir = "auto";
+        const card =
+          document.createElement("section");
+
+        card.className =
+          `mg-feedback-overlay-note ${severityClass}`;
+
+        card.dataset.overlayId =
+          annotation.id;
+
+        card.dataset.overlayCategory =
+          category;
+
+        /*
+         * The card chrome and heading are English/LTR.
+         * Individual body paragraphs determine their own direction.
+         */
+        card.dir = "ltr";
         card.tabIndex = 0;
-        card.setAttribute("role", "button");
+        card.setAttribute(
+          "role",
+          "button"
+        );
 
-        const heading = document.createElement("div");
-        heading.className = "mg-feedback-overlay-note-heading";
+        const heading =
+          document.createElement("div");
 
-        const title = document.createElement("span");
-        title.textContent = `${annotation.marker}. ${annotation.title}`;
+        heading.className =
+          "mg-feedback-overlay-note-heading";
 
-        const categoryBadge = document.createElement("span");
-        categoryBadge.className = `mg-feedback-overlay-category is-${category}`;
-        categoryBadge.textContent = overlayCategoryLabel(category);
+        const title =
+          document.createElement("span");
 
-        heading.append(title, categoryBadge);
+        title.className =
+          "mg-feedback-overlay-note-title";
 
-        const body = document.createElement("div");
-        body.className = "mg-feedback-overlay-note-body";
+        title.dir = "ltr";
+
+        title.textContent =
+          `${annotation.marker}. ${annotation.title}`;
+
+        const categoryBadge =
+          document.createElement("span");
+
+        categoryBadge.className =
+          `mg-feedback-overlay-category is-${category}`;
+
+        categoryBadge.dir = "ltr";
+
+        categoryBadge.textContent =
+          overlayCategoryLabel(category);
+
+        heading.append(
+          title,
+          categoryBadge
+        );
+
+        const body =
+          document.createElement("div");
+
+        body.className =
+          "mg-feedback-overlay-note-body";
+
         String(annotation.text || "")
+          .replace(/\r\n?/g, "\n")
           .split("\n")
+          .map((line) => line.trim())
           .filter(Boolean)
           .forEach((line) => {
-            const paragraph = document.createElement("p");
-            paragraph.textContent = line;
-            body.appendChild(paragraph);
+            appendFeedbackOverlayRichLine(
+              body,
+              line
+            );
           });
 
         const coordinateBadge = document.createElement("small");
@@ -3923,10 +4165,51 @@ if (resultType === "tex") {
           feedbackOverlayPreview.appendChild(pageElement);
         }
 
-        const exactCount = annotations.filter((item) => item.exact).length;
-        feedbackOverlayPreview.dataset.annotationCount = String(annotations.length);
-        feedbackOverlayPreview.dataset.exactCount = String(exactCount);
+        const exactCount =
+          annotations.filter(
+            (item) => item.exact
+          ).length;
+
+        feedbackOverlayPreview.dataset.annotationCount =
+          String(annotations.length);
+
+        feedbackOverlayPreview.dataset.exactCount =
+          String(exactCount);
+
         applyFeedbackOverlayFilters();
+
+        /*
+         * renderFeedbackOverlayPage() creates raw MathJax source.
+         * Typeset only after every page and note has been inserted.
+         */
+        try {
+          const mathJax =
+            await ensureMathJaxForOcrPreview();
+
+          if (
+            token !== feedbackOverlayRenderToken
+          ) {
+            return;
+          }
+
+          if (
+            typeof mathJax.typesetClear ===
+            "function"
+          ) {
+            mathJax.typesetClear([
+              feedbackOverlayPreview
+            ]);
+          }
+
+          await mathJax.typesetPromise([
+            feedbackOverlayPreview
+          ]);
+        } catch (mathError) {
+          console.warn(
+            "Could not render feedback overlay equations:",
+            mathError
+          );
+        }
       } catch (error) {
         overlayEmpty(error?.message || "Could not render the feedback overlay.");
         feedbackOverlayStatus.textContent =

@@ -5684,12 +5684,104 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 
 .mg-graded-list ul {
   display: grid;
-  gap: 5px;
+  gap: 8px;
   margin: 0;
-  padding-inline-start: 21px;
+  padding: 0;
+  list-style: none;
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+/*
+ * Use a controlled bullet instead of the browser list marker.
+ * This lets Hebrew and English items coexist in one list.
+ */
+.mg-graded-list-item {
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  min-width: 0;
+}
+
+.mg-graded-list-item::before {
+  content: "•";
+  grid-column: 1;
+  grid-row: 1;
+  color: currentColor;
+  font-weight: 950;
+  line-height: 1.6;
+}
+
+.mg-graded-list-text {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* English and other left-to-right list items. */
+.mg-graded-list-item.is-ltr {
+  direction: ltr;
+  text-align: left;
+}
+
+.mg-graded-list-item.is-ltr
+.mg-graded-list-text {
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+/*
+ * Hebrew items reverse the two grid columns:
+ * text on the left grid track, bullet on the right edge.
+ */
+.mg-graded-list-item.is-hebrew {
+  direction: rtl;
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto;
+  text-align: right;
+
+  font-family:
+    Arial,
+    "Noto Sans Hebrew",
+    "Rubik",
+    sans-serif;
+
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.mg-graded-list-item.is-hebrew::before {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.mg-graded-list-item.is-hebrew
+.mg-graded-list-text {
+  grid-column: 1;
+  grid-row: 1;
+
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: right;
+}
+
+/*
+ * Keep equations left-to-right inside an RTL list item.
+ */
+.mg-graded-list-item.is-hebrew
+mjx-container {
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+  margin-inline: .14em !important;
+  vertical-align: middle;
 }
 
 .mg-graded-list.is-good {
@@ -6412,10 +6504,20 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   border: 1px solid #f2c4bd;
   border-radius: 18px;
   background: #fff5f3;
-  unicode-bidi: plaintext;
+
+  /*
+   * Keep the card shell stable. Direction is selected separately
+   * for every feedback paragraph.
+   */
+  direction: ltr;
+  unicode-bidi: isolate;
+
   cursor: pointer;
   outline: none;
-  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    box-shadow .18s ease;
 }
 
 .mg-feedback-overlay-note:hover,
@@ -6495,11 +6597,70 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   margin-top: 8px;
   color: var(--text);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.65;
 }
 
 .mg-feedback-overlay-note-body p {
-  margin: 0 0 7px;
+  margin: 0 0 9px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* English and other left-to-right feedback. */
+.mg-feedback-overlay-text.is-ltr {
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+/* Native Hebrew prose. */
+.mg-feedback-overlay-text.is-hebrew {
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: right;
+  font-family:
+    Inter,
+    Arial,
+    "Noto Sans Hebrew",
+    sans-serif;
+}
+
+/*
+ * Equations stay left-to-right even when surrounded by Hebrew.
+ * inline-block + isolate prevents punctuation and brackets from
+ * moving to the wrong side of the expression.
+ */
+.mg-feedback-overlay-math {
+  display: inline-block;
+  direction: ltr;
+  unicode-bidi: isolate;
+  margin-inline: .16em;
+  text-align: left;
+}
+
+/* MathJax output created from the spans above. */
+.mg-feedback-overlay-note-body mjx-container {
+  direction: ltr;
+  unicode-bidi: isolate;
+  max-width: 100%;
+  margin-inline: .14em !important;
+}
+
+.mg-feedback-overlay-note-body mjx-container:not([display="true"]) {
+  display: inline-block !important;
+  vertical-align: middle;
+}
+
+.mg-feedback-overlay-note-body mjx-container[display="true"] {
+  display: block !important;
+  margin: .7rem 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.mg-feedback-overlay-note-body mjx-container svg {
+  max-width: 100%;
 }
 
 .mg-feedback-overlay-coordinate {
@@ -6509,6 +6670,9 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   border-top: 1px dashed currentColor;
   color: var(--muted);
   font-weight: 800;
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
 }
 
 .mg-feedback-overlay-coordinate.is-exact {
