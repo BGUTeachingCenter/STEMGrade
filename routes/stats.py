@@ -125,6 +125,87 @@ def _best_last_time(meta: dict[str, Any]) -> str:
     ).strip()
 
 
+def _metadata_file_by_kind(
+    meta: dict[str, Any],
+    *kinds: str,
+) -> str:
+    wanted = set(kinds)
+
+    for item in meta.get("files") or []:
+        if not isinstance(item, dict):
+            continue
+
+        if str(item.get("kind") or "") not in wanted:
+            continue
+
+        filename = str(item.get("filename") or "").strip()
+
+        if filename:
+            return filename
+
+    return ""
+
+
+def _review_files_for_meta(
+    meta: dict[str, Any],
+) -> dict[str, str]:
+    feedback = (
+        meta.get("feedback")
+        if isinstance(meta.get("feedback"), dict)
+        else {}
+    )
+
+    original_filename = _metadata_file_by_kind(
+        meta,
+        "original",
+        "student_tex",
+    )
+
+    ocr_tex_filename = _metadata_file_by_kind(
+        meta,
+        "ocr_tex",
+    )
+
+    if not ocr_tex_filename:
+        primary_filename = str(
+            meta.get("primary_filename")
+            or ""
+        ).strip()
+
+        if primary_filename.lower().endswith((".tex", ".txt")):
+            ocr_tex_filename = primary_filename
+
+    graded_result_filename = _metadata_file_by_kind(
+        meta,
+        "graded_result_json",
+    )
+
+    if not graded_result_filename:
+        graded_result_filename = str(
+            feedback.get("structured_json_filename")
+            or ""
+        ).strip()
+
+    if not graded_result_filename:
+        graded_result_filename = _metadata_file_by_kind(
+            meta,
+            "graded_result_tex",
+            "graded_feedback",
+        )
+
+    if not graded_result_filename:
+        graded_result_filename = str(
+            feedback.get("filename")
+            or ""
+        ).strip()
+
+    return {
+        "original_filename": original_filename,
+        "ocr_tex_filename": ocr_tex_filename,
+        "graded_result_filename": graded_result_filename,
+    }
+
+
 def _safe_filename_part(value: str, fallback: str = "upload_log") -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._-")
     return cleaned[:80] or fallback
@@ -265,6 +346,8 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         exam_id, is_matched = _exam_id_for_work(meta)
         upload_at = _best_upload_time(meta)
         last_at = _best_last_time(meta)
+        work_id = str(meta.get("work_id") or "").strip()
+        review_files = _review_files_for_meta(meta)
         day = upload_at[:10] if upload_at else "unknown"
 
         per_day[day]["count"] += 1
@@ -298,6 +381,10 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
                 "last_graded_at": "",
                 "status": "",
                 "source_filename": "",
+                "latest_work_id": "",
+                "original_filename": "",
+                "ocr_tex_filename": "",
+                "graded_result_filename": "",
                 "work_ids": [],
             }
 
@@ -311,11 +398,16 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
             student_row["last_uploaded_at"] = upload_at
             student_row["status"] = str(meta.get("status") or "")
             student_row["source_filename"] = str(meta.get("source_filename") or "")
+            student_row["latest_work_id"] = work_id
+            student_row.update(review_files)
+
+        if work_id and not student_row.get("latest_work_id"):
+            student_row["latest_work_id"] = work_id
+            student_row.update(review_files)
 
         if last_at and last_at > str(student_row.get("last_graded_at") or ""):
             student_row["last_graded_at"] = last_at
 
-        work_id = str(meta.get("work_id") or "").strip()
         if work_id:
             student_row["work_ids"].append(work_id)
 
@@ -426,6 +518,13 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
                     "last_graded_at": uploaded.get("last_graded_at", ""),
                     "status": uploaded.get("status", ""),
                     "source_filename": uploaded.get("source_filename", ""),
+                    "work_id": uploaded.get("latest_work_id", ""),
+                    "original_filename": uploaded.get("original_filename", ""),
+                    "ocr_tex_filename": uploaded.get("ocr_tex_filename", ""),
+                    "graded_result_filename": uploaded.get(
+                        "graded_result_filename",
+                        "",
+                    ),
                 }
             )
             row["total_attempts"] = int(row.get("total_attempts") or 0) + attempts

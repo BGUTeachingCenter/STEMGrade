@@ -1381,8 +1381,64 @@ loadWorkspaceContext();
 
   function formatDateTime(value) {
     const s = String(value || "").trim();
-    if (!s) return "—";
-    return s.replace("T", " ").slice(0, 16);
+
+    if (!s) {
+      return "—";
+    }
+
+    return s
+      .replace("T", " ")
+      .slice(0, 16);
+  }
+
+  /*
+   * Build the URL used by the read-only teacher review page.
+   *
+   * The actual files are still protected by the authenticated
+   * backend routes. These query parameters only identify which
+   * saved student-work item the review page should load.
+   */
+  function teacherWorkReviewUrl(
+    studentCode,
+    work
+  ) {
+    const query = new URLSearchParams({
+      teacher_review: "1",
+
+      student_code: String(
+        studentCode || ""
+      ),
+
+      work_id: String(
+        work?.work_id || ""
+      ),
+
+      exam_id: String(
+        work?.exam_id ||
+        "Student work"
+      ),
+
+      source_filename: String(
+        work?.source_filename || ""
+      ),
+
+      original_filename: String(
+        work?.original_filename || ""
+      ),
+
+      ocr_tex_filename: String(
+        work?.ocr_tex_filename || ""
+      ),
+
+      graded_result_filename: String(
+        work?.graded_result_filename || ""
+      ),
+    });
+
+    return (
+      "/feedback?" +
+      query.toString()
+    );
   }
 
   function currentVoucherFilter() {
@@ -1505,37 +1561,178 @@ loadWorkspaceContext();
   }
 
   function renderWorkDetail(item) {
-    const panel = $("workDetailPanel");
-    if (!panel || !item) return;
+    const panel =
+      $("workDetailPanel");
 
-    const uploaded = item.students_uploaded || [];
-    const missing = item.students_missing || [];
+    if (!panel || !item) {
+      return;
+    }
+
+    const uploaded =
+      item.students_uploaded || [];
+
+    const missing =
+      item.students_missing || [];
 
     const uploadedRows = uploaded.length
-      ? uploaded.map(s => `
+      ? uploaded
+          .map((student) => {
+            /*
+             * The work-progress endpoint names this
+             * latest_work_id because each row summarizes
+             * the student's newest attempt for this exam.
+             */
+            const reviewWork = {
+              work_id:
+                student.latest_work_id || "",
+
+              exam_id:
+                item.exam_id ||
+                "Student work",
+
+              source_filename:
+                student.source_filename || "",
+
+              original_filename:
+                student.original_filename || "",
+
+              ocr_tex_filename:
+                student.ocr_tex_filename || "",
+
+              graded_result_filename:
+                student.graded_result_filename || "",
+            };
+
+            const reviewUrl =
+              reviewWork.work_id
+                ? teacherWorkReviewUrl(
+                    student.code,
+                    reviewWork
+                  )
+                : "";
+
+            const reviewCell = reviewUrl
+              ? `
+                  <a
+                    class="secondary-btn small mg-teacher-work-review-btn"
+                    href="${escapeHtml(reviewUrl)}"
+                    target="_blank"
+                    rel="noopener"
+                    title="Open the complete saved-work review"
+                  >
+                    Open review
+                  </a>
+                `
+              : "—";
+
+            return `
+              <tr>
+                <td>
+                  <code>
+                    ${escapeHtml(
+                      student.code || ""
+                    )}
+                  </code>
+                </td>
+
+                <td>
+                  ${formatDateTime(
+                    student.first_uploaded_at
+                  )}
+                </td>
+
+                <td>
+                  ${formatDateTime(
+                    student.last_uploaded_at
+                  )}
+                </td>
+
+                <td>
+                  ${formatInt(
+                    student.attempts || 0
+                  )}
+                </td>
+
+                <td>
+                  ${escapeHtml(
+                    student.status || "—"
+                  )}
+                </td>
+
+                <td>
+                  ${escapeHtml(
+                    student.source_filename ||
+                    "—"
+                  )}
+                </td>
+
+                <td>
+                  ${reviewCell}
+                </td>
+              </tr>
+            `;
+          })
+          .join("")
+      : `
           <tr>
-            <td><code>${escapeHtml(s.code || "")}</code></td>
-            <td>${formatDateTime(s.first_uploaded_at)}</td>
-            <td>${formatDateTime(s.last_uploaded_at)}</td>
-            <td>${formatInt(s.attempts || 0)}</td>
-            <td>${escapeHtml(s.status || "—")}</td>
-            <td>${escapeHtml(s.source_filename || "—")}</td>
+            <td colspan="7">
+              No uploaded students yet.
+            </td>
           </tr>
-        `).join("")
-      : `<tr><td colspan="6">No uploaded students yet.</td></tr>`;
+        `;
 
     const missingHtml = missing.length
-      ? missing.map(code => `<span class="mg-missing-chip"><code>${escapeHtml(code)}</code></span>`).join("")
-      : `<span class="mg-complete-chip">No missing students</span>`;
+      ? missing
+          .map(
+            (code) => `
+              <span class="mg-missing-chip">
+                <code>
+                  ${escapeHtml(code)}
+                </code>
+              </span>
+            `
+          )
+          .join("")
+      : `
+          <span class="mg-complete-chip">
+            No missing students
+          </span>
+        `;
 
     panel.style.display = "block";
+
     panel.innerHTML = `
       <div class="mg-work-detail-head">
         <div>
-          <div class="mg-card-title">${escapeHtml(item.exam_id || "Unknown work")}</div>
-          <div class="small">${formatInt(item.uploaded_students || 0)}/${formatInt(item.total_students || 0)} uploaded · ${formatPct(item.completion_pct || 0)} complete · ${formatInt(item.upload_count || 0)} total upload attempts</div>
+          <div class="mg-card-title">
+            ${escapeHtml(
+              item.exam_id ||
+              "Unknown work"
+            )}
+          </div>
+
+          <div class="small">
+            ${formatInt(
+              item.uploaded_students || 0
+            )}/${formatInt(
+              item.total_students || 0
+            )} uploaded
+            · ${formatPct(
+              item.completion_pct || 0
+            )} complete
+            · ${formatInt(
+              item.upload_count || 0
+            )} total upload attempts
+          </div>
         </div>
-        <button type="button" class="secondary small" id="closeWorkDetailBtn">Close</button>
+
+        <button
+          type="button"
+          class="secondary small"
+          id="closeWorkDetailBtn"
+        >
+          Close
+        </button>
       </div>
 
       <div class="mg-work-table-wrap">
@@ -1548,24 +1745,47 @@ loadWorkspaceContext();
               <th>Attempts</th>
               <th>Status</th>
               <th>Latest source file</th>
+              <th>Review</th>
             </tr>
           </thead>
-          <tbody>${uploadedRows}</tbody>
+
+          <tbody>
+            ${uploadedRows}
+          </tbody>
         </table>
       </div>
 
       <div class="mg-missing-box">
-        <div class="mg-missing-title">Missing students</div>
-        <div class="mg-missing-list">${missingHtml}</div>
+        <div class="mg-missing-title">
+          Missing students
+        </div>
+
+        <div class="mg-missing-list">
+          ${missingHtml}
+        </div>
       </div>
     `;
 
-    const closeBtn = $("closeWorkDetailBtn");
+    const closeBtn =
+      $("closeWorkDetailBtn");
+
     if (closeBtn) {
-      closeBtn.addEventListener("click", () => {
-        panel.style.display = "none";
-        document.querySelectorAll(".mg-work-progress-item").forEach(x => x.classList.remove("active"));
-      });
+      closeBtn.addEventListener(
+        "click",
+        () => {
+          panel.style.display = "none";
+
+          document
+            .querySelectorAll(
+              ".mg-work-progress-item"
+            )
+            .forEach((element) => {
+              element.classList.remove(
+                "active"
+              );
+            });
+        }
+      );
     }
   }
 
@@ -1580,47 +1800,204 @@ loadWorkspaceContext();
   }
 
   function renderStudentProgress() {
-    const list = $("studentProgressList");
-    if (!list) return;
+    const list =
+      $("studentProgressList");
 
-    const rows = filteredStudentProgress();
-    if (!rows.length) {
-      list.innerHTML = `<div class="emptyState">No current students found.</div>`;
+    if (!list) {
       return;
     }
 
-    list.innerHTML = rows.map(row => {
-      const works = row.works || [];
-      const worksHtml = works.length
-        ? works.map(w => `
-            <div class="mg-student-work-chip">
-              <strong>${escapeHtml(w.exam_id || "Unknown work")}</strong>
-              <span>${formatInt(w.attempts || 0)} attempt${Number(w.attempts || 0) === 1 ? "" : "s"}</span>
-              <span>Latest: ${formatDateTime(w.last_uploaded_at)}</span>
-            </div>
-          `).join("")
-        : `<span class="mg-missing-chip">No uploads yet</span>`;
+    const rows =
+      filteredStudentProgress();
 
-      return `
-        <div class="mg-student-progress-item">
-          <div class="mg-student-progress-main">
-            <div class="mg-student-progress-title">
-              ${escapeHtml(row.student_name || "Unnamed student")}
-              <code>${escapeHtml(row.code || "")}</code>
-            </div>
-            <div class="small">
-              ${escapeHtml(row.student_email || "")}${row.student_email ? " · " : ""}
-              ${escapeHtml(row.course_label || "Course")}
-              · ${formatInt(row.uploaded_work_count || 0)} uploaded work${Number(row.uploaded_work_count || 0) === 1 ? "" : "s"}
-              · ${formatInt(row.total_attempts || 0)} total attempt${Number(row.total_attempts || 0) === 1 ? "" : "s"}
-              · ${formatInt(row.uses || 0)} login${Number(row.uses || 0) === 1 ? "" : "s"}
-            </div>
-            ${row.note ? `<div class="small"><strong>Note:</strong> ${escapeHtml(row.note)}</div>` : ""}
-          </div>
-          <div class="mg-student-work-chip-list">${worksHtml}</div>
+    if (!rows.length) {
+      list.innerHTML = `
+        <div class="emptyState">
+          No current students found.
         </div>
       `;
-    }).join("");
+
+      return;
+    }
+
+    list.innerHTML = rows
+      .map((row) => {
+        const works =
+          row.works || [];
+
+        const worksHtml = works.length
+          ? works
+              .map((work) => {
+                const attempts =
+                  Number(
+                    work.attempts || 0
+                  );
+
+                const content = `
+                  <strong>
+                    ${escapeHtml(
+                      work.exam_id ||
+                      "Unknown work"
+                    )}
+                  </strong>
+
+                  <span>
+                    ${formatInt(attempts)}
+                    attempt${
+                      attempts === 1
+                        ? ""
+                        : "s"
+                    }
+                  </span>
+
+                  <span>
+                    Latest:
+                    ${formatDateTime(
+                      work.last_uploaded_at
+                    )}
+                  </span>
+
+                  <span class="mg-student-work-open-label">
+                    Open full review ↗
+                  </span>
+                `;
+
+                /*
+                 * OCR LaTeX is required for the complete five-tab
+                 * review. Work without it remains visible but is
+                 * not presented as a broken link.
+                 */
+                if (
+                  !work.work_id ||
+                  !work.ocr_tex_filename
+                ) {
+                  return `
+                    <div
+                      class="mg-student-work-chip is-unavailable"
+                      title="A complete saved review is not available for this upload."
+                    >
+                      ${content}
+                    </div>
+                  `;
+                }
+
+                const reviewUrl =
+                  teacherWorkReviewUrl(
+                    row.code,
+                    work
+                  );
+
+                return `
+                  <a
+                    class="mg-student-work-chip mg-student-work-review"
+                    href="${escapeHtml(reviewUrl)}"
+                    target="_blank"
+                    rel="noopener"
+                    title="Open original submission, OCR, LaTeX, grading, and overlay"
+                  >
+                    ${content}
+                  </a>
+                `;
+              })
+              .join("")
+          : `
+              <span class="mg-missing-chip">
+                No uploads yet
+              </span>
+            `;
+
+        const email =
+          row.student_email
+            ? (
+                escapeHtml(
+                  row.student_email
+                ) + " · "
+              )
+            : "";
+
+        const uploadedWorkCount =
+          Number(
+            row.uploaded_work_count || 0
+          );
+
+        const totalAttempts =
+          Number(
+            row.total_attempts || 0
+          );
+
+        const loginCount =
+          Number(
+            row.uses || 0
+          );
+
+        const note = row.note
+          ? `
+              <div class="small">
+                <strong>Note:</strong>
+                ${escapeHtml(row.note)}
+              </div>
+            `
+          : "";
+
+        return `
+          <div class="mg-student-progress-item">
+            <div class="mg-student-progress-main">
+              <div class="mg-student-progress-title">
+                ${escapeHtml(
+                  row.student_name ||
+                  "Unnamed student"
+                )}
+
+                <code>
+                  ${escapeHtml(
+                    row.code || ""
+                  )}
+                </code>
+              </div>
+
+              <div class="small">
+                ${email}
+
+                ${escapeHtml(
+                  row.course_label ||
+                  "Course"
+                )}
+
+                · ${formatInt(
+                  uploadedWorkCount
+                )} uploaded work${
+                  uploadedWorkCount === 1
+                    ? ""
+                    : "s"
+                }
+
+                · ${formatInt(
+                  totalAttempts
+                )} total attempt${
+                  totalAttempts === 1
+                    ? ""
+                    : "s"
+                }
+
+                · ${formatInt(
+                  loginCount
+                )} login${
+                  loginCount === 1
+                    ? ""
+                    : "s"
+                }
+              </div>
+
+              ${note}
+            </div>
+
+            <div class="mg-student-work-chip-list">
+              ${worksHtml}
+            </div>
+          </div>
+        `;
+      })
+      .join("");
   }
 
 
