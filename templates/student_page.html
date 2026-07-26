@@ -226,6 +226,19 @@
   >
     Graded result
   </button>
+
+  <button
+    id="feedbackOverlayTab"
+    type="button"
+    class="mg-ocr-review-tab secondary"
+    data-ocr-review-tab="overlay"
+    role="tab"
+    aria-selected="false"
+    aria-controls="ocrReviewOverlayPanel"
+    disabled
+  >
+    Feedback overlay
+  </button>
 </div>
 
 <div class="mg-ocr-review-tab-panels">
@@ -381,6 +394,32 @@
       </div>
     </div>
   </section>
+
+  <section
+    id="ocrReviewOverlayPanel"
+    class="mg-ocr-review-tab-panel"
+    data-ocr-review-panel="overlay"
+    role="tabpanel"
+    hidden
+  >
+    <div class="mg-ocr-tab-toolbar">
+      <div>
+        <div class="mg-ocr-review-column-label">
+          Feedback on the submitted file
+        </div>
+        <div id="feedbackOverlayStatus" class="small mg-ocr-preview-status">
+          Load an original submission and structured grading feedback.
+        </div>
+      </div>
+    </div>
+
+    <div id="feedbackOverlayPreview" class="mg-feedback-overlay-preview" aria-live="polite">
+      <div class="mg-feedback-overlay-empty">
+        <strong>No visual feedback layer yet</strong>
+        <span>Open a saved OCR submission with grading feedback, or grade the current OCR result.</span>
+      </div>
+    </div>
+  </section>
 </div>
         </div>
 
@@ -401,6 +440,10 @@
     const ENDPOINT_LOGOUT = API_BASE + "/routes/logout";
     const ENDPOINT_ME = API_BASE + "/routes/me";
     const ENDPOINT_STUDENT_DASHBOARD = API_BASE + "/routes/student/dashboard";
+    const ENDPOINT_STUDENT_WORK_MANIFEST = (workId, filename) => {
+      const query = new URLSearchParams({ work_id: workId, filename });
+      return API_BASE + "/routes/student/work_manifest?" + query.toString();
+    };
 
     const busyOverlay = document.getElementById("busyOverlay");
     const busyOverlayText = document.getElementById("busyOverlayText");
@@ -462,6 +505,10 @@
     const originalSubmissionPreview =
       document.getElementById("originalSubmissionPreview");
 
+    const feedbackOverlayTab = document.getElementById("feedbackOverlayTab");
+    const feedbackOverlayStatus = document.getElementById("feedbackOverlayStatus");
+    const feedbackOverlayPreview = document.getElementById("feedbackOverlayPreview");
+
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
     const gradeGptBtn = document.getElementById("gradeGptBtn");
@@ -494,6 +541,9 @@
     let gradedResultObjectUrl = "";
     let originalSubmissionObjectUrl = "";
     let originalSubmissionFileKey = "";
+    let feedbackOverlaySource = null;
+    let feedbackOverlayData = null;
+    let feedbackOverlayRenderToken = 0;
 
     let activeOcrReviewTab = "preview";
     let reviewOriginalDownload = null;
@@ -519,7 +569,10 @@
       let label = "Download current file";
       let available = false;
 
-      if (activeOcrReviewTab === "original") {
+      if (
+        activeOcrReviewTab === "original" ||
+        activeOcrReviewTab === "overlay"
+      ) {
         label = "Download original";
         available = !!(
           reviewOriginalDownload &&
@@ -570,7 +623,10 @@
     }
 
     function downloadCurrentReviewFile() {
-      if (activeOcrReviewTab === "original") {
+      if (
+        activeOcrReviewTab === "original" ||
+        activeOcrReviewTab === "overlay"
+      ) {
         if (!reviewOriginalDownload) {
           return;
         }
@@ -651,6 +707,10 @@
       queueOcrLatexPreview(true);
     }
 
+    if (normalizedTab === "overlay") {
+      renderFeedbackOverlay();
+    }
+
     updateReviewDownloadButton();
   }
 
@@ -696,6 +756,7 @@
       message = "Upload handwritten work or open a saved OCR result."
     ) {
       clearOriginalSubmissionObjectUrl();
+      setFeedbackOverlaySource(null);
 
       reviewOriginalDownload = null;
       updateReviewDownloadButton();
@@ -826,6 +887,12 @@
         file.lastModified
       ].join(":");
 
+      setFeedbackOverlaySource({
+        kind: inferOriginalSubmissionType(file.type || "", file.name || ""),
+        filename: file.name || "original_submission",
+        localFile: file
+      });
+
       await showOriginalSubmissionBlob(
         file,
         file.name || "original_submission",
@@ -845,6 +912,8 @@
       }
 
       try {
+        setFeedbackOverlaySourceFromSavedUrl(originalUrl, fallbackFilename);
+
         if (originalSubmissionStatus) {
           originalSubmissionStatus.textContent =
             "Loading the saved original submission…";
@@ -922,6 +991,7 @@
 
     function resetGradedResultPreview() {
       clearGradedResultObjectUrl();
+      setFeedbackOverlayData(null);
 
     reviewGradedDownload = null;
     updateReviewDownloadButton();
@@ -2840,6 +2910,8 @@ async function showGradedResultBlob(
       );
     }
 
+    setFeedbackOverlayData(data);
+
     const structuredRendered =
       renderStudentFeedbackResult(data);
 
@@ -3150,6 +3222,445 @@ if (resultType === "tex") {
     }
   }
 }
+
+
+    function feedbackOverlayHasData(data) {
+      return !!(
+        data &&
+        typeof data === "object" &&
+        (
+          (Array.isArray(data.parts) && data.parts.length > 0) ||
+          (Array.isArray(data.annotations) && data.annotations.length > 0) ||
+          (Array.isArray(data.visual_overlay?.annotations) && data.visual_overlay.annotations.length > 0) ||
+          (Array.isArray(data.overlay?.annotations) && data.overlay.annotations.length > 0)
+        )
+      );
+    }
+
+    function feedbackOverlaySourceReady(source) {
+      return !!(
+        source &&
+        (
+          (source.workId && source.filename) ||
+          (source.kind === "image" && source.localFile)
+        )
+      );
+    }
+
+    function updateFeedbackOverlayAvailability() {
+      const ready =
+        feedbackOverlaySourceReady(feedbackOverlaySource) &&
+        feedbackOverlayHasData(feedbackOverlayData);
+
+      if (feedbackOverlayTab) {
+        feedbackOverlayTab.disabled = !ready;
+        feedbackOverlayTab.title = ready
+          ? "Show feedback on the submitted pages"
+          : "Load both the original submission and structured feedback";
+      }
+    }
+
+    function setFeedbackOverlaySource(source) {
+      feedbackOverlaySource = source || null;
+      updateFeedbackOverlayAvailability();
+    }
+
+    function setFeedbackOverlayData(data) {
+      feedbackOverlayData = data || null;
+      updateFeedbackOverlayAvailability();
+    }
+
+    function setFeedbackOverlaySourceFromSavedUrl(
+      originalUrl,
+      fallbackFilename = "original_submission"
+    ) {
+      if (!originalUrl) {
+        setFeedbackOverlaySource(null);
+        return;
+      }
+
+      try {
+        const parsed = new URL(originalUrl, window.location.origin);
+        const workId = parsed.searchParams.get("work_id") || "";
+        const filename =
+          parsed.searchParams.get("filename") || fallbackFilename;
+
+        setFeedbackOverlaySource(
+          workId && filename
+            ? {
+                kind: inferOriginalSubmissionType("", filename),
+                workId,
+                filename
+              }
+            : null
+        );
+      } catch (_) {
+        setFeedbackOverlaySource(null);
+      }
+    }
+
+    function setFeedbackOverlaySourceFromStoredWork(storedWork, fallbackFile) {
+      const files = Array.isArray(storedWork?.files)
+        ? storedWork.files
+        : [];
+
+      const original = files.find(
+        (item) => item?.kind === "original" && item?.filename
+      );
+
+      if (storedWork?.work_id && original?.filename) {
+        setFeedbackOverlaySource({
+          kind: inferOriginalSubmissionType("", original.filename),
+          workId: storedWork.work_id,
+          filename: original.filename
+        });
+        return;
+      }
+
+      if (fallbackFile) {
+        setFeedbackOverlaySource({
+          kind: inferOriginalSubmissionType(
+            fallbackFile.type || "",
+            fallbackFile.name || ""
+          ),
+          filename: fallbackFile.name || "original_submission",
+          localFile: fallbackFile
+        });
+      }
+    }
+
+    function overlayEmpty(message) {
+      if (!feedbackOverlayPreview) return;
+
+      feedbackOverlayPreview.innerHTML = "";
+      const empty = document.createElement("div");
+      empty.className = "mg-feedback-overlay-empty";
+
+      const title = document.createElement("strong");
+      title.textContent = "No visual feedback layer yet";
+
+      const text = document.createElement("span");
+      text.textContent = message;
+
+      empty.append(title, text);
+      feedbackOverlayPreview.appendChild(empty);
+    }
+
+    async function loadFeedbackOverlayManifest() {
+      if (feedbackOverlaySource?.workId && feedbackOverlaySource?.filename) {
+        const response = await authedFetch(
+          ENDPOINT_STUDENT_WORK_MANIFEST(
+            feedbackOverlaySource.workId,
+            feedbackOverlaySource.filename
+          ),
+          { cache: "no-store" }
+        );
+
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.ok) {
+          throw new Error(
+            data?.detail || `Could not render submission pages (${response.status}).`
+          );
+        }
+        return data;
+      }
+
+      if (
+        feedbackOverlaySource?.kind === "image" &&
+        feedbackOverlaySource?.localFile &&
+        originalSubmissionObjectUrl
+      ) {
+        return {
+          ok: true,
+          kind: "image",
+          pages: [{
+            page_number: 1,
+            width: null,
+            height: null,
+            image_url: originalSubmissionObjectUrl
+          }]
+        };
+      }
+
+      throw new Error(
+        "The PDF must be saved before its pages can be rendered for the overlay."
+      );
+    }
+
+    function feedbackOverlayAnnotations(data, pageCount) {
+      const explicit =
+        data?.visual_overlay?.annotations ||
+        data?.overlay?.annotations ||
+        data?.annotations ||
+        [];
+
+      if (Array.isArray(explicit) && explicit.length) {
+        return explicit.map((item, index) => {
+          const requestedPage = Number(item.page_number || 1);
+
+          return {
+          marker: String(item.marker || item.label || index + 1),
+          pageNumber: Math.max(
+            1,
+            Math.min(
+              pageCount,
+              Number.isFinite(requestedPage) ? requestedPage : 1
+            )
+          ),
+          title: String(item.title || `Feedback ${index + 1}`),
+          text: String(item.text || item.note || ""),
+          severity: String(item.severity || item.kind || "error"),
+          anchor: {
+            x: Number(item.anchor?.x ?? item.x ?? 0.72),
+            y: Number(item.anchor?.y ?? item.y ?? (0.14 + index * 0.12))
+          },
+          region: item.region || null,
+          exact: true
+        };
+        });
+      }
+
+      const parts = Array.isArray(data?.parts) ? data.parts : [];
+
+      return parts.map((part, index) => {
+        const feedback = part?.feedback || {};
+        const requestedPage = Number(
+          part?.page_numbers?.[0] || part?.page_number || 1
+        );
+        const mistakes = normalizeGradedArray(
+          feedback.main_mistakes || part?.main_mistakes
+        );
+        const improvements = normalizeGradedArray(
+          feedback.how_to_improve || part?.how_to_improve
+        );
+        const summary = String(feedback.summary || part?.summary || "").trim();
+        const question = part?.question_id ?? part?.qid ?? index + 1;
+        const partLabel = formatOcrPart(part?.part_key || "");
+        const level = inferStudentFeedbackCorrectness(part);
+
+        return {
+          marker: String(index + 1),
+          pageNumber: Math.max(
+            1,
+            Math.min(
+              pageCount,
+              Number.isFinite(requestedPage) ? requestedPage : 1
+            )
+          ),
+          title: `Question ${question}${partLabel ? ` · Part ${partLabel}` : ""}`,
+          text: [
+            summary,
+            ...mistakes.map((item) => `Missing or incorrect: ${item}`),
+            ...improvements.map((item) => `Improve: ${item}`)
+          ].filter(Boolean).join("\n") || "Review the structured grading result.",
+          severity:
+            level === "correct"
+              ? "success"
+              : (level === "mostly_correct" || level === "partially_correct")
+                ? "warning"
+                : "error",
+          anchor: {
+            x: 0.72,
+            y: Math.min(0.88, 0.13 + index * 0.14)
+          },
+          region: null,
+          exact: false
+        };
+      });
+    }
+
+    function overlaySeverityClass(value) {
+      const normalized = String(value || "").toLowerCase();
+      if (normalized.includes("success") || normalized.includes("correct")) {
+        return "is-success";
+      }
+      if (normalized.includes("warning") || normalized.includes("partial")) {
+        return "is-warning";
+      }
+      return "is-error";
+    }
+
+    function overlaySvgElement(name, attributes = {}) {
+      const element = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        name
+      );
+      Object.entries(attributes).forEach(([key, value]) => {
+        element.setAttribute(key, String(value));
+      });
+      return element;
+    }
+
+    function normalizeOverlayNumber(value, size, fallback) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return fallback;
+      return number >= 0 && number <= 1 ? number * size : number;
+    }
+
+    async function renderFeedbackOverlayPage(page, annotations) {
+      const stage = document.createElement("article");
+      stage.className = "mg-feedback-overlay-page";
+
+      const imageWrap = document.createElement("div");
+      imageWrap.className = "mg-feedback-overlay-image-wrap";
+
+      const image = document.createElement("img");
+      image.className = "mg-feedback-overlay-image";
+      image.src = page.image_url;
+      image.alt = `Submitted work page ${page.page_number}`;
+
+      await new Promise((resolve, reject) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", reject, { once: true });
+      });
+
+      const width = Number(page.width) || image.naturalWidth || 1000;
+      const height = Number(page.height) || image.naturalHeight || 1400;
+
+      const svg = overlaySvgElement("svg", {
+        class: "mg-feedback-overlay-svg",
+        viewBox: `0 0 ${width} ${height}`,
+        preserveAspectRatio: "none",
+        "aria-hidden": "true"
+      });
+
+      const notes = document.createElement("aside");
+      notes.className = "mg-feedback-overlay-notes";
+
+      annotations.forEach((annotation) => {
+        const severityClass = overlaySeverityClass(annotation.severity);
+        const x = normalizeOverlayNumber(annotation.anchor?.x, width, width * 0.72);
+        const y = normalizeOverlayNumber(annotation.anchor?.y, height, height * 0.2);
+        const radius = Math.max(12, Math.min(width, height) * 0.018);
+
+        if (annotation.region) {
+          const region = annotation.region;
+          const rx = normalizeOverlayNumber(region.x, width, 0);
+          const ry = normalizeOverlayNumber(region.y, height, 0);
+          const rw = normalizeOverlayNumber(region.width, width, 0);
+          const rh = normalizeOverlayNumber(region.height, height, 0);
+
+          svg.appendChild(overlaySvgElement("rect", {
+            x: rx,
+            y: ry,
+            width: rw,
+            height: rh,
+            class: `mg-feedback-overlay-highlight ${severityClass}`
+          }));
+        }
+
+        svg.appendChild(overlaySvgElement("line", {
+          x1: x,
+          y1: y,
+          x2: width * 0.985,
+          y2: y,
+          class: `mg-feedback-overlay-line ${severityClass}`
+        }));
+
+        const circle = overlaySvgElement("circle", {
+          cx: x,
+          cy: y,
+          r: radius,
+          class: `mg-feedback-overlay-marker ${severityClass}`
+        });
+        const label = overlaySvgElement("text", {
+          x,
+          y,
+          "text-anchor": "middle",
+          "dominant-baseline": "central",
+          "font-size": radius * 1.05
+        });
+        label.textContent = annotation.marker;
+        svg.append(circle, label);
+
+        const card = document.createElement("section");
+        card.className = `mg-feedback-overlay-note ${severityClass}`;
+        card.dir = "auto";
+
+        const heading = document.createElement("div");
+        heading.className = "mg-feedback-overlay-note-heading";
+        heading.textContent = `${annotation.marker}. ${annotation.title}`;
+
+        const body = document.createElement("div");
+        body.className = "mg-feedback-overlay-note-body";
+        String(annotation.text || "")
+          .split("\n")
+          .filter(Boolean)
+          .forEach((line) => {
+            const paragraph = document.createElement("p");
+            paragraph.textContent = line;
+            body.appendChild(paragraph);
+          });
+
+        if (!annotation.exact) {
+          const approximate = document.createElement("small");
+          approximate.textContent =
+            "Approximate marker — OCR coordinates are not stored yet.";
+          body.appendChild(approximate);
+        }
+
+        card.append(heading, body);
+        notes.appendChild(card);
+      });
+
+      imageWrap.append(image, svg);
+      stage.append(imageWrap, notes);
+      return stage;
+    }
+
+    async function renderFeedbackOverlay() {
+      const token = ++feedbackOverlayRenderToken;
+
+      if (!feedbackOverlaySourceReady(feedbackOverlaySource)) {
+        overlayEmpty("Load the original submission first.");
+        return;
+      }
+
+      if (!feedbackOverlayHasData(feedbackOverlayData)) {
+        overlayEmpty("Load structured grading feedback first.");
+        return;
+      }
+
+      feedbackOverlayPreview.innerHTML =
+        '<div class="mg-feedback-overlay-loading">Rendering submitted pages…</div>';
+      feedbackOverlayStatus.textContent =
+        "Rendering the submitted pages with a responsive SVG layer…";
+
+      try {
+        const manifest = await loadFeedbackOverlayManifest();
+        if (token !== feedbackOverlayRenderToken) return;
+
+        const pages = Array.isArray(manifest.pages) ? manifest.pages : [];
+        const annotations = feedbackOverlayAnnotations(
+          feedbackOverlayData,
+          pages.length || 1
+        );
+
+        feedbackOverlayPreview.innerHTML = "";
+
+        for (const page of pages) {
+          const pageAnnotations = annotations.filter(
+            (annotation) => annotation.pageNumber === page.page_number
+          );
+          const pageElement = await renderFeedbackOverlayPage(
+            page,
+            pageAnnotations
+          );
+          if (token !== feedbackOverlayRenderToken) return;
+          feedbackOverlayPreview.appendChild(pageElement);
+        }
+
+        const exactCount = annotations.filter((item) => item.exact).length;
+        feedbackOverlayStatus.textContent =
+          exactCount === annotations.length && annotations.length
+            ? `${annotations.length} notes positioned from JSON coordinates.`
+            : `${annotations.length} notes shown. Exact anchors will improve after OCR coordinates are added.`;
+      } catch (error) {
+        overlayEmpty(error?.message || "Could not render the feedback overlay.");
+        feedbackOverlayStatus.textContent =
+          error?.message || "Could not render the feedback overlay.";
+      }
+    }
 
     function nowTag() {
       const d = new Date();
@@ -5215,6 +5726,7 @@ function wireSavedOcrButtons() {
 
         if (data.stored_work && data.stored_work.work_id) {
           ocrCurrentWorkId = data.stored_work.work_id || "";
+          setFeedbackOverlaySourceFromStoredWork(data.stored_work, hw);
           lines.push(`[${nowTag()}] OCR result saved to your work history.`);
         }
 
