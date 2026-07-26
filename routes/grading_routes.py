@@ -1593,12 +1593,13 @@ async def _grade_tex_flow(
         overlay_bundle_json = (
             grading_input_path
             if grading_input_path.suffix.lower()
-               == ".json"
+            == ".json"
             else None
         )
 
-        # Prefer the original saved OCR bundle for page coordinates.
-        # This preserves anchors when the student edits the LaTeX before grading.
+        # Prefer the original saved OCR bundle for page coordinates. This keeps
+        # the visual anchors even when the student edits the reviewable LaTeX
+        # before grading.
         if student_code and source_work_id:
             try:
                 stored_overlay_bundle = (

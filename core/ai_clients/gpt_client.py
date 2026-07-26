@@ -213,7 +213,7 @@ Return exactly this JSON shape:
       "answer_text": "student's visible work, preserving mistakes and math notation",
       "page_numbers": [1],
       "regions": [
-        {
+        {{
           "page_number": 1,
           "x": 0.10,
           "y": 0.20,
@@ -221,7 +221,7 @@ Return exactly this JSON shape:
           "height": 0.18,
           "text_excerpt": "short visible excerpt from this region",
           "confidence": 0.0
-        }
+        }}
       ],
       "confidence": 0.0,
       "needs_review": false,

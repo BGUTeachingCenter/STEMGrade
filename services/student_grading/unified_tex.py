@@ -9,9 +9,7 @@ from typing import Any, Dict, List, Tuple
 from common.tex.latex_render import latex_render_mixed
 from common.tex.math_normalize import normalize_math_text
 from common.tex.part_normalize import normalize_part
-from services.student_grading.student_answer_bundle import (
-    normalize_student_answer_bundle,
-)
+from services.student_grading.student_answer_bundle import normalize_student_answer_bundle
 from typing import Dict, List, Tuple
 
 

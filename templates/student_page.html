@@ -115,7 +115,8 @@
             <option value="google">Google / Gemini OCR</option>
           </select>
           <div class="small mg-field-help">
-            Used only for OCR uploads. TeX/TXT uploads skip OCR.
+            Used only for OCR uploads. TeX/TXT uploads skip OCR.<br/>
+            OpenAI and Gemini OCR can store exact answer coordinates for the visual feedback layer. Mathpix currently falls back to approximate marker positions.
           </div>
         </div>
 
@@ -402,7 +403,7 @@
     role="tabpanel"
     hidden
   >
-    <div class="mg-ocr-tab-toolbar">
+    <div class="mg-ocr-tab-toolbar mg-feedback-overlay-toolbar">
       <div>
         <div class="mg-ocr-review-column-label">
           Feedback on the submitted file
@@ -410,6 +411,20 @@
         <div id="feedbackOverlayStatus" class="small mg-ocr-preview-status">
           Load an original submission and structured grading feedback.
         </div>
+      </div>
+
+      <div class="mg-feedback-overlay-controls" aria-label="Visual feedback controls">
+        <div class="mg-feedback-overlay-filter-group" role="group" aria-label="Filter feedback notes">
+          <button type="button" class="secondary-btn secondary small active" data-overlay-filter="all">All</button>
+          <button type="button" class="secondary-btn secondary small" data-overlay-filter="mistake">Needs attention</button>
+          <button type="button" class="secondary-btn secondary small" data-overlay-filter="suggestion">Suggestions</button>
+          <button type="button" class="secondary-btn secondary small" data-overlay-filter="correct">Correct</button>
+        </div>
+
+        <label class="mg-feedback-overlay-toggle">
+          <input id="feedbackOverlayHighlightsToggle" type="checkbox" checked />
+          <span>Show highlights</span>
+        </label>
       </div>
     </div>
 
@@ -508,6 +523,11 @@
     const feedbackOverlayTab = document.getElementById("feedbackOverlayTab");
     const feedbackOverlayStatus = document.getElementById("feedbackOverlayStatus");
     const feedbackOverlayPreview = document.getElementById("feedbackOverlayPreview");
+    const feedbackOverlayFilterButtons = Array.from(
+      document.querySelectorAll("[data-overlay-filter]")
+    );
+    const feedbackOverlayHighlightsToggle =
+      document.getElementById("feedbackOverlayHighlightsToggle");
 
     const gradeOllamaBtn = document.getElementById("gradeOllamaBtn");
     const gradeGoogleBtn = document.getElementById("gradeGoogleBtn");
@@ -544,6 +564,8 @@
     let feedbackOverlaySource = null;
     let feedbackOverlayData = null;
     let feedbackOverlayRenderToken = 0;
+    let feedbackOverlayFilter = "all";
+    let feedbackOverlayShowHighlights = true;
 
     let activeOcrReviewTab = "preview";
     let reviewOriginalDownload = null;
@@ -3387,6 +3409,23 @@ if (resultType === "tex") {
       );
     }
 
+    function overlayCategory(value, severity = "") {
+      const normalized = String(value || "").trim().toLowerCase();
+
+      if (["mistake", "suggestion", "correct", "summary"].includes(normalized)) {
+        return normalized;
+      }
+
+      const normalizedSeverity = String(severity || "").toLowerCase();
+      if (normalizedSeverity.includes("success") || normalizedSeverity.includes("correct")) {
+        return "correct";
+      }
+      if (normalizedSeverity.includes("warning") || normalizedSeverity.includes("partial")) {
+        return "suggestion";
+      }
+      return "mistake";
+    }
+
     function feedbackOverlayAnnotations(data, pageCount) {
       const explicit =
         data?.visual_overlay?.annotations ||
@@ -3397,76 +3436,181 @@ if (resultType === "tex") {
       if (Array.isArray(explicit) && explicit.length) {
         return explicit.map((item, index) => {
           const requestedPage = Number(item.page_number || 1);
+          const severity = String(item.severity || item.kind || "error");
+          const region = item.region && typeof item.region === "object"
+            ? item.region
+            : null;
 
           return {
-          marker: String(item.marker || item.label || index + 1),
-          pageNumber: Math.max(
-            1,
-            Math.min(
-              pageCount,
-              Number.isFinite(requestedPage) ? requestedPage : 1
-            )
-          ),
-          title: String(item.title || `Feedback ${index + 1}`),
-          text: String(item.text || item.note || ""),
-          severity: String(item.severity || item.kind || "error"),
-          anchor: {
-            x: Number(item.anchor?.x ?? item.x ?? 0.72),
-            y: Number(item.anchor?.y ?? item.y ?? (0.14 + index * 0.12))
-          },
-          region: item.region || null,
-          exact: true
-        };
+            id: String(item.id || `feedback-${index + 1}`),
+            marker: String(item.marker || item.label || index + 1),
+            pageNumber: Math.max(
+              1,
+              Math.min(
+                pageCount,
+                Number.isFinite(requestedPage) ? requestedPage : 1
+              )
+            ),
+            title: String(item.title || `Feedback ${index + 1}`),
+            text: String(item.text || item.note || ""),
+            category: overlayCategory(item.category, severity),
+            severity,
+            anchor: {
+              x: Number(item.anchor?.x ?? item.x ?? 0.72),
+              y: Number(item.anchor?.y ?? item.y ?? (0.14 + index * 0.12))
+            },
+            region,
+            exact: item.exact === true || !!region
+          };
         });
       }
 
       const parts = Array.isArray(data?.parts) ? data.parts : [];
+      const annotations = [];
+      let markerNumber = 1;
 
-      return parts.map((part, index) => {
+      parts.forEach((part, partIndex) => {
         const feedback = part?.feedback || {};
-        const requestedPage = Number(
-          part?.page_numbers?.[0] || part?.page_number || 1
-        );
         const mistakes = normalizeGradedArray(
           feedback.main_mistakes || part?.main_mistakes
         );
         const improvements = normalizeGradedArray(
           feedback.how_to_improve || part?.how_to_improve
         );
+        const correctItems = normalizeGradedArray(
+          feedback.what_was_correct || part?.what_was_correct
+        );
         const summary = String(feedback.summary || part?.summary || "").trim();
-        const question = part?.question_id ?? part?.qid ?? index + 1;
+        const nextStep = String(
+          feedback.suggested_next_step || part?.suggested_next_step || ""
+        ).trim();
+        const question = part?.question_id ?? part?.qid ?? partIndex + 1;
         const partLabel = formatOcrPart(part?.part_key || "");
         const level = inferStudentFeedbackCorrectness(part);
+        const regions = Array.isArray(part?.regions)
+          ? part.regions.filter((region) => region && typeof region === "object")
+          : [];
+        const pageNumbers = Array.isArray(part?.page_numbers)
+          ? part.page_numbers
+          : [];
+        const titlePrefix =
+          `Question ${question}${partLabel ? ` · Part ${partLabel}` : ""}`;
+        const specs = [];
 
-        return {
-          marker: String(index + 1),
-          pageNumber: Math.max(
+        mistakes.slice(0, 3).forEach((mistake, index) => {
+          const improvement = improvements[index] || "";
+          specs.push({
+            category: "mistake",
+            severity: "error",
+            title: `${titlePrefix} · Mistake or missing step`,
+            text: [
+              mistake,
+              improvement ? `How to improve: ${improvement}` : ""
+            ].filter(Boolean).join("\n")
+          });
+        });
+
+        improvements.slice(mistakes.length, 4).forEach((improvement) => {
+          specs.push({
+            category: "suggestion",
+            severity: "warning",
+            title: `${titlePrefix} · How to improve`,
+            text: improvement
+          });
+        });
+
+        if (level === "correct") {
+          const positiveText = correctItems.slice(0, 2).join("\n") || summary;
+          if (positiveText) {
+            specs.unshift({
+              category: "correct",
+              severity: "success",
+              title: `${titlePrefix} · Correct work`,
+              text: positiveText
+            });
+          }
+        } else if (!specs.length && summary) {
+          specs.push({
+            category: "summary",
+            severity:
+              level === "mostly_correct" || level === "partially_correct"
+                ? "warning"
+                : "error",
+            title: `${titlePrefix} · Grading note`,
+            text: summary
+          });
+        }
+
+        if (nextStep && specs.length < 5) {
+          specs.push({
+            category: "suggestion",
+            severity: "warning",
+            title: `${titlePrefix} · Suggested next step`,
+            text: nextStep
+          });
+        }
+
+        if (!specs.length) {
+          specs.push({
+            category: level === "correct" ? "correct" : "summary",
+            severity: level === "correct" ? "success" : "warning",
+            title: titlePrefix,
+            text: "Review the structured grading result."
+          });
+        }
+
+        specs.slice(0, 5).forEach((spec, specIndex) => {
+          const region = regions.length
+            ? regions[specIndex % regions.length]
+            : null;
+          const requestedPage = Number(
+            region?.page_number || pageNumbers[0] || 1
+          );
+          const pageNumber = Math.max(
             1,
             Math.min(
               pageCount,
               Number.isFinite(requestedPage) ? requestedPage : 1
             )
-          ),
-          title: `Question ${question}${partLabel ? ` · Part ${partLabel}` : ""}`,
-          text: [
-            summary,
-            ...mistakes.map((item) => `Missing or incorrect: ${item}`),
-            ...improvements.map((item) => `Improve: ${item}`)
-          ].filter(Boolean).join("\n") || "Review the structured grading result.",
-          severity:
-            level === "correct"
-              ? "success"
-              : (level === "mostly_correct" || level === "partially_correct")
-                ? "warning"
-                : "error",
-          anchor: {
-            x: 0.72,
-            y: Math.min(0.88, 0.13 + index * 0.14)
-          },
-          region: null,
-          exact: false
-        };
+          );
+
+          let anchor;
+          if (region) {
+            const regionX = Number(region.x);
+            const regionY = Number(region.y);
+            const regionWidth = Number(region.width);
+            const regionHeight = Number(region.height);
+            const localPosition = (specIndex + 1) / (specs.length + 1);
+
+            anchor = {
+              x: Math.min(0.985, regionX + regionWidth * 0.94),
+              y: Math.min(0.985, regionY + regionHeight * localPosition)
+            };
+          } else {
+            anchor = {
+              x: 0.72,
+              y: Math.min(0.88, 0.13 + (markerNumber - 1) * 0.11)
+            };
+          }
+
+          annotations.push({
+            id: `feedback-${markerNumber}`,
+            marker: String(markerNumber),
+            pageNumber,
+            title: spec.title,
+            text: spec.text,
+            category: spec.category,
+            severity: spec.severity,
+            anchor,
+            region,
+            exact: !!region
+          });
+
+          markerNumber += 1;
+        });
       });
+
+      return annotations;
     }
 
     function overlaySeverityClass(value) {
@@ -3478,6 +3622,15 @@ if (resultType === "tex") {
         return "is-warning";
       }
       return "is-error";
+    }
+
+    function overlayCategoryLabel(value) {
+      return {
+        mistake: "Needs attention",
+        suggestion: "Suggestion",
+        correct: "Correct",
+        summary: "Summary"
+      }[value] || "Feedback";
     }
 
     function overlaySvgElement(name, attributes = {}) {
@@ -3495,6 +3648,81 @@ if (resultType === "tex") {
       const number = Number(value);
       if (!Number.isFinite(number)) return fallback;
       return number >= 0 && number <= 1 ? number * size : number;
+    }
+
+    function setFeedbackOverlayActive(annotationId, options = {}) {
+      if (!feedbackOverlayPreview || !annotationId) return;
+
+      feedbackOverlayPreview
+        .querySelectorAll(".is-active")
+        .forEach((element) => element.classList.remove("is-active"));
+
+      const selector = `[data-overlay-id="${CSS.escape(annotationId)}"]`;
+      feedbackOverlayPreview
+        .querySelectorAll(selector)
+        .forEach((element) => element.classList.add("is-active"));
+
+      if (options.scrollNote) {
+        const note = feedbackOverlayPreview.querySelector(
+          `.mg-feedback-overlay-note${selector}`
+        );
+        note?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+
+    function overlayFilterMatches(category) {
+      if (feedbackOverlayFilter === "all") return true;
+      if (feedbackOverlayFilter === "mistake") {
+        return category === "mistake" || category === "summary";
+      }
+      return category === feedbackOverlayFilter;
+    }
+
+    function applyFeedbackOverlayFilters() {
+      if (!feedbackOverlayPreview) return;
+
+      let visibleNotes = 0;
+
+      feedbackOverlayPreview
+        .querySelectorAll("[data-overlay-category]")
+        .forEach((element) => {
+          const visible = overlayFilterMatches(
+            element.dataset.overlayCategory || "summary"
+          );
+          element.classList.toggle("is-filtered-out", !visible);
+          if (
+            visible &&
+            element.classList.contains("mg-feedback-overlay-note")
+          ) {
+            visibleNotes += 1;
+          }
+        });
+
+      feedbackOverlayPreview.classList.toggle(
+        "hide-highlights",
+        !feedbackOverlayShowHighlights
+      );
+
+      feedbackOverlayFilterButtons.forEach((button) => {
+        const active = button.dataset.overlayFilter === feedbackOverlayFilter;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+
+      if (feedbackOverlayHighlightsToggle) {
+        feedbackOverlayHighlightsToggle.checked = feedbackOverlayShowHighlights;
+      }
+
+      const total = Number(feedbackOverlayPreview.dataset.annotationCount || 0);
+      const exact = Number(feedbackOverlayPreview.dataset.exactCount || 0);
+
+      if (total && feedbackOverlayStatus) {
+        const placementText = exact === total
+          ? "All markers use OCR coordinates."
+          : `${exact} of ${total} markers use OCR coordinates.`;
+        feedbackOverlayStatus.textContent =
+          `${visibleNotes} of ${total} notes visible. ${placementText}`;
+      }
     }
 
     async function renderFeedbackOverlayPage(page, annotations) {
@@ -3521,7 +3749,7 @@ if (resultType === "tex") {
         class: "mg-feedback-overlay-svg",
         viewBox: `0 0 ${width} ${height}`,
         preserveAspectRatio: "none",
-        "aria-hidden": "true"
+        "aria-label": `Feedback markers for submitted page ${page.page_number}`
       });
 
       const notes = document.createElement("aside");
@@ -3529,9 +3757,19 @@ if (resultType === "tex") {
 
       annotations.forEach((annotation) => {
         const severityClass = overlaySeverityClass(annotation.severity);
+        const category = overlayCategory(annotation.category, annotation.severity);
         const x = normalizeOverlayNumber(annotation.anchor?.x, width, width * 0.72);
         const y = normalizeOverlayNumber(annotation.anchor?.y, height, height * 0.2);
         const radius = Math.max(12, Math.min(width, height) * 0.018);
+
+        const markerGroup = overlaySvgElement("g", {
+          class: `mg-feedback-overlay-annotation ${severityClass}`,
+          "data-overlay-id": annotation.id,
+          "data-overlay-category": category,
+          role: "button",
+          tabindex: "0",
+          "aria-label": `${annotation.marker}. ${annotation.title}`
+        });
 
         if (annotation.region) {
           const region = annotation.region;
@@ -3540,7 +3778,7 @@ if (resultType === "tex") {
           const rw = normalizeOverlayNumber(region.width, width, 0);
           const rh = normalizeOverlayNumber(region.height, height, 0);
 
-          svg.appendChild(overlaySvgElement("rect", {
+          markerGroup.appendChild(overlaySvgElement("rect", {
             x: rx,
             y: ry,
             width: rw,
@@ -3549,7 +3787,7 @@ if (resultType === "tex") {
           }));
         }
 
-        svg.appendChild(overlaySvgElement("line", {
+        markerGroup.appendChild(overlaySvgElement("line", {
           x1: x,
           y1: y,
           x2: width * 0.985,
@@ -3571,15 +3809,39 @@ if (resultType === "tex") {
           "font-size": radius * 1.05
         });
         label.textContent = annotation.marker;
-        svg.append(circle, label);
+        markerGroup.append(circle, label);
+        svg.appendChild(markerGroup);
+
+        const activateFromMarker = () => {
+          setFeedbackOverlayActive(annotation.id, { scrollNote: true });
+        };
+        markerGroup.addEventListener("click", activateFromMarker);
+        markerGroup.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            activateFromMarker();
+          }
+        });
 
         const card = document.createElement("section");
         card.className = `mg-feedback-overlay-note ${severityClass}`;
+        card.dataset.overlayId = annotation.id;
+        card.dataset.overlayCategory = category;
         card.dir = "auto";
+        card.tabIndex = 0;
+        card.setAttribute("role", "button");
 
         const heading = document.createElement("div");
         heading.className = "mg-feedback-overlay-note-heading";
-        heading.textContent = `${annotation.marker}. ${annotation.title}`;
+
+        const title = document.createElement("span");
+        title.textContent = `${annotation.marker}. ${annotation.title}`;
+
+        const categoryBadge = document.createElement("span");
+        categoryBadge.className = `mg-feedback-overlay-category is-${category}`;
+        categoryBadge.textContent = overlayCategoryLabel(category);
+
+        heading.append(title, categoryBadge);
 
         const body = document.createElement("div");
         body.className = "mg-feedback-overlay-note-body";
@@ -3592,14 +3854,25 @@ if (resultType === "tex") {
             body.appendChild(paragraph);
           });
 
-        if (!annotation.exact) {
-          const approximate = document.createElement("small");
-          approximate.textContent =
-            "Approximate marker — OCR coordinates are not stored yet.";
-          body.appendChild(approximate);
-        }
+        const coordinateBadge = document.createElement("small");
+        coordinateBadge.className = annotation.exact
+          ? "mg-feedback-overlay-coordinate is-exact"
+          : "mg-feedback-overlay-coordinate is-approximate";
+        coordinateBadge.textContent = annotation.exact
+          ? "Positioned from OCR coordinates"
+          : "Approximate position — this OCR result has no stored coordinates";
+        body.appendChild(coordinateBadge);
 
         card.append(heading, body);
+        card.addEventListener("click", () => {
+          setFeedbackOverlayActive(annotation.id);
+        });
+        card.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setFeedbackOverlayActive(annotation.id);
+          }
+        });
         notes.appendChild(card);
       });
 
@@ -3651,16 +3924,27 @@ if (resultType === "tex") {
         }
 
         const exactCount = annotations.filter((item) => item.exact).length;
-        feedbackOverlayStatus.textContent =
-          exactCount === annotations.length && annotations.length
-            ? `${annotations.length} notes positioned from JSON coordinates.`
-            : `${annotations.length} notes shown. Exact anchors will improve after OCR coordinates are added.`;
+        feedbackOverlayPreview.dataset.annotationCount = String(annotations.length);
+        feedbackOverlayPreview.dataset.exactCount = String(exactCount);
+        applyFeedbackOverlayFilters();
       } catch (error) {
         overlayEmpty(error?.message || "Could not render the feedback overlay.");
         feedbackOverlayStatus.textContent =
           error?.message || "Could not render the feedback overlay.";
       }
     }
+
+    feedbackOverlayFilterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        feedbackOverlayFilter = button.dataset.overlayFilter || "all";
+        applyFeedbackOverlayFilters();
+      });
+    });
+
+    feedbackOverlayHighlightsToggle?.addEventListener("change", () => {
+      feedbackOverlayShowHighlights = feedbackOverlayHighlightsToggle.checked;
+      applyFeedbackOverlayFilters();
+    });
 
     function nowTag() {
       const d = new Date();
