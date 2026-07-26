@@ -212,6 +212,17 @@ Return exactly this JSON shape:
       "part_key": "a",
       "answer_text": "student's visible work, preserving mistakes and math notation",
       "page_numbers": [1],
+      "regions": [
+        {
+          "page_number": 1,
+          "x": 0.10,
+          "y": 0.20,
+          "width": 0.55,
+          "height": 0.18,
+          "text_excerpt": "short visible excerpt from this region",
+          "confidence": 0.0
+        }
+      ],
       "confidence": 0.0,
       "needs_review": false,
       "warnings": []
@@ -229,6 +240,11 @@ Rules:
 - Preserve the student's mistakes. Do not solve, correct, grade, or give feedback.
 - Do not invent missing answers.
 - Keep each question/part separate. Do not merge Q2 into Q1.
+- For every visible answer block, add one or more regions. Coordinates are normalized to the page: x and y are the top-left corner, width and height are the box size, and every value must be between 0 and 1.
+- Use page_number starting at 1. Keep each box tight around the student's answer work; do not include the printed question unless the student wrote inside it.
+- If one answer continues in two separated places or on two pages, return multiple regions in reading order.
+- text_excerpt must be a short transcription of the visible content inside that region. It is used only to match feedback to the correct handwritten line.
+- If a reliable box cannot be determined, use regions: [] and mark needs_review=true with a warning. Never invent coordinates.
 - If local numbering is messy, use the visible order and labels, but mark needs_review=true.
 - For unclear handwriting, transcribe the best visible reading and set needs_review=true with a warning.
 - Put stray visible text that cannot be assigned to a question/part into unmatched_blocks.

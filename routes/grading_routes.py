@@ -42,6 +42,7 @@ from core.ai_clients.ai_usage_logger import bind_usage_context
 from services.student_work_store import (
     attach_grading_feedback_to_student_work,
     create_tex_student_work,
+    resolve_student_work_file,
 )
 from services.student_access import get_student_code_record
 
@@ -1589,11 +1590,40 @@ async def _grade_tex_flow(
             )
         )
 
+        overlay_bundle_json = (
+            grading_input_path
+            if grading_input_path.suffix.lower()
+               == ".json"
+            else None
+        )
+
+        # Prefer the original saved OCR bundle for page coordinates.
+        # This preserves anchors when the student edits the LaTeX before grading.
+        if student_code and source_work_id:
+            try:
+                stored_overlay_bundle = (
+                    resolve_student_work_file(
+                        student_code,
+                        source_work_id,
+                        "student_answer_bundle.json",
+                    )
+                )
+
+                if stored_overlay_bundle.exists():
+                    overlay_bundle_json = (
+                        stored_overlay_bundle
+                    )
+            except HTTPException:
+                pass
+
         student_feedback_json = (
             await run_in_threadpool(
                 build_student_feedback_json,
                 graded_result_json=(
                     graded_result_json
+                ),
+                student_answer_bundle_json=(
+                    overlay_bundle_json
                 ),
                 out_dir=ai_dir,
                 output_name=(

@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Tuple
 
 from common.tex.latex_render import latex_render_mixed
 from common.tex.math_normalize import normalize_math_text
+from common.tex.part_normalize import normalize_part
+from services.student_grading.student_answer_bundle import (
+    normalize_student_answer_bundle,
+)
 from typing import Dict, List, Tuple
 
 
@@ -571,6 +575,7 @@ def build_student_feedback_json(
     *,
     graded_result_json: Path,
     out_dir: Path,
+    student_answer_bundle_json: Path | None = None,
     output_name: str = (
         "student_feedback.json"
     ),
@@ -592,6 +597,85 @@ def build_student_feedback_json(
             encoding="utf-8"
         )
     )
+
+    answer_locations: dict[
+        tuple[int, str],
+        dict[str, Any],
+    ] = {}
+
+    if student_answer_bundle_json:
+        bundle_path = Path(
+            student_answer_bundle_json
+        )
+
+        if (
+            bundle_path.exists()
+            and bundle_path.suffix.lower()
+            == ".json"
+        ):
+            try:
+                raw_bundle = json.loads(
+                    bundle_path.read_text(
+                        encoding="utf-8"
+                    )
+                )
+
+                normalized_bundle = (
+                    normalize_student_answer_bundle(
+                        raw_bundle,
+                        source_name=(
+                            bundle_path.name
+                        ),
+                    )
+                )
+
+                for answer in (
+                    normalized_bundle.get(
+                        "answers"
+                    )
+                    or []
+                ):
+                    try:
+                        answer_question_id = int(
+                            answer.get(
+                                "question_id"
+                            )
+                        )
+                    except Exception:
+                        continue
+
+                    answer_part_key = (
+                        normalize_part(
+                            str(
+                                answer.get(
+                                    "part_key"
+                                )
+                                or ""
+                            )
+                        )
+                    )
+
+                    answer_locations[
+                        (
+                            answer_question_id,
+                            answer_part_key,
+                        )
+                    ] = {
+                        "page_numbers": list(
+                            answer.get(
+                                "page_numbers"
+                            )
+                            or []
+                        ),
+                        "regions": list(
+                            answer.get(
+                                "regions"
+                            )
+                            or []
+                        ),
+                    }
+            except Exception:
+                answer_locations = {}
 
     raw_parts = (
         data.get("parts")
@@ -649,6 +733,36 @@ def build_student_feedback_json(
                 else "needs_work"
             )
 
+        try:
+            question_id = int(
+                part.get(
+                    "question_id"
+                )
+            )
+        except Exception:
+            question_id = None
+
+        part_key = normalize_part(
+            str(
+                part.get(
+                    "part_key"
+                )
+                or ""
+            )
+        )
+
+        location = (
+            answer_locations.get(
+                (
+                    question_id,
+                    part_key,
+                ),
+                {},
+            )
+            if question_id is not None
+            else {}
+        )
+
         feedback = {
             "summary": str(
                 part.get("summary")
@@ -690,16 +804,9 @@ def build_student_feedback_json(
                     or ""
                 ).strip(),
                 "question_id": (
-                    part.get(
-                        "question_id"
-                    )
+                    question_id
                 ),
-                "part_key": str(
-                    part.get(
-                        "part_key"
-                    )
-                    or ""
-                ).strip(),
+                "part_key": part_key,
                 "question_text": (
                     _clean_question_text_for_student(
                         part.get(
@@ -709,6 +816,18 @@ def build_student_feedback_json(
                 ),
                 "student_answer": (
                     student_answer
+                ),
+                "page_numbers": list(
+                    location.get(
+                        "page_numbers"
+                    )
+                    or []
+                ),
+                "regions": list(
+                    location.get(
+                        "regions"
+                    )
+                    or []
                 ),
                 "correctness": {
                     "level": (
@@ -777,6 +896,22 @@ def build_student_feedback_json(
             )
             or ""
         ),
+        "visual_overlay": {
+            "schema_version": (
+                "student_feedback_overlay_v1"
+            ),
+            "coordinate_space": (
+                "normalized_page"
+            ),
+            "has_exact_coordinates": any(
+                bool(
+                    part.get(
+                        "regions"
+                    )
+                )
+                for part in student_parts
+            ),
+        },
         "scoring": {
             "mode": str(
                 scoring.get("mode")

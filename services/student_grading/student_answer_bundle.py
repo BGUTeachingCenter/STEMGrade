@@ -50,6 +50,133 @@ def _clean_answer_text(value: Any) -> str:
     return text
 
 
+def _clamp_unit(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except Exception:
+        return None
+
+    if number < 0 or number > 1:
+        return None
+
+    return round(number, 6)
+
+
+def _normalize_region(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    page_number = _as_int(
+        value.get("page_number")
+        or value.get("page")
+        or value.get("page_index")
+    )
+
+    bbox = value.get("bbox") or value.get("normalized_bbox")
+
+    if isinstance(bbox, list) and len(bbox) >= 4:
+        x_raw, y_raw, width_raw, height_raw = bbox[:4]
+    else:
+        x_raw = value.get("x", value.get("left"))
+        y_raw = value.get("y", value.get("top"))
+        width_raw = value.get("width")
+        height_raw = value.get("height")
+
+        if width_raw is None and value.get("right") is not None:
+            try:
+                width_raw = float(value.get("right")) - float(x_raw)
+            except Exception:
+                width_raw = None
+
+        if height_raw is None and value.get("bottom") is not None:
+            try:
+                height_raw = float(value.get("bottom")) - float(y_raw)
+            except Exception:
+                height_raw = None
+
+    x = _clamp_unit(x_raw)
+    y = _clamp_unit(y_raw)
+    width = _clamp_unit(width_raw)
+    height = _clamp_unit(height_raw)
+
+    if page_number is None or page_number < 1:
+        return None
+
+    if None in (x, y, width, height):
+        return None
+
+    if width <= 0 or height <= 0:
+        return None
+
+    width = round(min(width, 1 - x), 6)
+    height = round(min(height, 1 - y), 6)
+
+    if width <= 0 or height <= 0:
+        return None
+
+    confidence_raw = value.get("confidence")
+
+    try:
+        confidence = (
+            float(confidence_raw)
+            if confidence_raw is not None
+            else None
+        )
+    except Exception:
+        confidence = None
+
+    return {
+        "page_number": page_number,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "text_excerpt": str(
+            value.get("text_excerpt")
+            or value.get("excerpt")
+            or value.get("text")
+            or ""
+        ).strip()[:500],
+        "confidence": confidence,
+    }
+
+
+def _normalize_regions(value: Any) -> list[dict[str, Any]]:
+    raw_regions = value if isinstance(value, list) else []
+    regions: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+
+    for raw_region in raw_regions:
+        region = _normalize_region(raw_region)
+
+        if not region:
+            continue
+
+        signature = (
+            region["page_number"],
+            region["x"],
+            region["y"],
+            region["width"],
+            region["height"],
+        )
+
+        if signature in seen:
+            continue
+
+        seen.add(signature)
+        regions.append(region)
+
+    regions.sort(
+        key=lambda item: (
+            int(item.get("page_number") or 1),
+            float(item.get("y") or 0),
+            float(item.get("x") or 0),
+        )
+    )
+
+    return regions
+
+
 def normalize_student_answer_bundle(
     data: dict[str, Any] | None,
     *,
@@ -87,44 +214,111 @@ def normalize_student_answer_bundle(
             warnings.append(f"Skipped Q{qnum}{part or ''}: empty answer_text.")
             continue
 
-        key = (qnum, part)
-        if key in seen:
-            # Merge duplicate fragments conservatively.
-            for existing in answers:
-                if existing["question_id"] == qnum and existing.get("part_key", "") == part:
-                    existing["answer_text"] = (existing["answer_text"].rstrip() + "\n\n" + answer_text).strip()
-                    existing.setdefault("warnings", []).append("Merged duplicate OCR block for this question/part.")
-                    break
-            continue
-        seen.add(key)
+        regions = _normalize_regions(
+            item.get("regions")
+            or item.get("answer_regions")
+            or []
+        )
 
         page_numbers = item.get("page_numbers") or item.get("pages") or []
+
         if not isinstance(page_numbers, list):
             page_numbers = []
+
         normalized_pages: list[int] = []
+
         for p in page_numbers:
             pi = _as_int(p)
-            if pi is not None:
+
+            if (
+                pi is not None
+                and pi > 0
+                and pi not in normalized_pages
+            ):
                 normalized_pages.append(pi)
 
+        for region in regions:
+            page_number = int(region["page_number"])
+
+            if page_number not in normalized_pages:
+                normalized_pages.append(page_number)
+
+        normalized_pages.sort()
+
+        key = (qnum, part)
+
+        if key in seen:
+            for existing in answers:
+                if (
+                    existing["question_id"] == qnum
+                    and existing.get("part_key", "") == part
+                ):
+                    existing["answer_text"] = (
+                        existing["answer_text"].rstrip()
+                        + "\n\n"
+                        + answer_text
+                    ).strip()
+
+                    existing["page_numbers"] = sorted(
+                        set(existing.get("page_numbers") or [])
+                        | set(normalized_pages)
+                    )
+
+                    existing["regions"] = _normalize_regions(
+                        list(existing.get("regions") or [])
+                        + regions
+                    )
+
+                    existing.setdefault(
+                        "warnings",
+                        [],
+                    ).append(
+                        "Merged duplicate OCR block for this question/part."
+                    )
+
+                    break
+
+            continue
+
+        seen.add(key)
+
         try:
-            confidence = float(item.get("confidence")) if item.get("confidence") is not None else None
+            confidence = (
+                float(item.get("confidence"))
+                if item.get("confidence") is not None
+                else None
+            )
         except Exception:
             confidence = None
 
-        item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
+        item_warnings = (
+            item.get("warnings")
+            if isinstance(item.get("warnings"), list)
+            else []
+        )
+
         answers.append(
             {
                 "question_id": qnum,
                 "part_key": part,
                 "answer_text": answer_text,
                 "page_numbers": normalized_pages,
+                "regions": regions,
                 "confidence": confidence,
-                "needs_review": bool(item.get("needs_review", confidence is not None and confidence < 0.7)),
-                "warnings": [str(w) for w in item_warnings if str(w).strip()],
+                "needs_review": bool(
+                    item.get(
+                        "needs_review",
+                        confidence is not None
+                        and confidence < 0.7,
+                    )
+                ),
+                "warnings": [
+                    str(w)
+                    for w in item_warnings
+                    if str(w).strip()
+                ],
             }
         )
-
     answers.sort(key=lambda a: (int(a.get("question_id") or 0), str(a.get("part_key") or "")))
 
     if not answers:
