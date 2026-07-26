@@ -16,6 +16,7 @@ from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_res
 from services.ocr_routing import decide_student_ocr_path
 from common.exam_summary import write_student_summary, read_json_file
 from services.student_work_store import save_ocr_student_work
+from services.student_access import get_student_code_record
 
 router = APIRouter(prefix="/routes", tags=["ocr"])
 
@@ -49,10 +50,41 @@ async def ocr_handwritten(
     teacher_id = ""
     student_code = ""
 
+    voucher_id = ""
+
     if session_role == "teacher":
-        teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
+        teacher_id = (
+                _session.get("teacher_id")
+                or _session.get("sub")
+                or ""
+        ).strip()
+
     elif session_role == "student":
         student_code = (_session.get("sub") or "").strip()
+
+        try:
+            student_record = get_student_code_record(student_code) or {}
+
+            teacher_id = str(
+                student_record.get("teacher_id")
+                or student_record.get("owner_teacher_id")
+                or _session.get("teacher_id")
+                or ""
+            ).strip()
+
+            voucher_id = str(
+                student_record.get("voucher_id")
+                or student_record.get("voucher_hash")
+                or student_record.get("voucher_code")
+                or ""
+            ).strip()
+
+        except Exception:
+            teacher_id = str(
+                _session.get("teacher_id")
+                or ""
+            ).strip()
+            voucher_id = ""
 
     bind_usage_context(
         debug_run_id=trace.run_id,
@@ -61,6 +93,7 @@ async def ocr_handwritten(
         session_role=session_role,
         teacher_id=teacher_id or None,
         student_code=student_code or None,
+        voucher_id=voucher_id or None,
     )
     trace.log("ocr", "started", filename=filename, suffix=suffix, provider=ocr_provider, model=ocr_model or None)
 

@@ -55,104 +55,6 @@
       <a href="#uploadReference">Upload to Bank</a>
     </nav>
 
-  <!-- OVERVIEW / STATS ROW -->
-  <section class="mg-teacher-section" id="teacherStats">
-  <div class="mg-teacher-section-head">
-    <div>
-      <h2>Overview</h2>
-      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
-    </div>
-  </div>
-
-  <div class="mg-dashboard-tools">
-    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
-      <div class="mg-kpi-card">
-        <span>Active students</span>
-        <strong id="statsTotalStudents">…</strong>
-      </div>
-      <div class="mg-kpi-card">
-        <span>Recognized works</span>
-        <strong id="statsRecognizedWorks">…</strong>
-      </div>
-      <div class="mg-kpi-card">
-        <span>Total uploads</span>
-        <strong id="statsTotalUploads">…</strong>
-      </div>
-    </div>
-
-    <div class="mg-upload-log-download">
-      <label for="uploadLogVoucherSelect">Download upload log</label>
-      <div class="mg-upload-log-controls">
-        <select id="uploadLogVoucherSelect"></select>
-        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
-      </div>
-      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
-    </div>
-  </div>
-
-  <div class="card mg-work-progress-card">
-    <div class="cardInner">
-      <div class="mg-card-title-row">
-        <div>
-          <div class="mg-card-title">Submission progress by work</div>
-          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
-        </div>
-      </div>
-
-      <div id="workProgressGrid" class="mg-work-progress-grid">
-        <div class="emptyState">Loading upload progress…</div>
-      </div>
-
-      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
-    </div>
-  </div>
-
-  <div class="card mg-student-progress-card">
-    <div class="cardInner">
-      <div class="mg-card-title-row">
-        <div>
-          <div class="mg-card-title">Current students</div>
-          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
-        </div>
-      </div>
-      <div id="studentProgressList" class="mg-student-progress-list">
-        <div class="emptyState">Loading current students…</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="statsLayout mg-stats-two">
-    <div class="card mg-chart-card">
-      <div class="cardInner">
-        <div class="mg-chart-head">
-          <div class="mg-card-title">Uploads per day</div>
-          <div class="mg-chart-peak" id="chartPerDayPeak"></div>
-        </div>
-        <div class="mg-chart-canvas-wrap">
-          <canvas id="chartPerDay"></canvas>
-          <div class="mg-chart-tooltip" id="chartPerDayTip" hidden></div>
-        </div>
-        <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
-      </div>
-    </div>
-
-    <div class="card mg-chart-card">
-      <div class="cardInner">
-        <div class="mg-chart-head">
-          <div class="mg-card-title">Total tokens per code</div>
-          <div class="mg-chart-peak" id="chartTokensPeak"></div>
-        </div>
-        <div class="mg-chart-legend" id="chartTokensLegend" hidden></div>
-        <div class="mg-chart-canvas-wrap">
-          <canvas id="chartTokens"></canvas>
-          <div class="mg-chart-tooltip" id="chartTokensTip" hidden></div>
-        </div>
-        <div class="small">Total AI tokens used per student code, split by provider (Gemini vs GPT).</div>
-      </div>
-    </div>
-  </div>
-  </section>
-
 
 <section
   class="mg-teacher-section mg-course-settings-section"
@@ -302,6 +204,131 @@
     </div>
   </div>
 </section>
+
+  <!-- STATS ROW -->
+  <section class="mg-teacher-section" id="teacherStats">
+  <div class="mg-teacher-section-head">
+    <div>
+      <h2>Overview</h2>
+      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
+    </div>
+  </div>
+
+  <div class="mg-dashboard-tools">
+    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
+      <div class="mg-kpi-card">
+        <span>Active students</span>
+        <strong id="statsTotalStudents">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Recognized works</span>
+        <strong id="statsRecognizedWorks">…</strong>
+      </div>
+      <div class="mg-kpi-card">
+        <span>Total uploads</span>
+        <strong id="statsTotalUploads">…</strong>
+      </div>
+    </div>
+
+    <div class="mg-upload-log-download">
+      <label for="uploadLogVoucherSelect">Download upload log</label>
+      <div class="mg-upload-log-controls">
+        <select id="uploadLogVoucherSelect"></select>
+        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
+      </div>
+      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
+    </div>
+  </div>
+
+  <div class="card mg-work-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Submission progress by work</div>
+          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
+        </div>
+      </div>
+
+      <div id="workProgressGrid" class="mg-work-progress-grid">
+        <div class="emptyState">Loading upload progress…</div>
+      </div>
+
+      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card mg-student-progress-card">
+    <div class="cardInner">
+      <div class="mg-card-title-row">
+        <div>
+          <div class="mg-card-title">Current students</div>
+          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
+        </div>
+      </div>
+      <div id="studentProgressList" class="mg-student-progress-list">
+        <div class="emptyState">Loading current students…</div>
+      </div>
+    </div>
+  </div>
+
+
+    <div class="statsLayout mg-stats-two">
+    <div class="card mg-chart-card">
+      <div class="cardInner">
+        <div class="mg-chart-heading">
+          <div>
+            <div class="mg-chart-title">Uploads per day</div>
+            <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
+          </div>
+
+          <div class="mg-chart-legend">
+            <span>
+              <i class="mg-chart-legend-dot uploads"></i>
+              Uploads
+            </span>
+          </div>
+        </div>
+
+        <div
+          id="chartPerDay"
+          class="mg-responsive-bar-chart"
+          role="img"
+          aria-label="Uploads per day chart"
+        ></div>
+      </div>
+    </div>
+
+    <div class="card mg-chart-card">
+      <div class="cardInner">
+        <div class="mg-chart-heading">
+          <div>
+            <div class="mg-chart-title">AI tokens per student code</div>
+            <div class="small">Total GPT and Gemini tokens attributed to each student code.</div>
+          </div>
+
+          <div class="mg-chart-legend">
+            <span>
+              <i class="mg-chart-legend-dot gpt"></i>
+              GPT
+            </span>
+
+            <span>
+              <i class="mg-chart-legend-dot gemini"></i>
+              Gemini
+            </span>
+          </div>
+        </div>
+
+        <div
+          id="chartTokens"
+          class="mg-responsive-bar-chart"
+          role="img"
+          aria-label="GPT and Gemini tokens per student code chart"
+        ></div>
+      </div>
+    </div>
+  </div>
+      </section>
 
   <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
   <div class="mg-teacher-section-head">
@@ -1121,327 +1148,225 @@ loadWorkspaceContext();
       .replaceAll("'","&#039;");
   }
 
-  // --------- STATS CHARTS (crisp, responsive, interactive; no external libs) ---
-  // Clean bar charts styled after the "Tokens per day" plot: capped bar width,
-  // rounded tops, per-bar labels, a peak readout, and hover tooltips. State per
-  // canvas lets us re-render sharply on resize and hit-test on hover.
-  const CHART_STATE = {};
-  const CHART_INK = "#8a8a8d";
+  // --------- RESPONSIVE STATS CHARTS ----------
+  const CHART_COLORS = {
+    uploads: "#f4b860",
+    gpt: "#202124",
+    gemini: "#4285f4"
+  };
 
-  function formatCount(n) {
-    return Number(n || 0).toLocaleString();
-  }
+  function formatChartValue(value) {
+    const n = Number(value || 0);
 
-  // Compact number for tight axis labels: 900, 2.7k, 3.9M.
-  function formatCompact(n) {
-    n = Number(n) || 0;
-    const a = Math.abs(n);
-    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
-    if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "k";
-    return String(Math.round(n));
-  }
-
-  // Size the canvas bitmap to its CSS box × devicePixelRatio so bars and text
-  // stay sharp on high-DPI screens, and return the CSS-pixel drawing size.
-  function prepareCanvas(canvas) {
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const rect = canvas.getBoundingClientRect();
-    const cssW = Math.max(1, Math.round(rect.width || canvas.clientWidth || 520));
-    const cssH = Math.max(1, Math.round(rect.height || canvas.clientHeight || 240));
-
-    if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
-      canvas.width = cssW * dpr;
-      canvas.height = cssH * dpr;
+    if (n >= 1_000_000) {
+      return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
     }
 
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
-    return { ctx, W: cssW, H: cssH };
+    if (n >= 1_000) {
+      return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+    }
+
+    return n.toLocaleString();
   }
 
-  function roundedTopRect(ctx, x, y, w, h, r) {
-    const rr = Math.max(0, Math.min(r, w / 2, h));
-    ctx.beginPath();
-    ctx.moveTo(x, y + h);
-    ctx.lineTo(x, y + rr);
-    ctx.arcTo(x, y, x + rr, y, rr);
-    ctx.lineTo(x + w - rr, y);
-    ctx.arcTo(x + w, y, x + w, y + rr, rr);
-    ctx.lineTo(x + w, y + h);
-    ctx.closePath();
-    ctx.fill();
-  }
+  function renderBarChart(
+    containerId,
+    labels,
+    datasets,
+    emptyMessage = "No data yet"
+  ) {
+    const container = $(containerId);
+    if (!container) return;
 
-  function renderChart(canvasId) {
-    const state = CHART_STATE[canvasId];
-    const canvas = $(canvasId);
-    if (!state || !canvas) return;
+    const safeLabels = Array.isArray(labels) ? labels : [];
+    const safeDatasets = Array.isArray(datasets) ? datasets : [];
 
-    const { labels, series, empty } = state;
-    const { ctx, W, H } = prepareCanvas(canvas);
-    state.bars = [];
+    const allValues = safeDatasets.flatMap(dataset =>
+      (dataset.values || []).map(value => Number(value || 0))
+    );
 
-    const padX = 8, padT = 16, padB = 26;
-    const plotW = Math.max(1, W - padX * 2);
-    const plotH = Math.max(1, H - padT - padB);
-    const baseY = padT + plotH;
-    const n = labels.length;
+    const maxValue = Math.max(0, ...allValues);
 
-    ctx.textBaseline = "alphabetic";
-
-    // Empty / message state
-    if (empty || !n) {
-      ctx.fillStyle = "rgba(79,79,82,.5)";
-      ctx.font = "600 13px Inter, ui-sans-serif, system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText(String((labels && labels[0]) || "No data"), W / 2, H / 2);
+    if (!safeLabels.length || maxValue <= 0) {
+      container.classList.remove("is-ready");
+      container.innerHTML = `
+        <div class="mg-chart-empty">
+          ${escapeHtml(emptyMessage)}
+        </div>
+      `;
       return;
     }
 
-    // Per-bar totals (sum of every series at that index)
-    const totals = [];
-    for (let i = 0; i < n; i++) {
-      let t = 0;
-      for (const s of series) t += Number(s.values[i] || 0);
-      totals.push(t);
-    }
-    const maxV = Math.max(1, ...totals);
+    const groupsHtml = safeLabels.map((label, index) => {
+      const barsHtml = safeDatasets.map(dataset => {
+        const value = Math.max(
+          0,
+          Number((dataset.values || [])[index] || 0)
+        );
 
-    // Baseline
-    ctx.strokeStyle = "rgba(79,79,82,.14)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padX, baseY + 0.5);
-    ctx.lineTo(W - padX, baseY + 0.5);
-    ctx.stroke();
+        const height = maxValue > 0
+          ? Math.min(100, (value / maxValue) * 100)
+          : 0;
 
-    const slot = plotW / n;
-    const barW = Math.max(4, Math.min(46, slot * 0.62));
-    const radius = Math.min(5, barW / 2);
+        const zeroClass = value > 0 ? "" : "is-zero";
+        const tooltip = `${dataset.label}: ${value.toLocaleString()}`;
 
-    // Single-series charts keep the soft brand gradient; stacked charts use
-    // each series' solid provider colour.
-    let grad = null;
-    if (state.gradient) {
-      grad = ctx.createLinearGradient(0, padT, 0, baseY);
-      grad.addColorStop(0, "#f39a1e");
-      grad.addColorStop(1, "#f8b74e");
-    }
+        return `
+          <div class="mg-chart-bar-wrap">
+            <div
+              class="mg-chart-bar ${zeroClass}"
+              tabindex="${value > 0 ? "0" : "-1"}"
+              title="${escapeHtml(tooltip)}"
+              style="
+                --bar-height:${height}%;
+                --bar-color:${dataset.color};
+              "
+            >
+              ${
+                value > 0
+                  ? `<span class="mg-chart-value">${escapeHtml(formatChartValue(value))}</span>`
+                  : ""
+              }
+            </div>
+          </div>
+        `;
+      }).join("");
 
-    for (let i = 0; i < n; i++) {
-      const x = padX + i * slot + (slot - barW) / 2;
-      const cx = x + barW / 2;
+      return `
+        <div class="mg-chart-group">
+          <div class="mg-chart-bars">
+            ${barsHtml}
+          </div>
 
-      // Which series is the topmost non-empty one (gets the rounded top)?
-      let topIdx = -1;
-      for (let s = 0; s < series.length; s++) {
-        if (Number(series[s].values[i] || 0) > 0) topIdx = s;
-      }
+          <div
+            class="mg-chart-label"
+            title="${escapeHtml(String(label))}"
+          >
+            ${escapeHtml(String(label))}
+          </div>
+        </div>
+      `;
+    }).join("");
 
-      let acc = 0; // height stacked from the baseline up
-      for (let s = 0; s < series.length; s++) {
-        const val = Number(series[s].values[i] || 0);
-        if (val <= 0) continue;
-        const h = Math.max(1.5, plotH * (val / maxV));
-        const segTop = baseY - acc - h;
-        ctx.fillStyle = state.gradient ? grad : series[s].color;
-        if (s === topIdx) {
-          // Overlap the segment below by 0.5px to avoid a seam line.
-          roundedTopRect(ctx, x, segTop, barW, h + (acc > 0 ? 0.5 : 0), radius);
-        } else {
-          ctx.fillRect(x, segTop, barW, h + 0.5);
-        }
-        acc += h;
-      }
+    container.classList.remove("is-ready");
+    container.innerHTML = `
+      <div class="mg-chart-scale" aria-hidden="true">
+        <span>${escapeHtml(formatChartValue(maxValue))}</span>
+        <span>${escapeHtml(formatChartValue(maxValue / 2))}</span>
+        <span>0</span>
+      </div>
 
-      const barTop = baseY - acc;
+      <div
+        class="mg-chart-plot"
+        style="--chart-columns:${safeLabels.length};"
+      >
+        ${groupsHtml}
+      </div>
+    `;
 
-      // Hover highlight: a subtle dark tint over the whole column.
-      if (state.hover === i && acc > 0) {
-        ctx.fillStyle = "rgba(0,0,0,.10)";
-        roundedTopRect(ctx, x, barTop, barW, acc, radius);
-      }
-
-      state.bars.push({
-        i, cx, barTop, barW,
-        slotL: padX + i * slot,
-        slotR: padX + (i + 1) * slot,
-        total: totals[i],
-        segValues: series.map(s => Number(s.values[i] || 0)),
-        label: String(labels[i] ?? ""),
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        container.classList.add("is-ready");
       });
-    }
-
-    // X labels — horizontal, sampled so they never collide
-    ctx.fillStyle = CHART_INK;
-    ctx.font = "11px Inter, ui-sans-serif, system-ui";
-    ctx.textAlign = "center";
-    const maxLabels = Math.max(1, Math.floor(plotW / 46));
-    const step = Math.max(1, Math.ceil(n / maxLabels));
-    for (let i = 0; i < n; i += step) {
-      const b = state.bars[i];
-      ctx.fillText(b.label.slice(0, 11), b.cx, H - 9);
-    }
-
-    // Peak readout in the card header
-    if (state.peakEl) {
-      const peak = Math.max(0, ...totals);
-      state.peakEl.innerHTML = peak > 0
-        ? `peak <strong>${formatCount(peak)}</strong>`
-        : "";
-    }
+    });
   }
 
-  // Position the HTML tooltip over the hovered bar, or hide it.
-  function updateChartTooltip(canvasId) {
-    const state = CHART_STATE[canvasId];
-    if (!state || !state.tipEl) return;
-    const tip = state.tipEl;
-    const canvas = $(canvasId);
+  function renderDashboardCharts(data) {
+    const perDay = data?.uploads_per_day || data?.usage_per_day || [];
 
-    const bar = state.bars && state.bars[state.hover];
-    if (!bar || !canvas) {
-      tip.hidden = true;
+    renderBarChart(
+      "chartPerDay",
+      perDay.map(item => item.day),
+      [
+        {
+          label: "Uploads",
+          color: CHART_COLORS.uploads,
+          values: perDay.map(item => Number(item.count || 0))
+        }
+      ],
+      "No uploads have been recorded yet."
+    );
+
+    const selectedVoucher = currentVoucherFilter();
+    let allowedCodes = null;
+
+    if (selectedVoucher && selectedVoucher !== "__all__") {
+      allowedCodes = new Set(
+        (data?.student_progress || [])
+          .filter(student => student.voucher_id === selectedVoucher)
+          .map(student => String(student.code || "").trim())
+          .filter(Boolean)
+      );
+    }
+
+    const geminiMap = new Map(
+      (data?.gemini_tokens_per_code || []).map(item => [
+        String(item.code || "").trim(),
+        Number(item.tokens || 0)
+      ])
+    );
+
+    const gptMap = new Map(
+      (data?.gpt_tokens_per_code || []).map(item => [
+        String(item.code || "").trim(),
+        Number(item.tokens || 0)
+      ])
+    );
+
+    let codes = Array.from(
+      new Set([...geminiMap.keys(), ...gptMap.keys()])
+    ).filter(Boolean);
+
+    if (allowedCodes) {
+      codes = codes.filter(code => allowedCodes.has(code));
+    }
+
+    codes.sort((a, b) => a.localeCompare(b));
+
+    renderBarChart(
+      "chartTokens",
+      codes,
+      [
+        {
+          label: "GPT",
+          color: CHART_COLORS.gpt,
+          values: codes.map(code => Number(gptMap.get(code) || 0))
+        },
+        {
+          label: "Gemini",
+          color: CHART_COLORS.gemini,
+          values: codes.map(code => Number(geminiMap.get(code) || 0))
+        }
+      ],
+      "No GPT or Gemini token usage has been recorded yet."
+    );
+  }
+
+  function drawHistogram(canvasId, values, binCount=8) {
+    const vals = values.filter(v => Number.isFinite(v));
+    if (!vals.length) {
+      drawBars(canvasId, ["no data"], [0]);
       return;
     }
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const span = Math.max(1, maxV - minV);
+    const bins = new Array(binCount).fill(0);
 
-    tip.innerHTML = state.tipFormat(bar, state.series);
-    tip.hidden = false;
-
-    const left = canvas.offsetLeft + bar.cx;
-    const top = canvas.offsetTop + bar.barTop - 10;
-    tip.style.left = left + "px";
-    tip.style.top = top + "px";
-  }
-
-  function wireChartHover(canvasId) {
-    const canvas = $(canvasId);
-    const state = CHART_STATE[canvasId];
-    if (!canvas || !state || state.wired) return;
-    state.wired = true;
-
-    canvas.addEventListener("mousemove", (e) => {
-      const s = CHART_STATE[canvasId];
-      if (!s || !s.bars) return;
-      const mx = e.offsetX;
-      let hit = -1;
-      for (const b of s.bars) {
-        if (mx >= b.slotL && mx < b.slotR) { hit = b.i; break; }
-      }
-      if (hit !== s.hover) {
-        s.hover = hit;
-        renderChart(canvasId);
-        updateChartTooltip(canvasId);
-      }
-    });
-
-    canvas.addEventListener("mouseleave", () => {
-      const s = CHART_STATE[canvasId];
-      if (!s || s.hover === -1) return;
-      s.hover = -1;
-      renderChart(canvasId);
-      updateChartTooltip(canvasId);
-    });
-  }
-
-  function renderLegend(legendEl, series) {
-    if (!legendEl) return;
-    const items = (series || []).filter(s => s && s.name);
-    if (!items.length) {
-      legendEl.hidden = true;
-      legendEl.innerHTML = "";
-      return;
-    }
-    legendEl.hidden = false;
-    legendEl.innerHTML = items.map(s =>
-      `<span class="mg-chart-legend-item">` +
-        `<span class="mg-chart-swatch" style="background:${s.color}"></span>` +
-        `${escapeHtml(s.name)}` +
-      `</span>`
-    ).join("");
-  }
-
-  function commitChart(canvasId, cfg) {
-    if (!$(canvasId)) return;
-    const prev = CHART_STATE[canvasId];
-
-    CHART_STATE[canvasId] = {
-      labels: cfg.labels,
-      series: cfg.series,
-      gradient: !!cfg.gradient,
-      empty: !!cfg.empty,
-      hover: -1,
-      bars: [],
-      wired: prev ? prev.wired : false,
-      peakEl: cfg.peakId ? $(cfg.peakId) : null,
-      tipEl: cfg.tipId ? $(cfg.tipId) : null,
-      tipFormat: cfg.tipFormat,
-    };
-
-    renderLegend(cfg.legendId ? $(cfg.legendId) : null, cfg.empty ? [] : cfg.series);
-
-    if (cfg.empty && CHART_STATE[canvasId].peakEl) {
-      CHART_STATE[canvasId].peakEl.innerHTML = "";
+    for (const v of vals){
+      let idx = Math.floor(((v - minV) / span) * binCount);
+      if (idx === binCount) idx = binCount - 1;
+      bins[idx] += 1;
     }
 
-    renderChart(canvasId);
-    updateChartTooltip(canvasId); // clear any stale tooltip from prior data
-    wireChartHover(canvasId);
-  }
-
-  function drawBars(canvasId, labels, values, opts = {}) {
-    const isEmpty = !!opts.empty ||
-      (values.length === 1 && !values[0] &&
-        /no data|unauthorized|failed/i.test(String(labels[0] || "")));
-
-    commitChart(canvasId, {
-      labels,
-      series: [{ name: "", color: "#f39a1e", values }],
-      gradient: true,
-      empty: isEmpty,
-      peakId: opts.peakId,
-      tipId: opts.tipId,
-      legendId: opts.legendId,
-      tipFormat: opts.tipFormat ||
-        ((bar) => `<strong>${escapeHtml(bar.label)}</strong> · ${formatCount(bar.total)}`),
+    const labels = bins.map((_,i) => {
+      const a = Math.round(minV + (span/binCount)*i);
+      const b = Math.round(i === binCount-1 ? maxV : (minV + (span/binCount)*(i+1)));
+      return `${a}-${b}`;
     });
-  }
 
-  // Stacked bar chart: series = [{ name, color, values: [] }, …].
-  function drawStacked(canvasId, labels, series, opts = {}) {
-    commitChart(canvasId, {
-      labels,
-      series,
-      gradient: false,
-      empty: !!opts.empty || !labels.length,
-      peakId: opts.peakId,
-      tipId: opts.tipId,
-      legendId: opts.legendId,
-      tipFormat: opts.tipFormat || ((bar, ser) => {
-        const parts = ser
-          .map((s, i) =>
-            `<span class="mg-tip-dot" style="background:${s.color}"></span>` +
-            `${escapeHtml(s.name)} ${formatCount(bar.segValues[i])}`)
-          .join("<br>");
-        return `<strong>${escapeHtml(bar.label)}</strong><br>${parts}` +
-          `<br>Total ${formatCount(bar.total)}`;
-      }),
-    });
+    drawBars(canvasId, labels, bins);
   }
-
-  // Redraw all known charts at the correct resolution when the layout changes.
-  let _chartResizeRAF = 0;
-  function redrawAllCharts() {
-    for (const canvasId of Object.keys(CHART_STATE)) {
-      renderChart(canvasId);
-      updateChartTooltip(canvasId);
-    }
-  }
-  window.addEventListener("resize", () => {
-    if (_chartResizeRAF) cancelAnimationFrame(_chartResizeRAF);
-    _chartResizeRAF = requestAnimationFrame(redrawAllCharts);
-  });
 
   let latestTeacherStats = null;
 
@@ -1705,8 +1630,19 @@ loadWorkspaceContext();
 
       if(!r.ok){
         console.log("Stats error:", await r.text());
-        drawBars("chartPerDay", ["unauthorized"], [0], { empty: true, peakId: "chartPerDayPeak", tipId: "chartPerDayTip" });
-        drawBars("chartTokens", ["unauthorized"], [0], { empty: true, peakId: "chartTokensPeak", tipId: "chartTokensTip", legendId: "chartTokensLegend" });
+        renderBarChart(
+          "chartPerDay",
+          [],
+          [],
+          "Could not load upload statistics."
+        );
+
+        renderBarChart(
+          "chartTokens",
+          [],
+          [],
+          "Could not load token statistics."
+        );
 
         if ($("workProgressGrid")) {
           $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
@@ -1726,47 +1662,7 @@ loadWorkspaceContext();
       renderWorkProgress();
       renderStudentProgress();
 
-      const perDay = j.uploads_per_day || j.usage_per_day || [];
-      drawBars(
-        "chartPerDay",
-        perDay.map(x => x.day),
-        perDay.map(x => x.count),
-        {
-          peakId: "chartPerDayPeak",
-          tipId: "chartPerDayTip",
-          tipFormat: (bar) =>
-            `<strong>${escapeHtml(bar.label)}</strong> · ` +
-            `${formatCount(bar.total)} upload${bar.total === 1 ? "" : "s"}`,
-        }
-      );
-
-      // Total tokens per code, split by provider, tallest first.
-      const tpc = (j.tokens_per_code || [])
-        .slice()
-        .sort((a, b) => Number(b.total_tokens || 0) - Number(a.total_tokens || 0));
-
-      drawStacked(
-        "chartTokens",
-        tpc.map(x => String(x.code || "").slice(-6) || "—"),
-        [
-          { name: "Gemini", color: "#f39a1e", values: tpc.map(x => Number(x.gemini_tokens || 0)) },
-          { name: "GPT", color: "#12a89b", values: tpc.map(x => Number(x.gpt_tokens || 0)) },
-        ],
-        {
-          peakId: "chartTokensPeak",
-          tipId: "chartTokensTip",
-          legendId: "chartTokensLegend",
-          empty: !tpc.length,
-          tipFormat: (bar, ser) => {
-            const full = (tpc[bar.i] && tpc[bar.i].code) || bar.label;
-            const parts = ser.map((s, i) =>
-              `<span class="mg-tip-dot" style="background:${s.color}"></span>` +
-              `${escapeHtml(s.name)} ${formatCount(bar.segValues[i])}`).join("<br>");
-            return `<strong>${escapeHtml(full)}</strong><br>${parts}` +
-              `<br>Total ${formatCount(bar.total)}`;
-          },
-        }
-      );
+      renderDashboardCharts(j);
 
     }catch(e){
       console.log("Stats exception:", e);
@@ -1785,6 +1681,10 @@ loadWorkspaceContext();
       updateUploadLogHref();
       renderWorkProgress();
       renderStudentProgress();
+
+      if (latestTeacherStats) {
+        renderDashboardCharts(latestTeacherStats);
+      }
     });
   }
 

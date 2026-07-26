@@ -5969,3 +5969,238 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
     white-space: normal;
   }
 }
+
+
+.mg-chart-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mg-chart-card .cardInner {
+  display: flex;
+  flex-direction: column;
+  min-height: 390px;
+}
+
+.mg-chart-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.mg-chart-title {
+  color: #303033;
+  font-size: 1.08rem;
+  font-weight: 900;
+  line-height: 1.25;
+  margin-bottom: 4px;
+}
+
+.mg-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  color: #67676d;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.mg-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mg-chart-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
+}
+
+.mg-chart-legend-dot.uploads {
+  background: #f4b860;
+}
+
+.mg-chart-legend-dot.gpt {
+  background: #202124;
+}
+
+.mg-chart-legend-dot.gemini {
+  background: #4285f4;
+}
+
+.mg-responsive-bar-chart {
+  position: relative;
+  flex: 1;
+  min-height: 290px;
+  padding: 44px 14px 8px 42px;
+  border: 1px solid rgba(83, 83, 90, 0.11);
+  border-radius: 22px;
+  background:
+    linear-gradient(
+      to top,
+      rgba(83, 83, 90, 0.055) 1px,
+      transparent 1px
+    ),
+    linear-gradient(180deg, #ffffff 0%, #fcfbfa 100%);
+  background-size: 100% 25%, 100% 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.mg-chart-scale {
+  position: absolute;
+  top: 40px;
+  left: 9px;
+  bottom: 37px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #8a8a91;
+  font-size: 0.69rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.mg-chart-plot {
+  display: grid;
+  grid-template-columns:
+    repeat(var(--chart-columns), minmax(62px, 1fr));
+  align-items: stretch;
+  gap: 9px;
+  min-width: calc(var(--chart-columns) * 70px);
+  height: 224px;
+}
+
+.mg-chart-group {
+  display: grid;
+  grid-template-rows: 184px 40px;
+  min-width: 0;
+}
+
+.mg-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mg-chart-bar-wrap {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: min(28px, 42%);
+  height: 100%;
+}
+
+.mg-chart-bar {
+  position: relative;
+  width: 100%;
+  height: 0;
+  min-height: 0;
+  border-radius: 9px 9px 4px 4px;
+  background: var(--bar-color);
+  box-shadow:
+    0 8px 18px color-mix(in srgb, var(--bar-color) 25%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: default;
+  transform-origin: bottom;
+  transition:
+    height 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms ease,
+    filter 160ms ease;
+}
+
+.mg-responsive-bar-chart.is-ready .mg-chart-bar:not(.is-zero) {
+  height: max(4px, var(--bar-height));
+}
+
+.mg-chart-bar:hover,
+.mg-chart-bar:focus-visible {
+  filter: brightness(1.08);
+  transform: translateY(-3px) scaleX(1.06);
+  outline: none;
+  z-index: 2;
+}
+
+.mg-chart-value {
+  position: absolute;
+  left: 50%;
+  top: -29px;
+  z-index: 3;
+  padding: 4px 7px;
+  border-radius: 7px;
+  color: #ffffff;
+  background: #303033;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.18);
+  font-size: 0.67rem;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+  white-space: nowrap;
+}
+
+.mg-chart-bar:hover .mg-chart-value,
+.mg-chart-bar:focus-visible .mg-chart-value {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.mg-chart-label {
+  align-self: start;
+  padding-top: 10px;
+  color: #797980;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mg-chart-empty {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  color: #8a8a91;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .mg-chart-heading {
+    flex-direction: column;
+  }
+
+  .mg-chart-legend {
+    justify-content: flex-start;
+  }
+
+  .mg-chart-card .cardInner {
+    min-height: 380px;
+  }
+
+  .mg-responsive-bar-chart {
+    min-height: 280px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mg-chart-bar {
+    transition: none;
+  }
+}

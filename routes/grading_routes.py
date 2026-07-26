@@ -784,8 +784,10 @@ async def _grade_tex_flow(
         debug_run_id=trace.run_id,
         route="grade_tex",
         provider=normalized_provider,
-        student_code=student_code,
+        session_role=session_role,
+        student_code=student_code or None,
         teacher_id=teacher_id or None,
+        voucher_id=bank_voucher_id or None,
     )
     trace.log("grading", "started", provider=normalized_provider, student_filename=student_tex.filename, selected_exam_id=selected_exam_id if session.get("role") == "teacher" else None)
 
@@ -988,6 +990,15 @@ async def _grade_tex_flow(
         ref_secs = perf_counter() - t_ref
         reference_source = "json" if Path(chosen_ref).suffix.lower() == ".json" else "tex_fallback"
         reference_selection_mode = "manual" if manual_exam_id else "automatic"
+
+        # The exam is only known after reference matching. Extend the existing
+        # request-level usage context before any grading model calls are made.
+        bind_usage_context(
+            exam_id=str(exam_id),
+            content_type="student_grading",
+            reference_selection_mode=reference_selection_mode,
+        )
+
         trace.log(
             "reference_match",
             "selected",

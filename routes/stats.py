@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from io import BytesIO
+import json
 import re
 from typing import Any
 from urllib.parse import quote
@@ -17,6 +18,7 @@ from services.student_access import active_student_code_set_for_teacher, list_st
 from services.student_work_store import list_teacher_student_work_metadata
 from services.teacher_profiles import get_teacher
 from core.config import RUNS_ROOT
+from core.ai_clients.ai_usage_logger import usage_log_dir
 from core.security import require_teacher
 
 router = APIRouter(prefix="/routes", tags=["stats"])
@@ -126,6 +128,108 @@ def _best_last_time(meta: dict[str, Any]) -> str:
 def _safe_filename_part(value: str, fallback: str = "upload_log") -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._-")
     return cleaned[:80] or fallback
+
+
+def _read_teacher_ai_usage(
+    teacher_id: str,
+    teacher_codes: set[str],
+) -> tuple[Counter, Counter]:
+    """
+    Aggregate GPT and Gemini token usage from the shared JSONL usage logs.
+
+    New records are selected using teacher_id. Records created before teacher
+    attribution was added can still be used when their student_code belongs
+    to this teacher.
+    """
+    gemini_by_code: Counter = Counter()
+    gpt_by_code: Counter = Counter()
+
+    gemini_providers = {
+        "google",
+        "gemini",
+        "google_ai_studio",
+        "aistudio",
+    }
+    gpt_providers = {
+        "openai",
+        "gpt",
+        "chatgpt",
+        "openai_gpt",
+        "azure_openai",
+    }
+
+    try:
+        log_root = usage_log_dir()
+    except Exception:
+        return gemini_by_code, gpt_by_code
+
+    for log_path in sorted(log_root.glob("ai_usage_*.jsonl")):
+        try:
+            lines = log_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            ).splitlines()
+        except Exception:
+            continue
+
+        for line in lines:
+            if not line.strip():
+                continue
+
+            try:
+                record = json.loads(line)
+            except Exception:
+                continue
+
+            record_teacher_id = str(
+                record.get("teacher_id")
+                or ""
+            ).strip()
+
+            student_code = str(
+                record.get("student_code")
+                or record.get("code")
+                or ""
+            ).strip()
+
+            belongs_to_teacher = (
+                record_teacher_id == teacher_id
+                or (
+                    not record_teacher_id
+                    and student_code in teacher_codes
+                )
+            )
+
+            if not belongs_to_teacher:
+                continue
+
+            # The current chart is per student code. Teacher test-mode calls
+            # without a student code are intentionally excluded.
+            if not student_code or student_code not in teacher_codes:
+                continue
+
+            try:
+                total_tokens = int(
+                    record.get("total_tokens")
+                    or 0
+                )
+            except (TypeError, ValueError):
+                total_tokens = 0
+
+            if total_tokens <= 0:
+                continue
+
+            provider = str(
+                record.get("provider")
+                or ""
+            ).strip().lower()
+
+            if provider in gemini_providers:
+                gemini_by_code[student_code] += total_tokens
+            elif provider in gpt_providers:
+                gpt_by_code[student_code] += total_tokens
+
+    return gemini_by_code, gpt_by_code
 
 
 def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
@@ -390,50 +494,32 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         if x.get("is_matched_exam")
     ]
 
-    # Total tokens per student code, split by AI provider. The submissions log
-    # stores each call's total token count in the (historically named)
-    # "gemini_tokens" column and identifies the provider in "provider".
-    GEMINI_PROVIDERS = ("google", "gemini", "google_ai_studio", "aistudio")
-    GPT_PROVIDERS = ("openai", "gpt", "chatgpt", "openai_gpt", "azure_openai")
+    # Read token usage from the shared AI usage JSONL logs.
+    # The helper separates GPT and Gemini usage and attributes each call
+    # to the correct teacher and student code.
+    gemini_by_code, gpt_by_code = _read_teacher_ai_usage(
+        teacher_id=teacher_id,
+        teacher_codes=teacher_codes,
+    )
 
-    gemini_by_code = Counter()
-    gpt_by_code = Counter()
-    for r in rows:
-        code = (r.get("code") or "").strip()
-        if not code:
-            continue
+    all_token_codes = sorted(
+        set(gemini_by_code.keys()) | set(gpt_by_code.keys())
+    )
 
-        provider = (r.get("provider") or "").strip().lower()
-
-        try:
-            tok_i = int(r.get("gemini_tokens") or 0)
-        except Exception:
-            tok_i = 0
-
-        if provider in GEMINI_PROVIDERS:
-            gemini_by_code[code] += tok_i
-        elif provider in GPT_PROVIDERS:
-            gpt_by_code[code] += tok_i
-        else:
-            # Unknown/legacy provider — attribute to Gemini so totals stay whole.
-            gemini_by_code[code] += tok_i
-
-    all_token_codes = sorted(set(gemini_by_code) | set(gpt_by_code))
-    tokens_per_code = [
+    gemini_tokens_per_code = [
         {
-            "code": c,
-            "gemini_tokens": int(gemini_by_code[c]),
-            "gpt_tokens": int(gpt_by_code[c]),
-            "total_tokens": int(gemini_by_code[c] + gpt_by_code[c]),
+            "code": code,
+            "tokens": int(gemini_by_code.get(code, 0)),
         }
-        for c in all_token_codes
+        for code in all_token_codes
     ]
 
-    # Backward-compatible field kept for any older client.
-    gemini_tokens_per_code = [
-        {"code": row["code"], "tokens": row["gemini_tokens"]}
-        for row in tokens_per_code
-        if row["gemini_tokens"]
+    gpt_tokens_per_code = [
+        {
+            "code": code,
+            "tokens": int(gpt_by_code.get(code, 0)),
+        }
+        for code in all_token_codes
     ]
 
     recent_uploads.sort(key=lambda x: x.get("uploaded_at") or "", reverse=True)
@@ -450,8 +536,8 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         "work_progress": work_progress,
         "student_progress": student_progress,
         "codes_per_exam": codes_per_exam,
-        "tokens_per_code": tokens_per_code,
         "gemini_tokens_per_code": gemini_tokens_per_code,
+        "gpt_tokens_per_code": gpt_tokens_per_code,
         "recent_uploads": recent_uploads,
     }
 
