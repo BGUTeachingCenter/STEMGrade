@@ -20,16 +20,37 @@
 {% endblock %}
 
 {% block content %}
-  <main class="mg-feedback-shell">
+  <main
+    id="feedbackShell"
+    class="mg-feedback-shell"
+  >
     <section class="hero-card mg-feedback-card">
       <div class="section-heading">
         <div>
           <div class="mg-feedback-heading-row">
-              <div class="badge">Student feedback</div>
-              <div class="mg-login-indicator" id="loginIndicator">Checking login…</div>
+            <div
+              id="feedbackPageBadge"
+              class="badge"
+            >
+              Student feedback
             </div>
-          <h1>Upload your work</h1>
-           <p class="lead mg-compact-lead">
+
+            <div
+              class="mg-login-indicator"
+              id="loginIndicator"
+            >
+              Checking login…
+            </div>
+          </div>
+
+          <h1 id="feedbackPageTitle">
+            Upload your work
+          </h1>
+
+          <p
+            id="feedbackPageLead"
+            class="lead mg-compact-lead"
+          >
             Upload a LaTeX answer file for grading, or upload a handwritten page for OCR review.
             OCR uploads are treated as handwritten work.
           </p>
@@ -59,7 +80,10 @@
         </div>
       </div>
 
-        <div class="mg-upload-busy-wrap">
+      <div
+          id="feedbackUploadArea"
+          class="mg-upload-busy-wrap"
+        >
           <div id="busyOverlay" class="mg-busy-overlay" aria-hidden="true">
             <div class="mg-busy-box">
               <div class="mg-spinner"></div>
@@ -99,7 +123,10 @@
           </div>
         </div>
 
-      <div class="mg-action-panel">
+      <div
+        id="feedbackActionPanel"
+        class="mg-action-panel"
+      >
         <div class="btnRow">
           <button id="gradeOllamaBtn" class="btnOllama" disabled type="button">Grade (Ollama)</button>
           <button id="gradeGoogleBtn" class="btnGoogle" disabled type="button">Grade (Gemini)</button>
@@ -454,13 +481,127 @@
     const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
     const ENDPOINT_LOGOUT = API_BASE + "/routes/logout";
     const ENDPOINT_ME = API_BASE + "/routes/me";
-    const ENDPOINT_STUDENT_DASHBOARD = API_BASE + "/routes/student/dashboard";
-    const ENDPOINT_STUDENT_WORK_MANIFEST = (workId, filename) => {
-      const query = new URLSearchParams({ work_id: workId, filename });
-      return API_BASE + "/routes/student/work_manifest?" + query.toString();
-    };
+    const ENDPOINT_STUDENT_DASHBOARD =
+      API_BASE + "/routes/student/dashboard";
 
-    const busyOverlay = document.getElementById("busyOverlay");
+    const PAGE_QUERY =
+      new URLSearchParams(
+        window.location.search
+      );
+
+    const TEACHER_REVIEW_MODE =
+      PAGE_QUERY.get("teacher_review") === "1";
+
+    const TEACHER_REVIEW_STUDENT_CODE =
+      PAGE_QUERY.get("student_code") || "";
+
+    const TEACHER_REVIEW_WORK_ID =
+      PAGE_QUERY.get("work_id") || "";
+
+    const TEACHER_REVIEW_EXAM_ID =
+      PAGE_QUERY.get("exam_id") ||
+      "Student work";
+
+    const TEACHER_REVIEW_SOURCE_FILENAME =
+      PAGE_QUERY.get("source_filename") ||
+      "Saved student submission";
+
+    const TEACHER_REVIEW_ORIGINAL_FILENAME =
+      PAGE_QUERY.get("original_filename") ||
+      "";
+
+    const TEACHER_REVIEW_OCR_TEX_FILENAME =
+      PAGE_QUERY.get("ocr_tex_filename") ||
+      "";
+
+    const TEACHER_REVIEW_GRADED_FILENAME =
+      PAGE_QUERY.get(
+        "graded_result_filename"
+      ) || "";
+
+    function savedStudentWorkQuery(
+      workId,
+      filename,
+      studentCode = ""
+    ) {
+      const query =
+        new URLSearchParams({
+          work_id: String(workId || ""),
+          filename: String(filename || "")
+        });
+
+      if (studentCode) {
+        query.set(
+          "student_code",
+          String(studentCode)
+        );
+      }
+
+      return query.toString();
+    }
+
+    const ENDPOINT_STUDENT_WORK_FILE = (
+      workId,
+      filename,
+      studentCode = ""
+    ) => (
+      API_BASE +
+      "/routes/student/work_file?" +
+      savedStudentWorkQuery(
+        workId,
+        filename,
+        studentCode
+      )
+    );
+
+    const ENDPOINT_STUDENT_WORK_MANIFEST = (
+      workId,
+      filename,
+      studentCode = ""
+    ) => (
+      API_BASE +
+      "/routes/student/work_manifest?" +
+      savedStudentWorkQuery(
+        workId,
+        filename,
+        studentCode
+      )
+    );
+
+    const feedbackShell =
+      document.getElementById(
+        "feedbackShell"
+      );
+
+    const feedbackPageBadge =
+      document.getElementById(
+        "feedbackPageBadge"
+      );
+
+    const feedbackPageTitle =
+      document.getElementById(
+        "feedbackPageTitle"
+      );
+
+    const feedbackPageLead =
+      document.getElementById(
+        "feedbackPageLead"
+      );
+
+    const feedbackUploadArea =
+      document.getElementById(
+        "feedbackUploadArea"
+      );
+
+    const feedbackActionPanel =
+      document.getElementById(
+        "feedbackActionPanel"
+      );
+
+    const busyOverlay =
+      document.getElementById(
+        "busyOverlay"
+      );
     const busyOverlayText = document.getElementById("busyOverlayText");
 
     let _redirectingToLogin = false;
@@ -470,7 +611,11 @@
       // login page instead of surfacing a raw "Not authenticated" error.
       if (res.status === 401 && !_redirectingToLogin) {
         _redirectingToLogin = true;
-        window.location.href = currentRole === "teacher" ? "/teacher-login" : "/student-login";
+        window.location.href =
+          TEACHER_REVIEW_MODE ||
+          currentRole === "teacher"
+            ? "/teacher-login"
+            : "/student-login";
       }
       return res;
     }
@@ -3349,7 +3494,8 @@ if (resultType === "tex") {
 
     function setFeedbackOverlaySourceFromSavedUrl(
       originalUrl,
-      fallbackFilename = "original_submission"
+      fallbackFilename =
+        "original_submission"
     ) {
       if (!originalUrl) {
         setFeedbackOverlaySource(null);
@@ -3357,17 +3503,42 @@ if (resultType === "tex") {
       }
 
       try {
-        const parsed = new URL(originalUrl, window.location.origin);
-        const workId = parsed.searchParams.get("work_id") || "";
+        const parsed =
+          new URL(
+            originalUrl,
+            window.location.origin
+          );
+
+        const workId =
+          parsed.searchParams.get(
+            "work_id"
+          ) || "";
+
         const filename =
-          parsed.searchParams.get("filename") || fallbackFilename;
+          parsed.searchParams.get(
+            "filename"
+          ) ||
+          fallbackFilename;
+
+        const studentCode =
+          parsed.searchParams.get(
+            "student_code"
+          ) ||
+          TEACHER_REVIEW_STUDENT_CODE ||
+          "";
 
         setFeedbackOverlaySource(
           workId && filename
             ? {
-                kind: inferOriginalSubmissionType("", filename),
+                kind:
+                  inferOriginalSubmissionType(
+                    "",
+                    filename
+                  ),
+
                 workId,
-                filename
+                filename,
+                studentCode
               }
             : null
         );
@@ -3425,13 +3596,18 @@ if (resultType === "tex") {
 
     async function loadFeedbackOverlayManifest() {
       if (feedbackOverlaySource?.workId && feedbackOverlaySource?.filename) {
-        const response = await authedFetch(
-          ENDPOINT_STUDENT_WORK_MANIFEST(
-            feedbackOverlaySource.workId,
-            feedbackOverlaySource.filename
-          ),
-          { cache: "no-store" }
-        );
+        const response =
+          await authedFetch(
+            ENDPOINT_STUDENT_WORK_MANIFEST(
+              feedbackOverlaySource.workId,
+              feedbackOverlaySource.filename,
+              feedbackOverlaySource
+                .studentCode || ""
+            ),
+            {
+              cache: "no-store"
+            }
+          );
 
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.ok) {
@@ -5270,12 +5446,24 @@ function parseStructuredOcrPreview(value) {
           loginIndicator.classList.toggle("student", currentRole === "student");
         }
         if (backToTeacherBtn) {
-          backToTeacherBtn.style.display = currentRole === "teacher" ? "inline-flex" : "none";
+          backToTeacherBtn.style.display =
+            currentRole === "teacher"
+              ? "inline-flex"
+              : "none";
         }
+
         if (teacherReferencePanel) {
-          teacherReferencePanel.style.display = currentRole === "teacher" ? "block" : "none";
+          teacherReferencePanel.style.display =
+            currentRole === "teacher" &&
+            !TEACHER_REVIEW_MODE
+              ? "block"
+              : "none";
         }
-        if (currentRole === "teacher") {
+
+        if (
+          currentRole === "teacher" &&
+          !TEACHER_REVIEW_MODE
+        ) {
           loadTeacherReferences();
         }
       } catch (_) {
@@ -5284,7 +5472,11 @@ function parseStructuredOcrPreview(value) {
       }
 
       if (!currentRole) {
-        window.location.replace("/student-login");
+        window.location.replace(
+          TEACHER_REVIEW_MODE
+            ? "/teacher-login"
+            : "/student-login"
+        );
       }
     }
 
@@ -5829,6 +6021,242 @@ function wireSavedOcrButtons() {
       );
     });
 }
+
+    function configureTeacherReviewMode() {
+      if (!TEACHER_REVIEW_MODE) {
+        return;
+      }
+
+      feedbackShell?.classList.add(
+        "is-teacher-work-review"
+      );
+
+      if (feedbackUploadArea) {
+        feedbackUploadArea.style.display =
+          "none";
+      }
+
+      if (feedbackActionPanel) {
+        feedbackActionPanel.style.display =
+          "none";
+      }
+
+      if (studentDashboardPanel) {
+        studentDashboardPanel.style.display =
+          "none";
+      }
+
+      if (teacherReferencePanel) {
+        teacherReferencePanel.style.display =
+          "none";
+      }
+
+      if (useOcrTexBtn) {
+        useOcrTexBtn.style.display =
+          "none";
+      }
+
+      if (refreshOcrPreviewBtn) {
+        refreshOcrPreviewBtn.style.display =
+          "none";
+      }
+
+      if (ocrTexReview) {
+        ocrTexReview.readOnly = true;
+
+        ocrTexReview.setAttribute(
+          "aria-readonly",
+          "true"
+        );
+      }
+
+      const sourceTab =
+        document.querySelector(
+          '[data-ocr-review-tab="edit"]'
+        );
+
+      if (sourceTab) {
+        sourceTab.textContent =
+          "LaTeX source";
+      }
+
+      const sourceHeading =
+        document.querySelector(
+          "#ocrReviewEditPanel " +
+          ".mg-ocr-review-column-label"
+        );
+
+      if (sourceHeading) {
+        sourceHeading.textContent =
+          "Saved LaTeX source";
+      }
+
+      const sourceHint =
+        document.querySelector(
+          "#ocrReviewEditPanel " +
+          ".mg-ocr-tab-toolbar .small"
+        );
+
+      if (sourceHint) {
+        sourceHint.textContent =
+          "Read-only OCR LaTeX saved with this submission.";
+      }
+
+      const previewButton =
+        document.querySelector(
+          "#ocrReviewEditPanel " +
+          "[data-ocr-go-to-preview]"
+        );
+
+      if (previewButton) {
+        previewButton.textContent =
+          "View rendered OCR";
+      }
+
+      const reviewHeading =
+        document.querySelector(
+          "#ocrReviewPanel " +
+          ".mg-ocr-review-head h2"
+        );
+
+      if (reviewHeading) {
+        reviewHeading.textContent =
+          "Student submission review";
+      }
+
+      const reviewBadge =
+        document.querySelector(
+          "#ocrReviewPanel " +
+          ".mg-ocr-review-head .badge"
+        );
+
+      if (reviewBadge) {
+        reviewBadge.textContent =
+          "Read-only review";
+      }
+
+      const reviewHint =
+        document.querySelector(
+          "#ocrReviewPanel " +
+          ".mg-ocr-review-hint"
+        );
+
+      if (reviewHint) {
+        reviewHint.textContent =
+          "Use the tabs to inspect every saved stage of this submission.";
+      }
+
+      if (feedbackPageBadge) {
+        feedbackPageBadge.textContent =
+          "Teacher submission review";
+      }
+
+      if (feedbackPageTitle) {
+        feedbackPageTitle.textContent =
+          `${TEACHER_REVIEW_EXAM_ID} · ` +
+          `${TEACHER_REVIEW_STUDENT_CODE}`;
+      }
+
+      if (feedbackPageLead) {
+        feedbackPageLead.textContent =
+          `${TEACHER_REVIEW_SOURCE_FILENAME} · ` +
+          "Read-only teacher view";
+      }
+
+      const loginIndicator =
+        document.getElementById(
+          "loginIndicator"
+        );
+
+      if (loginIndicator) {
+        loginIndicator.textContent =
+          "Logged in as TEACHER";
+      }
+    }
+
+
+    async function loadTeacherWorkReview() {
+      configureTeacherReviewMode();
+
+      if (
+        !TEACHER_REVIEW_STUDENT_CODE ||
+        !TEACHER_REVIEW_WORK_ID
+      ) {
+        throw new Error(
+          "The review link is missing " +
+          "student_code or work_id."
+        );
+      }
+
+      if (!TEACHER_REVIEW_OCR_TEX_FILENAME) {
+        throw new Error(
+          "This saved work has no OCR LaTeX file."
+        );
+      }
+
+      const ocrUrl =
+        ENDPOINT_STUDENT_WORK_FILE(
+          TEACHER_REVIEW_WORK_ID,
+          TEACHER_REVIEW_OCR_TEX_FILENAME,
+          TEACHER_REVIEW_STUDENT_CODE
+        );
+
+      const originalUrl =
+        TEACHER_REVIEW_ORIGINAL_FILENAME
+          ? ENDPOINT_STUDENT_WORK_FILE(
+              TEACHER_REVIEW_WORK_ID,
+              TEACHER_REVIEW_ORIGINAL_FILENAME,
+              TEACHER_REVIEW_STUDENT_CODE
+            )
+          : "";
+
+      const gradedUrl =
+        TEACHER_REVIEW_GRADED_FILENAME
+          ? ENDPOINT_STUDENT_WORK_FILE(
+              TEACHER_REVIEW_WORK_ID,
+              TEACHER_REVIEW_GRADED_FILENAME,
+              TEACHER_REVIEW_STUDENT_CODE
+            )
+          : "";
+
+      await loadSavedOcrIntoReviewBox(
+        ocrUrl,
+        TEACHER_REVIEW_SOURCE_FILENAME,
+        false,
+        TEACHER_REVIEW_WORK_ID,
+        originalUrl,
+        (
+          TEACHER_REVIEW_ORIGINAL_FILENAME ||
+          TEACHER_REVIEW_SOURCE_FILENAME
+        ),
+        gradedUrl,
+        (
+          TEACHER_REVIEW_GRADED_FILENAME ||
+          "graded_result"
+        ),
+        "original"
+      );
+
+      /*
+       * The shared review loader updates normal student controls,
+       * so restore the teacher-only read-only state afterward.
+       */
+      configureTeacherReviewMode();
+
+      setStatusText(
+        [
+          `[${nowTag()}] Teacher review loaded.`,
+          (
+            "Use the tabs to inspect the original submission, " +
+            "rendered OCR, LaTeX source, graded result, " +
+            "and feedback overlay."
+          )
+        ],
+        "ok"
+      );
+    }
+
+
 
     async function loadStudentDashboard() {
       if (!studentDashboardPanel) return;
@@ -6387,10 +6815,17 @@ function wireSavedOcrButtons() {
     });
 
     if (ocrTexReview) {
-      ocrTexReview.addEventListener("input", () => {
-        queueOcrLatexPreview(false);
-        updateReviewDownloadButton();
-      });
+      ocrTexReview.addEventListener(
+        "input",
+        () => {
+          if (TEACHER_REVIEW_MODE) {
+            return;
+          }
+
+          queueOcrLatexPreview(false);
+          updateReviewDownloadButton();
+        }
+      );
     }
 
     if (refreshOcrPreviewBtn) {
@@ -6408,9 +6843,37 @@ function wireSavedOcrButtons() {
 
     async function initStudentPage() {
       await ensureSession();
-      await loadStudentDashboard();
-      loadHealth();
+
+      if (TEACHER_REVIEW_MODE) {
+        try {
+          await loadTeacherWorkReview();
+        } catch (error) {
+          configureTeacherReviewMode();
+
+          setStatusText(
+            [
+              `[${nowTag()}] ERROR: ${
+                error?.message ||
+                String(error)
+              }`
+            ],
+            "err"
+          );
+        }
+      } else {
+        await loadStudentDashboard();
+        loadHealth();
+      }
+
       updateUI();
+
+      /*
+       * updateUI is shared with the editable student workflow.
+       * Restore the read-only teacher state after it runs.
+       */
+      if (TEACHER_REVIEW_MODE) {
+        configureTeacherReviewMode();
+      }
     }
 
     window.addEventListener(
