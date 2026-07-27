@@ -16,6 +16,29 @@ def env_str(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
+def env_positive_int(
+    name: str,
+    default: int,
+) -> int:
+    """
+    Read a positive integer from the environment.
+
+    Invalid, empty, zero, or negative values fall back to the configured
+    default instead of breaking application startup.
+    """
+    raw_value = str(
+        os.getenv(name, str(default))
+        or ""
+    ).strip()
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+
+    return value if value > 0 else default
+
+
 # ---------------------------------------------------------------------
 # App branding / teacher-facing vocabulary
 # ---------------------------------------------------------------------
@@ -48,16 +71,103 @@ DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 DEFAULT_GEMINI_OCR_MODEL = "gemini-3.6-flash"
 DEFAULT_MATHGRADE_OLLAMA_PROOFREAD = "0"
 
+# OCR output budgets.
+#
+# OCR_MAX_OUTPUT_TOKENS:
+#   Used for ordinary, non-structured OCR.
+#
+# OPENAI_OCR_MAX_OUTPUT_TOKENS / GEMINI_OCR_MAX_OUTPUT_TOKENS:
+#   Used for the large structured student_answer_bundle response.
+DEFAULT_OCR_MAX_OUTPUT_TOKENS = "12000"
+DEFAULT_OPENAI_OCR_MAX_OUTPUT_TOKENS = "30000"
+DEFAULT_GEMINI_OCR_MAX_OUTPUT_TOKENS = "60000"
 
-# Make config.py the source of default env values.
-os.environ.setdefault("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
-os.environ.setdefault("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
-os.environ.setdefault("OPENAI_OCR_MODEL", DEFAULT_OPENAI_OCR_MODEL)
-os.environ.setdefault("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
-os.environ.setdefault("GOOGLE_MODEL", DEFAULT_GEMINI_MODEL)
-os.environ.setdefault("GEMINI_OCR_MODEL", DEFAULT_GEMINI_OCR_MODEL)
-os.environ.setdefault("GOOGLE_OCR_MODEL", DEFAULT_GEMINI_OCR_MODEL)
-os.environ.setdefault("MATHGRADE_OLLAMA_PROOFREAD", DEFAULT_MATHGRADE_OLLAMA_PROOFREAD)
+
+# Make config.py the source of default environment values.
+os.environ.setdefault(
+    "OLLAMA_MODEL",
+    DEFAULT_OLLAMA_MODEL,
+)
+
+os.environ.setdefault(
+    "OPENAI_MODEL",
+    DEFAULT_OPENAI_MODEL,
+)
+
+os.environ.setdefault(
+    "OPENAI_OCR_MODEL",
+    DEFAULT_OPENAI_OCR_MODEL,
+)
+
+os.environ.setdefault(
+    "GEMINI_MODEL",
+    DEFAULT_GEMINI_MODEL,
+)
+
+# Keep the Google alias synchronized with a GEMINI_MODEL override.
+os.environ.setdefault(
+    "GOOGLE_MODEL",
+    os.environ["GEMINI_MODEL"],
+)
+
+os.environ.setdefault(
+    "GEMINI_OCR_MODEL",
+    DEFAULT_GEMINI_OCR_MODEL,
+)
+
+# Keep the Google alias synchronized with a GEMINI_OCR_MODEL override.
+os.environ.setdefault(
+    "GOOGLE_OCR_MODEL",
+    os.environ["GEMINI_OCR_MODEL"],
+)
+
+os.environ.setdefault(
+    "MATHGRADE_OLLAMA_PROOFREAD",
+    DEFAULT_MATHGRADE_OLLAMA_PROOFREAD,
+)
+
+os.environ.setdefault(
+    "OCR_MAX_OUTPUT_TOKENS",
+    DEFAULT_OCR_MAX_OUTPUT_TOKENS,
+)
+
+os.environ.setdefault(
+    "OPENAI_OCR_MAX_OUTPUT_TOKENS",
+    DEFAULT_OPENAI_OCR_MAX_OUTPUT_TOKENS,
+)
+
+os.environ.setdefault(
+    "GEMINI_OCR_MAX_OUTPUT_TOKENS",
+    DEFAULT_GEMINI_OCR_MAX_OUTPUT_TOKENS,
+)
+
+# Google and Gemini are aliases for the same provider client.
+os.environ.setdefault(
+    "GOOGLE_OCR_MAX_OUTPUT_TOKENS",
+    os.environ["GEMINI_OCR_MAX_OUTPUT_TOKENS"],
+)
+
+
+# Parsed values used by application code.
+OCR_MAX_OUTPUT_TOKENS = env_positive_int(
+    "OCR_MAX_OUTPUT_TOKENS",
+    int(DEFAULT_OCR_MAX_OUTPUT_TOKENS),
+)
+
+OPENAI_OCR_MAX_OUTPUT_TOKENS = env_positive_int(
+    "OPENAI_OCR_MAX_OUTPUT_TOKENS",
+    int(DEFAULT_OPENAI_OCR_MAX_OUTPUT_TOKENS),
+)
+
+GEMINI_OCR_MAX_OUTPUT_TOKENS = env_positive_int(
+    "GEMINI_OCR_MAX_OUTPUT_TOKENS",
+    int(DEFAULT_GEMINI_OCR_MAX_OUTPUT_TOKENS),
+)
+
+GOOGLE_OCR_MAX_OUTPUT_TOKENS = env_positive_int(
+    "GOOGLE_OCR_MAX_OUTPUT_TOKENS",
+    GEMINI_OCR_MAX_OUTPUT_TOKENS,
+)
 
 # Mathpix API key
 MATHPIX_APP_ID = (os.getenv("MATHPIX_APP_ID") or "").strip()

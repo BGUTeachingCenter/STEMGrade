@@ -5,7 +5,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from core.config import RUNS_ROOT
+from core.config import (
+    GEMINI_OCR_MAX_OUTPUT_TOKENS,
+    GOOGLE_OCR_MAX_OUTPUT_TOKENS,
+    OCR_MAX_OUTPUT_TOKENS,
+    OPENAI_OCR_MAX_OUTPUT_TOKENS,
+    RUNS_ROOT,
+)
 from core.security import require_session
 from core.ai_clients.ocr_client import OcrClientError, run_ocr
 from schemas.ocr_response import AiUsage, OcrPage, OcrResponse
@@ -21,6 +27,38 @@ from services.student_access import get_student_code_record
 router = APIRouter(prefix="/routes", tags=["ocr"])
 
 ALLOWED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".pdf"}
+
+
+def _structured_ocr_output_token_budget(
+    provider: str,
+) -> int:
+    """
+    Select the configured structured-OCR output budget.
+
+    All values are defined and validated in core.config.
+    """
+    normalized = str(
+        provider or ""
+    ).strip().lower()
+
+    if normalized in {
+        "google",
+        "ai_studio",
+        "aistudio",
+    }:
+        return GOOGLE_OCR_MAX_OUTPUT_TOKENS
+
+    if normalized == "gemini":
+        return GEMINI_OCR_MAX_OUTPUT_TOKENS
+
+    if normalized in {
+        "openai",
+        "gpt",
+        "chatgpt",
+    }:
+        return OPENAI_OCR_MAX_OUTPUT_TOKENS
+
+    return OCR_MAX_OUTPUT_TOKENS
 
 
 @router.post("/ocr_handwritten")
@@ -152,7 +190,13 @@ async def ocr_handwritten(
                 model=ocr_model or None,
                 options=OcrOptions(
                     temperature=0.0,
-                    max_output_tokens=20000 if prompt_variant == "student_answer_bundle" else 12000,
+                    max_output_tokens=(
+                        _structured_ocr_output_token_budget(
+                            ocr_provider
+                        )
+                        if prompt_variant == "student_answer_bundle"
+                        else OCR_MAX_OUTPUT_TOKENS
+                    ),
                     timeout_s=420 if prompt_variant == "student_answer_bundle" else 300,
                     language_hint="hebrew",
                     preserve_math=True,

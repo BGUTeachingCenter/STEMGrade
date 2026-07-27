@@ -78,6 +78,67 @@ def _extract_text_from_responses_api(resp_json: dict) -> str:
     return ""
 
 
+def _raise_if_incomplete_openai_response(
+    data: dict[str, Any],
+    *,
+    context: str,
+    configured_max_output_tokens: int | None = None,
+) -> None:
+    """
+    Reject partial Responses API output before it can be parsed or stored.
+
+    A successful HTTP status does not guarantee that generation completed.
+    The Responses API reports token-limit and content-filter interruptions
+    through status="incomplete" and incomplete_details.reason.
+    """
+    status = str(
+        data.get("status") or ""
+    ).strip().lower()
+
+    if status != "incomplete":
+        return
+
+    incomplete_details = (
+        data.get("incomplete_details")
+        if isinstance(
+            data.get("incomplete_details"),
+            dict,
+        )
+        else {}
+    )
+
+    reason = str(
+        incomplete_details.get("reason")
+        or "unknown"
+    ).strip().lower()
+
+    budget_note = (
+        f" Configured max_output_tokens="
+        f"{configured_max_output_tokens}."
+        if configured_max_output_tokens is not None
+        else ""
+    )
+
+    if reason == "max_output_tokens":
+        raise RuntimeError(
+            f"{context} was truncated because the model reached "
+            f"max_output_tokens.{budget_note} "
+            "No incomplete JSON was accepted or saved."
+        )
+
+    if reason == "content_filter":
+        raise RuntimeError(
+            f"{context} was interrupted by the content filter. "
+            "No incomplete JSON was accepted or saved."
+        )
+
+    raise RuntimeError(
+        f"{context} returned an incomplete response "
+        f"(reason={reason}). "
+        "No incomplete JSON was accepted or saved."
+    )
+
+
 def _get_ca_bundle_path() -> str:
     """
     Central place for certificate bundle discovery.
@@ -336,6 +397,11 @@ class GptClient:
             response_id=data.get("id") or "",
         )
 
+        _raise_if_incomplete_openai_response(
+            data,
+            context="OpenAI structured-output request",
+        )
+
         text = _extract_text_from_responses_api(data)
         if not text:
             raise RuntimeError(
@@ -415,17 +481,15 @@ class GptClient:
         for k, v in (options.extra.get("openai_payload") or {}).items():
             payload[k] = v
 
-        data = self._post_responses(payload, timeout_s=options.timeout_s, context="OpenAI OCR")
-        text = _extract_text_from_responses_api(data)
-
-        if not text.strip():
-            raise RuntimeError(
-                "OpenAI OCR returned no text. Response preview:\n"
-                + json.dumps(data, ensure_ascii=False, indent=2)[:2000]
-            )
+        data = self._post_responses(
+            payload,
+            timeout_s=options.timeout_s,
+            context="OpenAI OCR",
+        )
 
         old_model = self.model
         self.model = model_to_use
+
         try:
             usage = self._record_usage(
                 data=data,
@@ -436,6 +500,26 @@ class GptClient:
             )
         finally:
             self.model = old_model
+
+        _raise_if_incomplete_openai_response(
+            data,
+            context="OpenAI OCR",
+            configured_max_output_tokens=int(
+                options.max_output_tokens
+            ),
+        )
+
+        text = _extract_text_from_responses_api(data)
+
+        if not text.strip():
+            raise RuntimeError(
+                "OpenAI OCR returned no text. Response preview:\n"
+                + json.dumps(
+                    data,
+                    ensure_ascii=False,
+                    indent=2,
+                )[:2000]
+            )
 
         return OcrResponse(
             provider="openai",

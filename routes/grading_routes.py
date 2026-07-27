@@ -38,6 +38,9 @@ from services.student_grading.unified_tex import (
     build_graded_result_tex,
     build_student_feedback_json,
 )
+from services.student_grading.student_answer_bundle import (
+    recover_student_answer_bundle_from_text,
+)
 from core.ai_clients.ai_usage_logger import bind_usage_context
 from services.student_work_store import (
     attach_grading_feedback_to_student_work,
@@ -178,278 +181,6 @@ def _write_result_metadata(
     )
 
 
-def _scan_complete_answer_objects(
-        raw_text: str,
-) -> tuple[list[dict[str, Any]], bool]:
-    """
-    Recover complete answer objects from a possibly truncated JSON string.
-
-    This supports OCR output such as:
-
-      {
-        "answers": [
-          {...complete answer...},
-          {...complete answer...},
-          {...unfinished final answer...
-        ]
-      }
-
-    Complete answer objects are preserved. The unfinished final object is
-    skipped because its missing content cannot be reconstructed safely.
-    """
-    text = str(raw_text or "")
-
-    marker = re.search(
-        r'"answers"\s*:\s*\[',
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    scan = text[marker.end():] if marker else text
-
-    answers: list[dict[str, Any]] = []
-
-    object_start = -1
-    depth = 0
-    in_string = False
-    escaped = False
-
-    for index, char in enumerate(scan):
-        if in_string:
-            if escaped:
-                escaped = False
-                continue
-
-            if char == "\\":
-                escaped = True
-                continue
-
-            if char == '"':
-                in_string = False
-
-            continue
-
-        if char == '"':
-            in_string = True
-            continue
-
-        if char == "{":
-            if depth == 0:
-                object_start = index
-
-            depth += 1
-            continue
-
-        if char != "}" or depth <= 0:
-            continue
-
-        depth -= 1
-
-        if depth != 0 or object_start < 0:
-            continue
-
-        candidate = scan[
-            object_start:index + 1
-        ]
-
-        object_start = -1
-
-        if '"answer_text"' not in candidate:
-            continue
-
-        try:
-            parsed = json.loads(candidate)
-        except Exception:
-            continue
-
-        if not isinstance(parsed, dict):
-            continue
-
-        if not str(
-                parsed.get("answer_text") or ""
-        ).strip():
-            continue
-
-        answers.append(parsed)
-
-    # A positive depth means that the source ended while an object was open.
-    return answers, depth > 0
-
-
-def _embedded_answer_bundle(
-        raw_text: str,
-) -> tuple[dict[str, Any] | None, bool]:
-    """
-    Parse a JSON answer bundle stored inside an answer_text field.
-
-    First try ordinary JSON parsing. If the model response was truncated,
-    recover every complete answer object separately.
-    """
-    text = str(raw_text or "").strip()
-
-    if not text or '"answers"' not in text:
-        return None, False
-
-    try:
-        parsed = json.loads(text)
-
-        if (
-                isinstance(parsed, dict)
-                and isinstance(parsed.get("answers"), list)
-        ):
-            valid_answers = [
-                item
-                for item in parsed["answers"]
-                if (
-                        isinstance(item, dict)
-                        and str(
-                    item.get("answer_text") or ""
-                ).strip()
-                )
-            ]
-
-            if valid_answers:
-                parsed = dict(parsed)
-                parsed["answers"] = valid_answers
-                return parsed, False
-    except Exception:
-        pass
-
-    recovered_answers, is_partial = (
-        _scan_complete_answer_objects(text)
-    )
-
-    if not recovered_answers:
-        return None, is_partial
-
-    return {
-        "schema_version": "student_answer_bundle_v1",
-        "answers": recovered_answers,
-    }, is_partial
-
-
-def _flatten_embedded_answer_bundle(
-    bundle: dict[str, Any],
-    *,
-    depth: int = 0,
-) -> tuple[
-    list[dict[str, Any]],
-    dict[str, Any],
-    bool,
-]:
-    """
-    Flatten answer bundles embedded inside answer_text.
-
-    Supports both forms:
-
-      1. A normal bundle:
-         {"answers": [{question_id, part_key, answer_text}, ...]}
-
-      2. A damaged wrapper:
-         {
-           "answers": [
-             {
-               "question_id": 1,
-               "answer_text": "{\"answers\": [...]}"
-             }
-           ]
-         }
-
-    Recursion is limited so malformed model output cannot cause an
-    infinite loop.
-    """
-    if depth > 5:
-        return [], {}, False
-
-    raw_answers = bundle.get("answers")
-
-    if not isinstance(raw_answers, list):
-        return [], {}, False
-
-    flattened: list[dict[str, Any]] = []
-    metadata: dict[str, Any] = {}
-    source_was_partial = False
-
-    for key in (
-        "student_name",
-        "student_id",
-        "exam_id",
-        "source_name",
-        "document_type",
-        "ocr_provider",
-        "ocr_model",
-    ):
-        value = bundle.get(key)
-
-        if value not in (None, ""):
-            metadata[key] = value
-
-    for answer in raw_answers:
-        if not isinstance(answer, dict):
-            continue
-
-        answer_text = str(
-            answer.get("answer_text") or ""
-        ).strip()
-
-        nested_bundle = None
-        nested_partial = False
-
-        if '"answers"' in answer_text:
-            nested_bundle, nested_partial = (
-                _embedded_answer_bundle(
-                    answer_text
-                )
-            )
-
-        source_was_partial = (
-            source_was_partial
-            or nested_partial
-        )
-
-        if nested_bundle:
-            (
-                nested_answers,
-                nested_metadata,
-                deeper_partial,
-            ) = _flatten_embedded_answer_bundle(
-                nested_bundle,
-                depth=depth + 1,
-            )
-
-            source_was_partial = (
-                source_was_partial
-                or deeper_partial
-            )
-
-            if nested_answers:
-                flattened.extend(
-                    nested_answers
-                )
-
-                for key, value in (
-                    nested_metadata.items()
-                ):
-                    if value not in (
-                        None,
-                        "",
-                    ):
-                        metadata[key] = value
-
-                continue
-
-        if answer_text:
-            flattened.append(
-                dict(answer)
-            )
-
-    return (
-        flattened,
-        metadata,
-        source_was_partial,
-    )
-
-
 def _normalize_student_bundle_for_grading(
     input_path: Path,
     *,
@@ -459,36 +190,25 @@ def _normalize_student_bundle_for_grading(
     dict[str, Any] | None,
 ]:
     """
-    Recover structured OCR answers before grading.
+    Recover and normalize structured OCR JSON before grading.
 
-    The structured bundle may arrive as:
-
-      - a regular .json file;
-      - JSON inside a .tex document body;
-      - JSON inside one outer answer_text field;
-      - a truncated JSON response containing several complete answers.
-
-    The original uploaded file is never changed. When structured answers
-    are recovered, a normalized JSON file is written beside the temporary
-    grading artifacts.
+    The provider-neutral recovery logic lives in student_answer_bundle.py so
+    OCR ingestion, grading, and the feedback overlay all interpret damaged or
+    truncated bundles in exactly the same way.
     """
     input_path = Path(input_path)
 
     try:
-        raw_text = input_path.read_text(
+        source_text = input_path.read_text(
             encoding="utf-8",
             errors="replace",
-        )
+        ).strip()
     except Exception:
         return input_path, None
-
-    source_text = raw_text.strip()
 
     if not source_text:
         return input_path, None
 
-    # OCR review sends a .tex file whose document body may actually be
-    # the structured JSON returned by the OCR provider.
     begin_document = r"\begin{document}"
     end_document = r"\end{document}"
 
@@ -504,13 +224,10 @@ def _normalize_student_bundle_for_grading(
             1,
         )[0]
 
-    source_text = source_text.strip()
-
-    # Remove wrappers sometimes used when JSON is placed in a TeX file.
     source_text = re.sub(
         r"^\s*\\begin\{(?:verbatim|lstlisting)\}\s*",
         "",
-        source_text,
+        source_text.strip(),
         flags=re.IGNORECASE,
     )
 
@@ -519,173 +236,39 @@ def _normalize_student_bundle_for_grading(
         "",
         source_text,
         flags=re.IGNORECASE,
-    )
+    ).strip()
 
-    if '"answers"' not in source_text:
-        return input_path, None
-
-    recovered_bundle, source_was_partial = (
-        _embedded_answer_bundle(
-            source_text
+    bundle, source_was_partial = (
+        recover_student_answer_bundle_from_text(
+            source_text,
+            source_name=input_path.name,
+            document_type="handwritten_scan",
         )
     )
 
-    if not recovered_bundle:
-        return input_path, None
-
-    (
-        recovered_answers,
-        recovered_metadata,
-        nested_source_was_partial,
-    ) = _flatten_embedded_answer_bundle(
-        recovered_bundle
+    answers = (
+        bundle.get("answers")
+        if isinstance(bundle, dict)
+        else []
     )
 
-    source_was_partial = (
-        source_was_partial
-        or nested_source_was_partial
-    )
-
-    if not recovered_answers:
+    if not isinstance(answers, list) or not answers:
         return input_path, None
 
-    unique_answers: list[
-        dict[str, Any]
-    ] = []
-
-    seen: set[
-        tuple[str, str, str]
-    ] = set()
-
-    for answer in recovered_answers:
-        question_id = str(
-            answer.get("question_id")
-            or answer.get("questionId")
-            or ""
-        ).strip()
-
-        part_key = str(
-            answer.get("part_key")
-            or answer.get("partKey")
-            or answer.get("part")
-            or ""
-        ).strip()
-
-        answer_text = str(
-            answer.get("answer_text")
-            or answer.get(
-                "student_answer"
-            )
-            or ""
-        ).strip()
-
-        if (
-            not question_id
-            or not answer_text
-        ):
-            continue
-
-        signature = (
-            question_id,
-            part_key.lower(),
-            answer_text,
-        )
-
-        if signature in seen:
-            continue
-
-        seen.add(signature)
-
-        normalized_answer = dict(
-            answer
-        )
-
-        normalized_answer[
-            "question_id"
-        ] = question_id
-
-        normalized_answer[
-            "part_key"
-        ] = part_key
-
-        normalized_answer[
-            "answer_text"
-        ] = answer_text
-
-        unique_answers.append(
-            normalized_answer
-        )
-
-    if not unique_answers:
-        return input_path, None
-
-    normalized = {
-        "schema_version": (
-            "student_answer_bundle_v1"
+    normalization_info = {
+        "applied": True,
+        "source_filename": input_path.name,
+        "source_suffix": input_path.suffix.lower(),
+        "reason": (
+            "Recovered and normalized structured OCR answers from the "
+            "uploaded grading file."
         ),
-        "student_name": str(
-            recovered_metadata.get(
-                "student_name"
-            )
-            or ""
-        ),
-        "student_id": str(
-            recovered_metadata.get(
-                "student_id"
-            )
-            or ""
-        ),
-        "exam_id": str(
-            recovered_metadata.get(
-                "exam_id"
-            )
-            or ""
-        ),
-        "source_name": str(
-            recovered_metadata.get(
-                "source_name"
-            )
-            or input_path.name
-        ),
-        "document_type": str(
-            recovered_metadata.get(
-                "document_type"
-            )
-            or "handwritten_scan"
-        ),
-        "ocr_provider": str(
-            recovered_metadata.get(
-                "ocr_provider"
-            )
-            or ""
-        ),
-        "ocr_model": (
-            recovered_metadata.get(
-                "ocr_model"
-            )
-        ),
-        "answers": unique_answers,
-        "normalization": {
-            "applied": True,
-            "source_filename": (
-                input_path.name
-            ),
-            "source_suffix": (
-                input_path.suffix.lower()
-            ),
-            "reason": (
-                "Recovered structured OCR "
-                "answers from the uploaded "
-                "grading file."
-            ),
-            "recovered_answer_count": (
-                len(unique_answers)
-            ),
-            "source_was_partial": (
-                source_was_partial
-            ),
-        },
+        "recovered_answer_count": len(answers),
+        "source_was_partial": bool(source_was_partial),
     }
+
+    normalized = dict(bundle)
+    normalized["normalization"] = normalization_info
 
     out_dir.mkdir(
         parents=True,
@@ -706,10 +289,9 @@ def _normalize_student_bundle_for_grading(
         encoding="utf-8",
     )
 
-    return (
-        normalized_path,
-        normalized["normalization"],
-    )
+    return normalized_path, normalization_info
+
+
 # -------------------------
 # Main grading flow (single extraction, single source-of-truth payloads)
 # -------------------------

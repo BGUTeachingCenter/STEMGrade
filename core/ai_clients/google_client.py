@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, Optional
+from pathlib import Path
 
 from core.ai_clients.ai_usage_logger import log_ai_usage
 from core.ai_clients.model_capabilities import resolve_temperature
@@ -16,15 +16,13 @@ from core.ai_clients.shared import (
     guess_mime,
     safe_json_loads,
 )
-from schemas.ocr_response import (
-    AiUsage,
-    OcrOptions,
-    OcrPage,
-    OcrResponse,
-    guess_input_kind,
-)
+from schemas.ocr_response import AiUsage, OcrOptions, OcrPage, OcrResponse, guess_input_kind
 
 import requests
+
+
+
+
 
 
 def _resolve_refs(schema: Dict[str, Any]) -> Dict[str, Any]:
@@ -135,6 +133,8 @@ def _chat_json_max_output_tokens() -> int:
     return 65536
 
 
+
+
 def _file_to_inline_data(path: Path) -> dict[str, Any]:
     return {
         "inline_data": {
@@ -142,6 +142,7 @@ def _file_to_inline_data(path: Path) -> dict[str, Any]:
             "data": file_to_base64(path),
         }
     }
+
 
 
 def _extract_gemini_text(data: dict[str, Any]) -> str:
@@ -396,6 +397,37 @@ class GoogleClient:
             raise RuntimeError(f"Google Gemini OCR error {r.status_code}: {r.text[:2000]}")
 
         data = r.json()
+
+        candidate = (
+            (data.get("candidates") or [{}])[0]
+        )
+        finish_reason = str(
+            candidate.get("finishReason") or ""
+        ).strip().upper()
+
+        if finish_reason == "MAX_TOKENS":
+            usage_raw = (
+                data.get("usageMetadata") or {}
+            )
+
+            raise RuntimeError(
+                (
+                    "Google Gemini OCR was truncated "
+                    "(finishReason=MAX_TOKENS). "
+                    "No incomplete OCR bundle was saved. "
+                    f"Configured maxOutputTokens="
+                    f"{generation_config['maxOutputTokens']}; "
+                    f"promptTokenCount="
+                    f"{usage_raw.get('promptTokenCount')}; "
+                    f"candidatesTokenCount="
+                    f"{usage_raw.get('candidatesTokenCount')}; "
+                    f"thoughtsTokenCount="
+                    f"{usage_raw.get('thoughtsTokenCount')}. "
+                    "Increase GOOGLE_OCR_MAX_OUTPUT_TOKENS or "
+                    "GEMINI_OCR_MAX_OUTPUT_TOKENS."
+                )
+            )
+
         text = _extract_gemini_text(data)
 
         if not text.strip():

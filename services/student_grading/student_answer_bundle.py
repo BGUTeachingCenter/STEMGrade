@@ -12,24 +12,263 @@ from common.tex.student_tex import parse_student_tex_answers
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
-def _extract_json_object(text: str) -> dict[str, Any] | None:
-    if not text:
-        return None
-    cleaned = _CONTROL_CHARS_RE.sub("", text.strip())
-    # Strip common markdown fences without assuming they exist.
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I).strip()
-    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+def _clean_model_json_text(text: str) -> str:
+    cleaned = _CONTROL_CHARS_RE.sub(
+        "",
+        str(text or "").strip(),
+    )
+    cleaned = re.sub(
+        r"^```(?:json)?\s*",
+        "",
+        cleaned,
+        flags=re.I,
+    ).strip()
+    cleaned = re.sub(
+        r"\s*```$",
+        "",
+        cleaned,
+    ).strip()
+    return cleaned
+
+
+def _scan_complete_answer_objects(
+    raw_text: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Recover complete answer objects from a truncated answer-bundle response.
+
+    Gemini thinking and answer tokens share the same output budget. A long OCR
+    response can therefore end in the middle of the last answer. We retain only
+    fully closed answer objects and never invent the unfinished remainder.
+    """
+    text = _clean_model_json_text(raw_text)
+
+    marker = re.search(
+        r'"answers"\s*:\s*\[',
+        text,
+        flags=re.IGNORECASE,
+    )
+    scan = text[marker.end():] if marker else text
+
+    answers: list[dict[str, Any]] = []
+    object_start = -1
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index, char in enumerate(scan):
+        if in_string:
+            if escaped:
+                escaped = False
+                continue
+
+            if char == "\\":
+                escaped = True
+                continue
+
+            if char == '"':
+                in_string = False
+
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+
+        if char == "{":
+            if depth == 0:
+                object_start = index
+            depth += 1
+            continue
+
+        if char != "}" or depth <= 0:
+            continue
+
+        depth -= 1
+
+        if depth != 0 or object_start < 0:
+            continue
+
+        candidate = scan[object_start:index + 1]
+        object_start = -1
+
+        if '"answer_text"' not in candidate:
+            continue
+
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+
+        if (
+            isinstance(parsed, dict)
+            and str(parsed.get("answer_text") or "").strip()
+        ):
+            answers.append(parsed)
+
+    return answers, depth > 0 or in_string
+
+
+def _extract_answer_bundle_json(
+    text: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    """
+    Parse a normal answer bundle, or salvage complete answer objects when the
+    provider response was truncated.
+    """
+    cleaned = _clean_model_json_text(text)
+
+    if not cleaned or '"answers"' not in cleaned:
+        return None, False
+
     start = cleaned.find("{")
     end = cleaned.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return None
-    try:
-        data = json.loads(cleaned[start : end + 1])
-        return data if isinstance(data, dict) else None
-    except Exception:
-        return None
+
+    if start != -1 and end != -1 and end > start:
+        try:
+            data = json.loads(cleaned[start:end + 1])
+
+            if (
+                isinstance(data, dict)
+                and isinstance(data.get("answers"), list)
+            ):
+                return data, False
+        except Exception:
+            pass
+
+    recovered_answers, source_was_partial = (
+        _scan_complete_answer_objects(cleaned)
+    )
+
+    if not recovered_answers:
+        return None, source_was_partial
+
+    return {
+        "schema_version": "student_answer_bundle_v1",
+        "answers": recovered_answers,
+    }, True
 
 
+def _flatten_embedded_answer_items(
+    data: dict[str, Any],
+    *,
+    depth: int = 0,
+) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Flatten damaged wrappers such as one outer answer whose answer_text contains
+    the real JSON answer bundle.
+    """
+    if depth > 5:
+        return [], True
+
+    raw_answers = data.get("answers")
+
+    if not isinstance(raw_answers, list):
+        return [], False
+
+    flattened: list[dict[str, Any]] = []
+    source_was_partial = False
+
+    for answer in raw_answers:
+        if not isinstance(answer, dict):
+            continue
+
+        answer_text = str(
+            answer.get("answer_text")
+            or answer.get("student_answer")
+            or answer.get("text")
+            or answer.get("raw_text")
+            or ""
+        ).strip()
+
+        nested_bundle = None
+        nested_partial = False
+
+        if '"answers"' in answer_text:
+            nested_bundle, nested_partial = (
+                _extract_answer_bundle_json(answer_text)
+            )
+
+        source_was_partial = (
+            source_was_partial
+            or nested_partial
+        )
+
+        if nested_bundle:
+            nested_answers, deeper_partial = (
+                _flatten_embedded_answer_items(
+                    nested_bundle,
+                    depth=depth + 1,
+                )
+            )
+            source_was_partial = (
+                source_was_partial
+                or deeper_partial
+            )
+
+            if nested_answers:
+                flattened.extend(nested_answers)
+                continue
+
+        flattened.append(dict(answer))
+
+    return flattened, source_was_partial
+
+
+def _is_comment_only_answer(value: Any) -> bool:
+    text = str(value or "").strip()
+
+    if not text:
+        return True
+
+    nonempty_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip()
+    ]
+
+    return bool(nonempty_lines) and all(
+        line == "%" or line.startswith("%")
+        for line in nonempty_lines
+    )
+
+
+def recover_student_answer_bundle_from_text(
+    text: str,
+    *,
+    source_name: str = "",
+    provider: str = "",
+    model: str | None = None,
+    document_type: str = "unknown",
+) -> tuple[dict[str, Any] | None, bool]:
+    """
+    Provider-neutral structured OCR recovery used by both OCR ingestion and
+    grading. Returns the normalized bundle and whether the source was partial.
+    """
+    data, source_was_partial = _extract_answer_bundle_json(text)
+
+    if not data:
+        return None, source_was_partial
+
+    if source_was_partial:
+        data = dict(data)
+        data["warnings"] = list(data.get("warnings") or []) + [
+            (
+                "The OCR provider response ended before the full JSON bundle "
+                "was complete. Fully closed answer blocks were recovered; "
+                "later unfinished work may be missing."
+            )
+        ]
+
+    bundle = normalize_student_answer_bundle(
+        data,
+        source_name=source_name,
+        provider=provider,
+        model=model,
+        document_type=document_type,
+    )
+
+    return bundle, source_was_partial
 def _as_int(value: Any) -> int | None:
     try:
         if value is None or value == "":
@@ -211,12 +450,22 @@ def normalize_student_answer_bundle(
     document_type: str = "unknown",
 ) -> dict[str, Any]:
     data = data if isinstance(data, dict) else {}
-    raw_answers = data.get("answers") or []
     answers: list[dict[str, Any]] = []
     warnings: list[str] = []
 
-    if not isinstance(raw_answers, list):
-        raw_answers = []
+    raw_answers, embedded_source_was_partial = (
+        _flatten_embedded_answer_items(data)
+    )
+
+    if embedded_source_was_partial:
+        warnings.append(
+            (
+                "Recovered complete answer blocks from an embedded or "
+                "truncated OCR JSON bundle."
+            )
+        )
+
+    if not isinstance(data.get("answers"), list):
         warnings.append("Model output did not contain an answers list.")
 
     seen: set[tuple[int, str]] = set()
@@ -243,6 +492,12 @@ def normalize_student_answer_bundle(
         visual_capture_status = _normalize_visual_capture_status(
             item.get("visual_capture_status")
         )
+
+        if _is_comment_only_answer(answer_text):
+            warnings.append(
+                f"Skipped Q{qnum}{part or ''}: parser comment/debris."
+            )
+            continue
 
         if not answer_text and not visual_elements:
             warnings.append(f"Skipped Q{qnum}{part or ''}: empty answer_text.")
@@ -368,16 +623,35 @@ def normalize_student_answer_bundle(
     extra_warnings = data.get("warnings") if isinstance(data.get("warnings"), list) else []
     warnings.extend(str(w) for w in extra_warnings if str(w).strip())
 
+    resolved_source_name = (
+        str(source_name or "").strip()
+        or str(data.get("source_name") or "").strip()
+    )
+    resolved_document_type = (
+        str(document_type or "").strip()
+        if str(document_type or "").strip() not in {"", "unknown"}
+        else str(data.get("document_type") or "unknown").strip()
+    )
+    resolved_provider = (
+        str(provider or "").strip()
+        or str(data.get("ocr_provider") or "").strip()
+    )
+    resolved_model = (
+        model
+        if model not in (None, "")
+        else data.get("ocr_model")
+    )
+
     return {
         "schema_version": "student_answer_bundle_v1",
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "exam_id": str(data.get("exam_id") or ""),
         "student_name": str(data.get("student_name") or data.get("student") or ""),
         "student_id": str(data.get("student_id") or ""),
-        "source_name": source_name,
-        "document_type": document_type,
-        "ocr_provider": provider,
-        "ocr_model": model,
+        "source_name": resolved_source_name,
+        "document_type": resolved_document_type,
+        "ocr_provider": resolved_provider,
+        "ocr_model": resolved_model,
         "answers": answers,
         "unmatched_blocks": data.get("unmatched_blocks") if isinstance(data.get("unmatched_blocks"), list) else [],
         "warnings": warnings,
@@ -393,19 +667,16 @@ def parse_student_answer_bundle_from_model_text(
     model: str | None = None,
     document_type: str = "unknown",
 ) -> dict[str, Any] | None:
-    data = _extract_json_object(text)
-    if not data:
-        return None
-    if "answers" not in data:
-        return None
-    return normalize_student_answer_bundle(
-        data,
-        source_name=source_name,
-        provider=provider,
-        model=model,
-        document_type=document_type,
+    bundle, _source_was_partial = (
+        recover_student_answer_bundle_from_text(
+            text,
+            source_name=source_name,
+            provider=provider,
+            model=model,
+            document_type=document_type,
+        )
     )
-
+    return bundle
 
 def build_student_answer_bundle_from_tex(
     tex_path: Path,
