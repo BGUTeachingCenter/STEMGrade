@@ -6679,8 +6679,16 @@ mjx-container {
   color: #2f7d32;
 }
 
+.mg-feedback-overlay-coordinate.is-answer-area {
+  color: #7a5a16;
+}
+
 .mg-feedback-overlay-coordinate.is-approximate {
   color: #8a5a17;
+}
+
+.mg-feedback-overlay-coordinate.is-review {
+  color: #9f2f25;
 }
 
 .mg-feedback-overlay-preview.hide-highlights .mg-feedback-overlay-highlight,

@@ -187,7 +187,11 @@ Return exactly this JSON shape:
     {{
       "question_id": 1,
       "part_key": "a",
-      "answer_text": "student's visible work, preserving mistakes and math notation",
+      "answer_text": "student's visible written work, preserving mistakes and math notation",
+      "visual_elements": [
+        "number line: solid segment from -3 to 7 with filled endpoints"
+      ],
+      "visual_capture_status": "complete",
       "page_numbers": [1],
       "regions": [
         {{
@@ -217,10 +221,16 @@ Rules:
 - Preserve the student's mistakes. Do not solve, correct, grade, or give feedback.
 - Do not invent missing answers.
 - Keep each question/part separate. Do not merge Q2 into Q1.
-- For every visible answer block, add one or more regions. Coordinates are normalized to the page: x and y are the top-left corner, width and height are the box size, and every value must be between 0 and 1.
+- answer_text must contain all visible written mathematics and prose, but it must not silently omit non-text mathematical work.
+- visual_elements must describe every visible mathematical drawing that carries meaning: number lines, graphs, plotted points, shaded regions, geometric diagrams, arrows, sign charts, tables, Venn diagrams, circuit sketches, or labeled figures.
+- For a number line, explicitly state the left and right endpoints, whether each endpoint is open or filled/closed, and which interval or rays are drawn.
+- For a graph, explicitly state the axes, labeled values, intercepts/key points, open or closed points, shaded regions, and the visible shape or direction.
+- For a geometry diagram, explicitly state labels, equal-length marks, angle marks, parallel/perpendicular marks, and any construction used in the solution.
+- Use visual_capture_status="complete" only when every visible mathematical drawing was described. Use "none" only when you are confident that the answer contains no mathematical drawing. Otherwise use "partial" or "uncertain", set needs_review=true, and explain why in warnings.
+- For every visible answer line or visual element, add a separate tight region whenever practical. Coordinates are normalized to the page: x and y are the top-left corner, width and height are the box size, and every value must be between 0 and 1.
 - Use page_number starting at 1. Keep each box tight around the student's answer work; do not include the printed question unless the student wrote inside it.
 - If one answer continues in two separated places or on two pages, return multiple regions in reading order.
-- text_excerpt must be a short transcription of the visible content inside that region. It is used only to match feedback to the correct handwritten line.
+- text_excerpt must be a short transcription of the visible content inside that region. For visual regions, start it with "[VISUAL]" and summarize the drawing, for example: "[VISUAL] number line, filled endpoints -3 and 7, solid segment between them".
 - If a reliable box cannot be determined, use regions: [] and mark needs_review=true with a warning. Never invent coordinates.
 - If local numbering is messy, use the visible order and labels, but mark needs_review=true.
 - For unclear handwriting, transcribe the best visible reading and set needs_review=true with a warning.

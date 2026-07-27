@@ -3657,6 +3657,77 @@ if (resultType === "tex") {
       return "mistake";
     }
 
+    function normalizeOverlayEvidence(value) {
+      return String(value || "")
+        .toLowerCase()
+        .replace(/\\[()[\]{}]/g, " ")
+        .replace(/[^0-9a-zא-ת+\-=<>.]+/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function overlayEvidenceScore(evidence, excerpt) {
+      const left = normalizeOverlayEvidence(evidence);
+      const right = normalizeOverlayEvidence(excerpt);
+
+      if (!left || !right) return 0;
+
+      if (right.includes(left) || left.includes(right)) {
+        return 100;
+      }
+
+      const leftTokens = new Set(
+        left.split(" ").filter((item) => item.length > 1)
+      );
+      const rightTokens = new Set(
+        right.split(" ").filter((item) => item.length > 1)
+      );
+
+      if (!leftTokens.size || !rightTokens.size) {
+        return 0;
+      }
+
+      let overlap = 0;
+
+      leftTokens.forEach((token) => {
+        if (rightTokens.has(token)) {
+          overlap += 1;
+        }
+      });
+
+      return overlap / Math.max(
+        leftTokens.size,
+        rightTokens.size
+      );
+    }
+
+    function bestOverlayRegion(regions, evidence) {
+      if (
+        !Array.isArray(regions)
+        || !regions.length
+        || !String(evidence || "").trim()
+      ) {
+        return null;
+      }
+
+      let best = null;
+      let bestScore = 0;
+
+      regions.forEach((region) => {
+        const score = overlayEvidenceScore(
+          evidence,
+          region?.text_excerpt || ""
+        );
+
+        if (score > bestScore) {
+          best = region;
+          bestScore = score;
+        }
+      });
+
+      return bestScore >= 0.34 ? best : null;
+    }
+
     function feedbackOverlayAnnotations(data, pageCount) {
       const explicit =
         data?.visual_overlay?.annotations ||
@@ -3691,7 +3762,16 @@ if (resultType === "tex") {
               y: Number(item.anchor?.y ?? item.y ?? (0.14 + index * 0.12))
             },
             region,
-            exact: item.exact === true || !!region
+            placement: String(
+              item.placement || (
+                item.exact === true
+                  ? "evidence"
+                  : (region ? "answer" : "approximate")
+              )
+            ),
+            exact:
+              item.exact === true
+              || item.placement === "evidence"
           };
         });
       }
@@ -3709,9 +3789,26 @@ if (resultType === "tex") {
           feedback.how_to_improve || part?.how_to_improve
         );
         const correctItems = normalizeGradedArray(
-          feedback.what_was_correct || part?.what_was_correct
+          feedback.what_was_correct
+          || part?.what_was_correct
         );
-        const summary = String(feedback.summary || part?.summary || "").trim();
+        const evidenceMistakes = normalizeGradedArray(
+          feedback.evidence_mistakes
+          || part?.evidence_mistakes
+        );
+        const evidenceCorrect = normalizeGradedArray(
+          feedback.evidence_correct
+          || part?.evidence_correct
+        );
+        const ocrInfo =
+          part?.ocr && typeof part.ocr === "object"
+            ? part.ocr
+            : {};
+        const summary = String(
+          feedback.summary
+          || part?.summary
+          || ""
+        ).trim();
         const nextStep = String(
           feedback.suggested_next_step || part?.suggested_next_step || ""
         ).trim();
@@ -3730,12 +3827,22 @@ if (resultType === "tex") {
 
         mistakes.slice(0, 3).forEach((mistake, index) => {
           const improvement = improvements[index] || "";
+          const evidence = evidenceMistakes[index] || "";
+
           specs.push({
             category: "mistake",
             severity: "error",
-            title: `${titlePrefix} · Mistake or missing step`,
+            title: `${titlePrefix} · Needs attention`,
+            evidence,
             text: [
               mistake,
+              evidence
+                ? (
+                    lineContainsHebrew(evidence)
+                      ? `ראיה מהתשובה: ${evidence}`
+                      : `Evidence from the answer: ${evidence}`
+                  )
+                : "",
               improvement
                 ? (
                     lineContainsHebrew(improvement)
@@ -3768,7 +3875,17 @@ if (resultType === "tex") {
               category: "correct",
               severity: "success",
               title: `${titlePrefix} · Correct work`,
-              text: positiveText
+              evidence: evidenceCorrect[0] || "",
+              text: [
+                positiveText,
+                evidenceCorrect[0]
+                  ? (
+                      lineContainsHebrew(evidenceCorrect[0])
+                        ? `ראיה מהתשובה: ${evidenceCorrect[0]}`
+                        : `Evidence from the answer: ${evidenceCorrect[0]}`
+                    )
+                  : ""
+              ].filter(Boolean).join("\n")
             });
           }
         } else if (!specs.length && summary) {
@@ -3802,9 +3919,21 @@ if (resultType === "tex") {
         }
 
         specs.slice(0, 5).forEach((spec, specIndex) => {
-          const region = regions.length
-            ? regions[specIndex % regions.length]
-            : null;
+          const evidenceRegion = bestOverlayRegion(
+            regions,
+            spec.evidence || ""
+          );
+
+          const region = evidenceRegion || (
+            regions.length
+              ? regions[specIndex % regions.length]
+              : null
+          );
+
+          const placement = evidenceRegion
+            ? "evidence"
+            : (region ? "answer" : "approximate");
+
           const requestedPage = Number(
             region?.page_number || pageNumbers[0] || 1
           );
@@ -3845,7 +3974,12 @@ if (resultType === "tex") {
             severity: spec.severity,
             anchor,
             region,
-            exact: !!region
+            placement,
+            exact: placement === "evidence",
+            ocrNeedsReview: !!ocrInfo.needs_review,
+            ocrWarnings: Array.isArray(ocrInfo.warnings)
+              ? ocrInfo.warnings
+              : []
           });
 
           markerNumber += 1;
@@ -4088,15 +4222,37 @@ if (resultType === "tex") {
         feedbackOverlayHighlightsToggle.checked = feedbackOverlayShowHighlights;
       }
 
-      const total = Number(feedbackOverlayPreview.dataset.annotationCount || 0);
-      const exact = Number(feedbackOverlayPreview.dataset.exactCount || 0);
+      const total = Number(
+        feedbackOverlayPreview.dataset.annotationCount || 0
+      );
+      const exact = Number(
+        feedbackOverlayPreview.dataset.exactCount || 0
+      );
+      const answerArea = Number(
+        feedbackOverlayPreview.dataset.answerAreaCount || 0
+      );
 
       if (total && feedbackOverlayStatus) {
-        const placementText = exact === total
-          ? "All markers use OCR coordinates."
-          : `${exact} of ${total} markers use OCR coordinates.`;
+        const approximate = Math.max(
+          0,
+          total - exact - answerArea
+        );
+
+        const placementText = [
+          exact
+            ? `${exact} evidence-matched`
+            : "",
+          answerArea
+            ? `${answerArea} linked to answer area`
+            : "",
+          approximate
+            ? `${approximate} approximate`
+            : ""
+        ].filter(Boolean).join(", ");
+
         feedbackOverlayStatus.textContent =
-          `${visibleNotes} of ${total} notes visible. ${placementText}`;
+          `${visibleNotes} of ${total} notes visible. `
+          + `Placement: ${placementText}.`;
       }
     }
 
@@ -4273,13 +4429,55 @@ if (resultType === "tex") {
           });
 
         const coordinateBadge = document.createElement("small");
-        coordinateBadge.className = annotation.exact
-          ? "mg-feedback-overlay-coordinate is-exact"
-          : "mg-feedback-overlay-coordinate is-approximate";
-        coordinateBadge.textContent = annotation.exact
-          ? "Positioned from OCR coordinates"
-          : "Approximate position — this OCR result has no stored coordinates";
+        const placement = String(
+          annotation.placement || "approximate"
+        );
+
+        coordinateBadge.className =
+          placement === "evidence"
+            ? "mg-feedback-overlay-coordinate is-exact"
+            : (
+                placement === "answer"
+                  ? "mg-feedback-overlay-coordinate is-answer-area"
+                  : "mg-feedback-overlay-coordinate is-approximate"
+              );
+
+        coordinateBadge.textContent =
+          placement === "evidence"
+            ? "Matched to OCR evidence in this area"
+            : (
+                placement === "answer"
+                  ? (
+                      "Linked to the OCR answer area — "
+                      + "not to one exact handwritten line"
+                    )
+                  : (
+                      "Approximate position — "
+                      + "no usable OCR coordinates were stored"
+                    )
+              );
+
         body.appendChild(coordinateBadge);
+
+        if (annotation.ocrNeedsReview) {
+          const reviewBadge = document.createElement("small");
+          reviewBadge.className =
+            "mg-feedback-overlay-coordinate is-review";
+
+          reviewBadge.textContent =
+            annotation.ocrWarnings?.length
+              ? (
+                  "OCR review recommended: "
+                  + annotation.ocrWarnings[0]
+                )
+              : (
+                  "OCR marked this answer for review; "
+                  + "verify the original image before treating "
+                  + "an uncertain detail as a student mistake."
+                );
+
+          body.appendChild(reviewBadge);
+        }
 
         card.append(heading, body);
         card.addEventListener("click", () => {
@@ -4341,16 +4539,22 @@ if (resultType === "tex") {
           feedbackOverlayPreview.appendChild(pageElement);
         }
 
-        const exactCount =
-          annotations.filter(
-            (item) => item.exact
-          ).length;
+        const exactCount = annotations.filter(
+          (item) => item.placement === "evidence"
+        ).length;
+
+        const answerAreaCount = annotations.filter(
+          (item) => item.placement === "answer"
+        ).length;
 
         feedbackOverlayPreview.dataset.annotationCount =
           String(annotations.length);
 
         feedbackOverlayPreview.dataset.exactCount =
           String(exactCount);
+
+        feedbackOverlayPreview.dataset.answerAreaCount =
+          String(answerAreaCount);
 
         applyFeedbackOverlayFilters();
 

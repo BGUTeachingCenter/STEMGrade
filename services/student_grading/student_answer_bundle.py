@@ -50,6 +50,37 @@ def _clean_answer_text(value: Any) -> str:
     return text
 
 
+def _clean_string_list(
+    value: Any,
+    *,
+    max_items: int = 20,
+    max_length: int = 800,
+) -> list[str]:
+    raw_items = value if isinstance(value, list) else []
+    cleaned: list[str] = []
+
+    for item in raw_items:
+        text = str(item or "").strip()
+        if not text or text in cleaned:
+            continue
+
+        cleaned.append(text[:max_length])
+
+        if len(cleaned) >= max_items:
+            break
+
+    return cleaned
+
+
+def _normalize_visual_capture_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+
+    if normalized in {"complete", "partial", "none", "uncertain"}:
+        return normalized
+
+    return "uncertain"
+
+
 def _clamp_unit(value: Any) -> float | None:
     try:
         number = float(value)
@@ -204,7 +235,16 @@ def normalize_student_answer_bundle(
             or item.get("raw_text")
             or ""
         )
-        if not answer_text:
+        visual_elements = _clean_string_list(
+            item.get("visual_elements")
+            or item.get("visual_descriptions")
+            or []
+        )
+        visual_capture_status = _normalize_visual_capture_status(
+            item.get("visual_capture_status")
+        )
+
+        if not answer_text and not visual_elements:
             warnings.append(f"Skipped Q{qnum}{part or ''}: empty answer_text.")
             continue
 
@@ -253,6 +293,32 @@ def normalize_student_answer_bundle(
                         list(existing.get("regions") or [])
                         + regions
                     )
+
+                    merged_visual_elements = _clean_string_list(
+                        list(existing.get("visual_elements") or [])
+                        + visual_elements
+                    )
+                    existing["visual_elements"] = merged_visual_elements
+
+                    existing_status = _normalize_visual_capture_status(
+                        existing.get("visual_capture_status")
+                    )
+
+                    if "uncertain" in {
+                        existing_status,
+                        visual_capture_status,
+                    }:
+                        existing["visual_capture_status"] = "uncertain"
+                    elif "partial" in {
+                        existing_status,
+                        visual_capture_status,
+                    }:
+                        existing["visual_capture_status"] = "partial"
+                    elif merged_visual_elements:
+                        existing["visual_capture_status"] = "complete"
+                    else:
+                        existing["visual_capture_status"] = "none"
+
                     existing.setdefault("warnings", []).append(
                         "Merged duplicate OCR block for this question/part."
                     )
@@ -271,11 +337,26 @@ def normalize_student_answer_bundle(
                 "question_id": qnum,
                 "part_key": part,
                 "answer_text": answer_text,
+                "visual_elements": visual_elements,
+                "visual_capture_status": visual_capture_status,
                 "page_numbers": normalized_pages,
                 "regions": regions,
                 "confidence": confidence,
-                "needs_review": bool(item.get("needs_review", confidence is not None and confidence < 0.7)),
-                "warnings": [str(w) for w in item_warnings if str(w).strip()],
+                "needs_review": bool(
+                    item.get(
+                        "needs_review",
+                        (
+                            confidence is not None
+                            and confidence < 0.7
+                        )
+                        or visual_capture_status in {"partial", "uncertain"},
+                    )
+                ),
+                "warnings": [
+                    str(w)
+                    for w in item_warnings
+                    if str(w).strip()
+                ],
             }
         )
 
@@ -352,17 +433,66 @@ def build_student_answer_bundle_from_tex(
     return normalize_student_answer_bundle(data, source_name=source_name or tex_path.name, document_type=document_type)
 
 
-def read_student_answers_from_bundle(bundle_path: Path) -> dict[tuple[int, str], str]:
+def read_student_answers_from_bundle(
+    bundle_path: Path,
+) -> dict[tuple[int, str], str]:
+    records = read_student_answer_records_from_bundle(bundle_path)
+
+    return {
+        key: str(record.get("answer_text") or "").strip()
+        for key, record in records.items()
+        if str(record.get("answer_text") or "").strip()
+    }
+
+
+def read_student_answer_records_from_bundle(
+    bundle_path: Path,
+) -> dict[tuple[int, str], dict[str, Any]]:
     data = json.loads(bundle_path.read_text(encoding="utf-8"))
-    bundle = normalize_student_answer_bundle(data, source_name=bundle_path.name)
-    out: dict[tuple[int, str], str] = {}
-    for a in bundle.get("answers") or []:
-        qnum = _as_int(a.get("question_id"))
+    bundle = normalize_student_answer_bundle(
+        data,
+        source_name=bundle_path.name,
+    )
+    out: dict[tuple[int, str], dict[str, Any]] = {}
+
+    for answer in bundle.get("answers") or []:
+        qnum = _as_int(answer.get("question_id"))
+
         if qnum is None:
             continue
-        text = _clean_answer_text(a.get("answer_text"))
-        if text:
-            out[(qnum, _clean_part(a.get("part_key")))] = text
+
+        key = (
+            qnum,
+            _clean_part(answer.get("part_key")),
+        )
+
+        out[key] = {
+            "answer_text": _clean_answer_text(
+                answer.get("answer_text")
+            ),
+            "visual_elements": _clean_string_list(
+                answer.get("visual_elements") or []
+            ),
+            "visual_capture_status": _normalize_visual_capture_status(
+                answer.get("visual_capture_status")
+            ),
+            "ocr_confidence": answer.get("confidence"),
+            "ocr_needs_review": bool(
+                answer.get("needs_review")
+            ),
+            "ocr_warnings": _clean_string_list(
+                answer.get("warnings") or [],
+                max_items=10,
+                max_length=500,
+            ),
+            "page_numbers": list(
+                answer.get("page_numbers") or []
+            ),
+            "regions": list(
+                answer.get("regions") or []
+            ),
+        }
+
     return out
 
 

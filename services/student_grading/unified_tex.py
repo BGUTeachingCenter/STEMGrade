@@ -10,7 +10,6 @@ from common.tex.latex_render import latex_render_mixed
 from common.tex.math_normalize import normalize_math_text
 from common.tex.part_normalize import normalize_part
 from services.student_grading.student_answer_bundle import normalize_student_answer_bundle
-from typing import Dict, List, Tuple
 
 
 # Match \section{...} and \section*{...}
@@ -671,6 +670,21 @@ def build_student_feedback_json(
                             )
                             or []
                         ),
+                        "visual_elements": list(
+                            answer.get("visual_elements")
+                            or []
+                        ),
+                        "visual_capture_status": str(
+                            answer.get("visual_capture_status")
+                            or "uncertain"
+                        ),
+                        "needs_review": bool(
+                            answer.get("needs_review")
+                        ),
+                        "warnings": list(
+                            answer.get("warnings")
+                            or []
+                        ),
                     }
             except Exception:
                 answer_locations = {}
@@ -787,6 +801,12 @@ def build_student_feedback_json(
                     )
                 )
             ),
+            "evidence_correct": _as_string_list(
+                part.get("evidence_correct")
+            ),
+            "evidence_mistakes": _as_string_list(
+                part.get("evidence_mistakes")
+            ),
             "suggested_next_step": str(
                 part.get(
                     "suggested_next_step"
@@ -827,6 +847,23 @@ def build_student_feedback_json(
                     )
                     or []
                 ),
+                "ocr": {
+                    "visual_elements": list(
+                        location.get("visual_elements")
+                        or []
+                    ),
+                    "visual_capture_status": str(
+                        location.get("visual_capture_status")
+                        or "uncertain"
+                    ),
+                    "needs_review": bool(
+                        location.get("needs_review")
+                    ),
+                    "warnings": list(
+                        location.get("warnings")
+                        or []
+                    ),
+                },
                 "correctness": {
                     "level": (
                         correctness_level
@@ -1367,6 +1404,12 @@ def build_graded_result_json(
                         )
                     )
                 ),
+                "evidence_correct": _as_string_list(
+                    grade.get("evidence_correct")
+                ),
+                "evidence_mistakes": _as_string_list(
+                    grade.get("evidence_mistakes")
+                ),
                 "suggested_next_step": str(
                     grade.get(
                         "suggested_next_step_he"
@@ -1502,6 +1545,12 @@ def build_graded_result_json(
                                 "how_to_improve"
                             )
                         )
+                    ),
+                    "evidence_correct": _as_string_list(
+                        grade.get("evidence_correct")
+                    ),
+                    "evidence_mistakes": _as_string_list(
+                        grade.get("evidence_mistakes")
                     ),
                     "suggested_next_step": str(
                         grade.get(

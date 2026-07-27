@@ -66,6 +66,113 @@ grade. Return only one of the exact schema values.
 """.strip()
 
 
+_EVIDENCE_AND_VISUAL_AUDIT_INSTRUCTIONS = """
+OCR AND VISUAL-EVIDENCE RULES:
+
+The student answer may be an OCR transcription of handwritten work.
+The input can include:
+- student.visual_elements: descriptions of number lines, graphs, diagrams,
+  tables, plotted points, shading, or other visual mathematical work;
+- student.visual_capture_status: complete, partial, none, or uncertain;
+- student.ocr_needs_review and student.ocr_warnings.
+
+Mandatory grading rules:
+1. Evaluate written algebra and visual_elements together. A correct number line,
+   graph, table, or diagram is part of the submitted solution.
+2. Never claim that a drawing, graph, number line, table, or diagram is missing
+   merely because it is absent from latex_raw. Only make that claim when
+   visual_capture_status is complete or none and the captured visual evidence
+   supports the claim.
+3. When visual_capture_status is partial or uncertain, state the uncertainty
+   instead of asserting that the student omitted a visual step.
+4. Treat mathematically equivalent representations as equivalent: interval
+   notation, a compound inequality, set notation, and a correctly drawn number
+   line may express the same solution set. Check endpoint values and whether
+   endpoints are open or closed before criticizing the representation.
+5. Every negative claim must be grounded in the submitted evidence. Keep
+   main_mistakes and evidence_mistakes index-aligned whenever possible:
+   main_mistakes[i] should be supported by evidence_mistakes[i]. Do not invent
+   a quote. For a genuine omission, describe the exact missing requirement and
+   leave the corresponding evidence quote empty rather than fabricating one.
+6. If the OCR is uncertain and the answer could reasonably be correct, lower
+   confidence and recommend review; do not turn OCR uncertainty into a student
+   mistake.
+""".strip()
+
+
+_GRADE_VERIFIER_INSTRUCTIONS = """
+You are the final grading auditor. You receive the original grading input and a
+candidate grading response. Return a corrected response using the exact same
+JSON schema.
+
+Audit every negative statement before preserving it:
+- Is it directly supported by the student's written or visual evidence?
+- Does it contradict a visible graph, number line, diagram, table, or endpoint?
+- Did the candidate mistake an equivalent representation for a missing step?
+- Did OCR uncertainty get incorrectly blamed on the student?
+- Are score, correctness_level, summary, mistakes, and positive feedback
+  mutually consistent?
+
+Remove unsupported criticism. Preserve valid criticism. Mention uncertainty
+when the source is uncertain. Return JSON only and keep all student-facing text
+in Hebrew.
+""".strip()
+
+
+def _env_bool(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _should_verify_grade(
+    response: dict[str, Any],
+    model_input: dict[str, Any],
+) -> bool:
+    if not _env_bool("MATHGRADE_ENABLE_GRADE_VERIFIER", "1"):
+        return False
+
+    if _env_bool("MATHGRADE_VERIFY_EVERY_ANSWER", "0"):
+        return True
+
+    mistakes = response.get("main_mistakes") or []
+    mismatch = response.get("mismatch") or {}
+    level = str(
+        response.get("correctness_level") or ""
+    ).strip().lower()
+
+    try:
+        confidence = float(response.get("confidence") or 0.0)
+    except Exception:
+        confidence = 0.0
+
+    student = model_input.get("student") or {}
+    visual_elements = student.get("visual_elements") or []
+    visual_status = str(
+        student.get("visual_capture_status") or ""
+    ).strip().lower()
+    ocr_needs_review = bool(
+        student.get("ocr_needs_review")
+    )
+
+    return bool(
+        mistakes
+        or mismatch.get("is_mismatch")
+        or level in {
+            "partially_correct",
+            "needs_work",
+            "not_answered",
+        }
+        or confidence < 0.88
+        or (visual_elements and level != "correct")
+        or visual_status in {"partial", "uncertain"}
+        or ocr_needs_review
+    )
+
+
 def _normalize_correctness_level(
     value: Any,
     *,
@@ -424,6 +531,8 @@ def grade_payload_manifest(
             )
             + "\n\n"
             + _CORRECTNESS_LEVEL_INSTRUCTIONS
+            + "\n\n"
+            + _EVIDENCE_AND_VISUAL_AUDIT_INSTRUCTIONS
     )
 
     provider = (model or "ollama").strip().lower()
@@ -542,8 +651,36 @@ def grade_payload_manifest(
                 "solution_text": _clip(str(ref_block.get("solution_text") or ""), ref_sol_limit),
             },
             "student": {
-                "latex_raw": _clip(student_raw, stu_limit),
-                "latex_clean": _clip(str(stu_block.get("latex_clean") or ""), stu_clean_limit),
+                "latex_raw": _clip(
+                    student_raw,
+                    stu_limit,
+                ),
+                "latex_clean": _clip(
+                    str(stu_block.get("latex_clean") or ""),
+                    stu_clean_limit,
+                ),
+                "visual_elements": [
+                    _clip(str(item), 900)
+                    for item in (
+                        stu_block.get("visual_elements") or []
+                    )[:20]
+                    if str(item or "").strip()
+                ],
+                "visual_capture_status": str(
+                    stu_block.get("visual_capture_status")
+                    or "uncertain"
+                ),
+                "ocr_confidence": stu_block.get("ocr_confidence"),
+                "ocr_needs_review": bool(
+                    stu_block.get("ocr_needs_review")
+                ),
+                "ocr_warnings": [
+                    _clip(str(item), 500)
+                    for item in (
+                        stu_block.get("ocr_warnings") or []
+                    )[:10]
+                    if str(item or "").strip()
+                ],
             },
                         "grading_mode": scoring_mode,
             "rubric": {
@@ -597,9 +734,58 @@ def grade_payload_manifest(
         )
 
         if debug:
-            print(f"[grade_payload_manifest] model response keys={sorted(resp.keys())}")
+            print(
+                "[grade_payload_manifest] "
+                f"model response keys={sorted(resp.keys())}"
+            )
 
-        student_raw2 = ((payload.get("student") or {}).get("latex_raw") or "").strip()
+        if _should_verify_grade(resp, model_input):
+            if debug:
+                print(
+                    "[grade_payload_manifest] "
+                    f"running verifier for qid={qid}"
+                )
+
+            verifier_user = json.dumps(
+                {
+                    "original_input": model_input,
+                    "candidate_grading": resp,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+
+            try:
+                verified = client.chat_json(
+                    system=(
+                        f"{item_system}\n\n"
+                        f"{_GRADE_VERIFIER_INSTRUCTIONS}"
+                    ),
+                    user=verifier_user,
+                    schema=schema,
+                    temperature=0.0,
+                )
+
+                if isinstance(verified, dict):
+                    resp = verified
+
+                    if debug:
+                        print(
+                            "[grade_payload_manifest] "
+                            f"verifier accepted for qid={qid}"
+                        )
+            except Exception as verifier_error:
+                if debug:
+                    print(
+                        "[grade_payload_manifest] verifier failed; "
+                        f"keeping first response for qid={qid}: "
+                        f"{verifier_error}"
+                    )
+
+        student_raw2 = (
+            (payload.get("student") or {}).get("latex_raw")
+            or ""
+        ).strip()
         has_student = len(student_raw2) > 0
 
         score = float(resp.get("score", 0.0))

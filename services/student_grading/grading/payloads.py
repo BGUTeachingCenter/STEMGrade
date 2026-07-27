@@ -21,7 +21,9 @@ from common.pdf.pdf_cleanse import cleanse_test_pdf
 from common.tex.reference_ranges import Key, find_reference_ranges
 from common.tex.reference_tex import parse_reference_tex
 from common.tex.student_tex import parse_student_tex_answers
-from services.student_grading.student_answer_bundle import read_student_answers_from_bundle
+from services.student_grading.student_answer_bundle import (
+    read_student_answer_records_from_bundle,
+)
 
 
 @dataclass(frozen=True)
@@ -1525,31 +1527,57 @@ def _load_student_answers_for_payloads(
 ) -> tuple[
     dict[Key, str],
     str,
+    dict[Key, dict[str, Any]],
 ]:
     """
     Load student answers from a JSON bundle or OCR/legacy TeX.
     """
     if student_path.suffix.lower() == ".json":
-        answers = (
-            read_student_answers_from_bundle(
-                student_path
-            )
+        records = read_student_answer_records_from_bundle(
+            student_path
         )
 
-        normalized = {
-            _normalize_key(key):
-                _clean_student_answer_fragment(
-                    value
-                )
-            for key, value in answers.items()
-            if _is_substantive_student_answer(
-                value
+        normalized: dict[Key, str] = {}
+        metadata: dict[Key, dict[str, Any]] = {}
+
+        for raw_key, record in records.items():
+            key = _normalize_key(raw_key)
+            visual_elements = list(
+                record.get("visual_elements") or []
             )
-        }
+            answer_text = _clean_student_answer_fragment(
+                record.get("answer_text")
+            )
+
+            if not answer_text and visual_elements:
+                answer_text = (
+                    "[OCR captured a visual-only answer; "
+                    "use student.visual_elements as the submitted work.]"
+                )
+
+            if not _is_substantive_student_answer(answer_text):
+                continue
+
+            normalized[key] = answer_text
+            metadata[key] = {
+                "visual_elements": visual_elements,
+                "visual_capture_status": str(
+                    record.get("visual_capture_status")
+                    or "uncertain"
+                ),
+                "ocr_confidence": record.get("ocr_confidence"),
+                "ocr_needs_review": bool(
+                    record.get("ocr_needs_review")
+                ),
+                "ocr_warnings": list(
+                    record.get("ocr_warnings") or []
+                ),
+            }
 
         return (
             normalized,
             "student_answer_bundle.json",
+            metadata,
         )
 
     # Keep the legacy parser as a compatibility source, but do not allow
@@ -1593,6 +1621,35 @@ def _load_student_answers_for_payloads(
     return merged, source
 
 
+def _student_payload_block(
+    *,
+    source: str,
+    answer_text: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = metadata if isinstance(metadata, dict) else {}
+
+    return {
+        "source": source,
+        "latex_raw": answer_text,
+        "latex_clean": "",
+        "visual_elements": list(
+            metadata.get("visual_elements") or []
+        ),
+        "visual_capture_status": str(
+            metadata.get("visual_capture_status")
+            or "uncertain"
+        ),
+        "ocr_confidence": metadata.get("ocr_confidence"),
+        "ocr_needs_review": bool(
+            metadata.get("ocr_needs_review")
+        ),
+        "ocr_warnings": list(
+            metadata.get("ocr_warnings") or []
+        ),
+    }
+
+
 def _build_payloads_from_full_solution_json(
     *,
     reference_json: Path,
@@ -1615,6 +1672,7 @@ def _build_payloads_from_full_solution_json(
     (
         parsed_student_answers,
         student_source,
+        student_metadata,
     ) = _load_student_answers_for_payloads(
         student_tex,
         out_dir,
@@ -1704,11 +1762,11 @@ def _build_payloads_from_full_solution_json(
                 "text": reference_block,
                 "metadata": metadata,
             },
-            "student": {
-                "source": student_source,
-                "latex_raw": student_latex,
-                "latex_clean": "",
-            },
+            "student": _student_payload_block(
+                source=student_source,
+                answer_text=student_latex,
+                metadata=student_metadata.get(key),
+            ),
             "ai_input": {
                 "question_latex": question_tex,
                 "reference_solution_latex": solution_tex,
@@ -1848,7 +1906,14 @@ def _build_payloads_from_reference_pdf(
             "If empty, the PDF may be scanned (no selectable text)."
         )
 
-    student_answers, student_source = _load_student_answers_for_payloads(student_tex, out_dir)
+    (
+        student_answers,
+        student_source,
+        student_metadata,
+    ) = _load_student_answers_for_payloads(
+        student_tex,
+        out_dir,
+    )
     if not student_answers:
         raise RuntimeError(
             "Could not parse any student answers from the uploaded student file. "
@@ -1897,11 +1962,11 @@ def _build_payloads_from_reference_pdf(
                 "solution_text": solution_text,
                 "text": ref_text,
             },
-            "student": {
-                "source": student_source,
-                "latex_raw": student_latex,
-                "latex_clean": "",
-            },
+            "student": _student_payload_block(
+                source=student_source,
+                answer_text=student_latex,
+                metadata=student_metadata.get(key),
+            ),
             "ai_input": {
                 "question_latex": question_latexish,
                 "reference_solution_latex": solution_latexish,
@@ -1972,7 +2037,14 @@ def _build_payloads_from_reference_tex(
             "Expected headings like \\section*{Question N} and \\subsection*{(a)}."
         )
 
-    student_answers, student_source = _load_student_answers_for_payloads(student_tex, out_dir)
+    (
+        student_answers,
+        student_source,
+        student_metadata,
+    ) = _load_student_answers_for_payloads(
+        student_tex,
+        out_dir,
+    )
     if not student_answers:
         raise RuntimeError(
             "Could not parse any student answers from the uploaded student file. "
@@ -2016,11 +2088,11 @@ def _build_payloads_from_reference_tex(
                 "solution_text": solution_tex,
                 "text": reference_block,
             },
-            "student": {
-                "source": student_source,
-                "latex_raw": student_latex,
-                "latex_clean": "",
-            },
+            "student": _student_payload_block(
+                source=student_source,
+                answer_text=student_latex,
+                metadata=student_metadata.get(key),
+            ),
             "ai_input": {
                 "question_latex": question_tex,
                 "reference_solution_latex": solution_tex,
