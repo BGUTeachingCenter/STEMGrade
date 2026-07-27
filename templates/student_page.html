@@ -3547,34 +3547,157 @@ if (resultType === "tex") {
       }
     }
 
-    function setFeedbackOverlaySourceFromStoredWork(storedWork, fallbackFile) {
-      const files = Array.isArray(storedWork?.files)
+    function setFeedbackOverlaySourceFromStoredWork(
+      storedWork,
+      fallbackFile
+    ) {
+      const files = Array.isArray(
+        storedWork?.files
+      )
         ? storedWork.files
         : [];
 
+      const workId = String(
+        storedWork?.work_id ||
+        storedWork?.exam_folder ||
+        ""
+      ).trim();
+
       const original = files.find(
-        (item) => item?.kind === "original" && item?.filename
+        (item) =>
+          item &&
+          item.kind === "original" &&
+          item.filename
       );
 
-      if (storedWork?.work_id && original?.filename) {
-        setFeedbackOverlaySource({
-          kind: inferOriginalSubmissionType("", original.filename),
-          workId: storedWork.work_id,
-          filename: original.filename
-        });
-        return;
+      const originalUrl = String(
+        storedWork?.original_download_url ||
+        original?.download_url ||
+        ""
+      ).trim();
+
+      const originalTitle = String(
+        storedWork?.source_filename ||
+        original?.filename ||
+        fallbackFile?.name ||
+        "original_submission"
+      ).trim();
+
+      /*
+       * Prefer the saved URL. A local PDF can be displayed in an iframe,
+       * but the feedback overlay needs the saved work endpoint to render
+       * each PDF page as an image.
+       */
+      if (originalUrl) {
+        setFeedbackOverlaySourceFromSavedUrl(
+          originalUrl,
+          originalTitle
+        );
+
+        return true;
       }
 
+      if (
+        workId &&
+        original?.filename
+      ) {
+        setFeedbackOverlaySource({
+          kind: inferOriginalSubmissionType(
+            "",
+            original.filename
+          ),
+          workId,
+          filename: original.filename,
+          studentCode:
+            currentRole === "teacher"
+              ? TEACHER_REVIEW_STUDENT_CODE
+              : ""
+        });
+
+        return true;
+      }
+
+      /*
+       * Local images can be rendered directly. Local PDFs remain useful
+       * for the Original submission tab, but are not overlay-ready until
+       * their saved work URL is recovered from the dashboard.
+       */
       if (fallbackFile) {
         setFeedbackOverlaySource({
           kind: inferOriginalSubmissionType(
             fallbackFile.type || "",
             fallbackFile.name || ""
           ),
-          filename: fallbackFile.name || "original_submission",
+          filename:
+            fallbackFile.name ||
+            "original_submission",
           localFile: fallbackFile
         });
+      } else {
+        setFeedbackOverlaySource(null);
       }
+
+      return false;
+    }
+
+    function restoreFeedbackOverlaySourceFromDashboard(
+      results,
+      preferredWorkId
+    ) {
+      const workId = String(
+        preferredWorkId || ""
+      ).trim();
+
+      if (
+        !workId ||
+        !Array.isArray(results)
+      ) {
+        return false;
+      }
+
+      const result = results.find(
+        (item) =>
+          String(
+            item?.work_id ||
+            item?.exam_folder ||
+            ""
+          ).trim() === workId
+      );
+
+      if (!result) {
+        return false;
+      }
+
+      const files = Array.isArray(
+        result.files
+      )
+        ? result.files
+        : [];
+
+      const original = files.find(
+        (item) =>
+          item &&
+          item.kind === "original"
+      );
+
+      const originalUrl = String(
+        result.original_download_url ||
+        original?.download_url ||
+        ""
+      ).trim();
+
+      if (!originalUrl) {
+        return false;
+      }
+
+      setFeedbackOverlaySourceFromSavedUrl(
+        originalUrl,
+        result.source_filename ||
+        original?.filename ||
+        "original_submission"
+      );
+
+      return true;
     }
 
     function overlayEmpty(message) {
@@ -6747,7 +6870,27 @@ function wireSavedOcrButtons() {
         const course = j.course || {};
         const teacher = j.teacher || {};
         const student = j.student || {};
-        const results = Array.isArray(j.previous_results) ? j.previous_results : [];
+        const results = Array.isArray(
+          j.previous_results
+        )
+          ? j.previous_results
+          : [];
+
+        /*
+         * OCR initially gives the browser a local File object. That is
+         * sufficient for an image overlay, but PDF overlays require the
+         * saved work URL so the backend can render the individual pages.
+         *
+         * After OCR or grading, recover that saved URL from the refreshed
+         * dashboard entry. setFeedbackOverlaySource() automatically
+         * re-evaluates and enables the Feedback overlay tab.
+         */
+        if (ocrCurrentWorkId) {
+          restoreFeedbackOverlaySourceFromDashboard(
+            results,
+            ocrCurrentWorkId
+          );
+        }
 
         if (studentCourseTitle) {
           studentCourseTitle.textContent = course.course_label || (j.is_teacher_test ? "Teacher test mode" : "Course");
@@ -7022,6 +7165,23 @@ function wireSavedOcrButtons() {
           )
           || "student_feedback.json"
         ).trim();
+
+        /*
+         * The backend returns the canonical saved work ID after attaching
+         * the new grading result. Keep it so the dashboard refresh can
+         * reconnect the overlay to the saved original PDF.
+         */
+        const responseWorkId = (
+          res.headers.get(
+            "x-mathgrade-work-id"
+          )
+          || ""
+        ).trim();
+
+        if (responseWorkId) {
+          ocrCurrentWorkId =
+            responseWorkId;
+        }
 
         if (!res.ok) {
           stopSignal.stopped = true;

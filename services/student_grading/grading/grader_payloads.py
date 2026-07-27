@@ -12,6 +12,7 @@ the model sees them.
 import json
 import os
 import re
+from collections import Counter
 from pathlib import Path
 from typing import List, Protocol, Any, Dict
 
@@ -961,8 +962,62 @@ def grade_payload_manifest(
             )
         )
 
-    total_score = sum(q.score for q in graded)
-    total_max = sum(q.max_points for q in graded if q.max_points)
+    expected_qids = [
+        str(
+            item.get("qid")
+            or item.get("question_id")
+            or ""
+        ).strip()
+        for item in items
+        if isinstance(item, dict)
+    ]
+
+    graded_qids = [
+        str(
+            grade.qid
+            or ""
+        ).strip()
+        for grade in graded
+    ]
+
+    missing_qids = list(
+        (
+            Counter(expected_qids)
+            - Counter(graded_qids)
+        ).elements()
+    )
+
+    unexpected_qids = list(
+        (
+            Counter(graded_qids)
+            - Counter(expected_qids)
+        ).elements()
+    )
+
+    if (
+        missing_qids
+        or unexpected_qids
+        or len(graded) != len(items)
+    ):
+        raise RuntimeError(
+            "Grading coverage check failed after AI grading. "
+            f"Expected {len(items)} graded payloads but received "
+            f"{len(graded)}. Missing: "
+            f"{missing_qids or 'none'}. Unexpected: "
+            f"{unexpected_qids or 'none'}. "
+            "No partial grades.json was written."
+        )
+
+    total_score = sum(
+        question.score
+        for question in graded
+    )
+
+    total_max = sum(
+        question.max_points
+        for question in graded
+        if question.max_points
+    )
 
     if debug:
         print("=" * 80)
@@ -978,6 +1033,18 @@ def grade_payload_manifest(
     )
 
     bundle_dict = bundle.to_dict()
+
+    bundle_dict["coverage"] = {
+        "manifest_count": len(
+            items
+        ),
+        "graded_count": len(
+            graded
+        ),
+        "missing_qids": [],
+        "unexpected_qids": [],
+        "complete": True,
+    }
 
     question_grade_dicts = bundle_dict.get(
         "questions"

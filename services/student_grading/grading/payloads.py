@@ -1373,13 +1373,24 @@ def _align_student_answers_to_reference(
 ) -> tuple[
     dict[Key, str],
     dict[Key, str],
+    dict[Key, Key],
 ]:
     """
     Match submitted answers to reference parts.
 
-    An answer without a part marker is mapped automatically only when its
-    question has exactly one gradeable reference part. This handles Q4 and
-    Q5 without guessing when a question has multiple parts.
+    Returns:
+      - answers keyed by the reference QID used for grading;
+      - submitted answers that could not be matched safely;
+      - a map from each grading key to its original OCR/source key.
+
+    Besides exact matches and sole-part aliases, this repairs an OCR
+    numbering-shift pattern such as:
+
+      Q6, Q7(b), Q7(c), ... -> Q6(a), Q6(b), Q6(c), ...
+
+    The repair is applied only when the complete consecutive source run
+    has exactly the same number of answers as the remaining reference
+    parts of the anchor question.
     """
     normalized_reference_keys = {
         _normalize_key(key)
@@ -1397,8 +1408,14 @@ def _align_student_answers_to_reference(
             [],
         ).append(key)
 
+    for qnum in reference_by_question:
+        reference_by_question[qnum].sort(
+            key=lambda item: item[1]
+        )
+
     aligned: dict[Key, str] = {}
-    unmatched: dict[Key, str] = {}
+    source_key_by_target: dict[Key, Key] = {}
+    pending: list[tuple[Key, str]] = []
 
     for raw_key, value in student_answers.items():
         key = _normalize_key(
@@ -1436,12 +1453,149 @@ def _align_student_answers_to_reference(
             target_key is None
             or target_key in aligned
         ):
-            unmatched[key] = cleaned
+            pending.append(
+                (
+                    key,
+                    cleaned,
+                )
+            )
             continue
 
         aligned[target_key] = cleaned
+        source_key_by_target[
+            target_key
+        ] = key
 
-    return aligned, unmatched
+    consumed_pending_indexes: set[int] = set()
+
+    for pending_index, (
+        anchor_key,
+        anchor_answer,
+    ) in enumerate(pending):
+        if pending_index in consumed_pending_indexes:
+            continue
+
+        anchor_qnum, anchor_part = anchor_key
+
+        # The repair sequence must begin with an answer whose OCR
+        # detected a question number but no part.
+        if anchor_part:
+            continue
+
+        reference_parts = [
+            key
+            for key in reference_by_question.get(
+                anchor_qnum,
+                [],
+            )
+            if key not in aligned
+        ]
+
+        if len(reference_parts) <= 1:
+            continue
+
+        source_run: list[
+            tuple[int, Key, str]
+        ] = [
+            (
+                pending_index,
+                anchor_key,
+                anchor_answer,
+            )
+        ]
+
+        for next_index in range(
+            pending_index + 1,
+            len(pending),
+        ):
+            if len(source_run) >= len(
+                reference_parts
+            ):
+                break
+
+            next_key, next_answer = (
+                pending[next_index]
+            )
+
+            if next_index in consumed_pending_indexes:
+                break
+
+            next_qnum, next_part = next_key
+
+            # OCR commonly increments the question number but continues
+            # detecting the remaining part labels.
+            if (
+                next_qnum
+                != anchor_qnum + 1
+                or not next_part
+            ):
+                break
+
+            source_run.append(
+                (
+                    next_index,
+                    next_key,
+                    next_answer,
+                )
+            )
+
+        # Never guess from an incomplete sequence.
+        if len(source_run) != len(
+            reference_parts
+        ):
+            continue
+
+        source_parts = [
+            source_key[1]
+            for (
+                _index,
+                source_key,
+                _answer,
+            ) in source_run[1:]
+        ]
+
+        # The shifted OCR parts must still be in increasing order.
+        if source_parts != sorted(
+            source_parts
+        ):
+            continue
+
+        for target_key, (
+            source_index,
+            source_key,
+            source_answer,
+        ) in zip(
+            reference_parts,
+            source_run,
+        ):
+            aligned[target_key] = (
+                source_answer
+            )
+
+            source_key_by_target[
+                target_key
+            ] = source_key
+
+            consumed_pending_indexes.add(
+                source_index
+            )
+
+    unmatched: dict[Key, str] = {}
+
+    for pending_index, (
+        key,
+        cleaned,
+    ) in enumerate(pending):
+        if pending_index in consumed_pending_indexes:
+            continue
+
+        unmatched[key] = cleaned
+
+    return (
+        aligned,
+        unmatched,
+        source_key_by_target,
+    )
 
 
 def _write_student_alignment_debug(
@@ -1451,6 +1605,7 @@ def _write_student_alignment_debug(
     matched_answers: dict[Key, str],
     unmatched_answers: dict[Key, str],
     reference_keys: set[Key],
+    source_key_by_target: dict[Key, Key],
 ) -> None:
     """
     Write QID diagnostics without copying all student answer content.
@@ -1465,12 +1620,39 @@ def _write_student_alignment_debug(
         - set(matched_answers.keys())
     )
 
+    alignment_map: list[dict[str, Any]] = []
+
+    for target_key in sorted(
+        matched_answers.keys()
+    ):
+        source_key = (
+            source_key_by_target.get(
+                target_key,
+                target_key,
+            )
+        )
+
+        alignment_map.append(
+            {
+                "source_qid": _qid_from_key(
+                    source_key
+                ),
+                "target_qid": _qid_from_key(
+                    target_key
+                ),
+                "recovered": (
+                    source_key
+                    != target_key
+                ),
+            }
+        )
+
     payload = {
+        # Preserve OCR order here because it is useful when diagnosing
+        # a shifted sequence.
         "parsed_student_qids": [
             _qid_from_key(key)
-            for key in sorted(
-                parsed_answers.keys()
-            )
+            for key in parsed_answers.keys()
         ],
         "matched_qids": [
             _qid_from_key(key)
@@ -1478,11 +1660,15 @@ def _write_student_alignment_debug(
                 matched_answers.keys()
             )
         ],
+        "alignment_map": alignment_map,
+        "recovered_alignment_count": sum(
+            1
+            for item in alignment_map
+            if item["recovered"]
+        ),
         "unmatched_student_qids": [
             _qid_from_key(key)
-            for key in sorted(
-                unmatched_answers.keys()
-            )
+            for key in unmatched_answers.keys()
         ],
         "reference_only_qids": [
             _qid_from_key(key)
@@ -1618,19 +1804,40 @@ def _load_student_answers_for_payloads(
             "structured_question_part_headings"
         )
 
-    return merged, source
+    return merged, source, {}
 
 
 def _student_payload_block(
     *,
     source: str,
     answer_text: str,
+    source_key: Key,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    metadata = metadata if isinstance(metadata, dict) else {}
+    metadata = (
+        metadata
+        if isinstance(
+            metadata,
+            dict,
+        )
+        else {}
+    )
+
+    normalized_source_key = (
+        _normalize_key(
+            source_key
+        )
+    )
 
     return {
         "source": source,
+        "source_qid": _qid_from_key(
+            normalized_source_key
+        ),
+        "source_key": {
+            "qnum": normalized_source_key[0],
+            "part": normalized_source_key[1],
+        },
         "latex_raw": answer_text,
         "latex_clean": "",
         "visual_elements": list(
@@ -1688,6 +1895,7 @@ def _build_payloads_from_full_solution_json(
     (
         student_answers,
         unmatched_student_answers,
+        source_key_by_target,
     ) = _align_student_answers_to_reference(
         parsed_student_answers,
         set(ref_parts.keys()),
@@ -1707,6 +1915,9 @@ def _build_payloads_from_full_solution_json(
         reference_keys=set(
             ref_parts.keys()
         ),
+        source_key_by_target=(
+            source_key_by_target
+        ),
     )
 
     if not student_answers:
@@ -1714,6 +1925,20 @@ def _build_payloads_from_full_solution_json(
             "Student answers were parsed, but none matched a "
             "gradeable reference part. Check "
             "debug_student_answer_alignment.json for QID mismatches."
+        )
+
+    if unmatched_student_answers:
+        missing_qids = ", ".join(
+            _qid_from_key(key)
+            for key in unmatched_student_answers.keys()
+        )
+
+        raise RuntimeError(
+            "Grading coverage check failed before AI grading. "
+            "Some submitted answers could not be matched safely "
+            f"to the selected reference: {missing_qids}. "
+            "No partial grading result was created. Check "
+            "debug_student_answer_alignment.json."
         )
 
     # Only submitted and matched parts become grading payloads.
@@ -1736,8 +1961,21 @@ def _build_payloads_from_full_solution_json(
         if not reference_block:
             reference_block = "\n\n".join(part for part in [question_tex, solution_tex] if part).strip()
 
-        student_latex = _to_clean_text(student_answers.get(key))
-        max_points = _to_float_or_default(ref.get("max_points"), default_max_points)
+        student_latex = _to_clean_text(
+            student_answers.get(key)
+        )
+
+        student_source_key = (
+            source_key_by_target.get(
+                key,
+                key,
+            )
+        )
+
+        max_points = _to_float_or_default(
+            ref.get("max_points"),
+            default_max_points,
+        )
         rubric = ref.get("rubric") if isinstance(ref.get("rubric"), dict) else {}
         metadata = ref.get("metadata") if isinstance(ref.get("metadata"), dict) else {}
 
@@ -1765,8 +2003,21 @@ def _build_payloads_from_full_solution_json(
             "student": _student_payload_block(
                 source=student_source,
                 answer_text=student_latex,
-                metadata=student_metadata.get(key),
+                source_key=student_source_key,
+                metadata=student_metadata.get(
+                    student_source_key
+                ),
             ),
+            "alignment": {
+                "source_qid": _qid_from_key(
+                    student_source_key
+                ),
+                "target_qid": qid,
+                "recovered": (
+                    student_source_key
+                    != key
+                ),
+            },
             "ai_input": {
                 "question_latex": question_tex,
                 "reference_solution_latex": solution_tex,
@@ -1854,11 +2105,48 @@ def _build_payloads_from_full_solution_json(
         "matched_submission_count": len(
             student_answers
         ),
+        "coverage": {
+            "submitted_count": len(
+                parsed_student_answers
+            ),
+            "matched_count": len(
+                student_answers
+            ),
+            "payload_count": len(
+                items
+            ),
+            "complete": (
+                len(parsed_student_answers)
+                == len(student_answers)
+                == len(items)
+            ),
+        },
+        "alignment_map": [
+            {
+                "source_qid": _qid_from_key(
+                    source_key_by_target.get(
+                        key,
+                        key,
+                    )
+                ),
+                "target_qid": _qid_from_key(
+                    key
+                ),
+                "recovered": (
+                    source_key_by_target.get(
+                        key,
+                        key,
+                    )
+                    != key
+                ),
+            }
+            for key in sorted(
+                student_answers.keys()
+            )
+        ],
         "unmatched_student_qids": [
             _qid_from_key(key)
-            for key in sorted(
-                unmatched_student_answers.keys()
-            )
+            for key in unmatched_student_answers.keys()
         ],
         "reference_only_qids": [
             _qid_from_key(key)
@@ -1965,6 +2253,7 @@ def _build_payloads_from_reference_pdf(
             "student": _student_payload_block(
                 source=student_source,
                 answer_text=student_latex,
+                source_key=key,
                 metadata=student_metadata.get(key),
             ),
             "ai_input": {
@@ -2091,6 +2380,7 @@ def _build_payloads_from_reference_tex(
             "student": _student_payload_block(
                 source=student_source,
                 answer_text=student_latex,
+                source_key=key,
                 metadata=student_metadata.get(key),
             ),
             "ai_input": {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -763,17 +764,83 @@ def build_student_feedback_json(
             )
         )
 
-        location = (
-            answer_locations.get(
-                (
-                    question_id,
-                    part_key,
-                ),
-                {},
+        try:
+            source_question_id = int(
+                part.get(
+                    "source_question_id"
+                )
             )
-            if question_id is not None
-            else {}
+        except Exception:
+            source_question_id = (
+                question_id
+            )
+
+        source_part_key = normalize_part(
+            str(
+                part.get(
+                    "source_part_key"
+                )
+                if part.get(
+                    "source_part_key"
+                ) is not None
+                else part_key
+            )
         )
+
+        location: dict[str, Any] = {}
+
+        # First try the original OCR identity. For example, grading Q6(e)
+        # may need coordinates stored by OCR under Q7(f).
+        if source_question_id is not None:
+            location = (
+                answer_locations.get(
+                    (
+                        source_question_id,
+                        source_part_key,
+                    ),
+                    {},
+                )
+            )
+
+        # Fall back to the corrected grading identity.
+        if (
+            not location
+            and question_id is not None
+        ):
+            location = (
+                answer_locations.get(
+                    (
+                        question_id,
+                        part_key,
+                    ),
+                    {},
+                )
+            )
+
+        # Questions such as Q4 and Q5 may be stored by OCR without a part,
+        # while the reference calls their sole part "(a)".
+        if (
+            not location
+            and question_id is not None
+        ):
+            same_question_locations = [
+                candidate
+                for (
+                    candidate_question_id,
+                    _candidate_part_key,
+                ), candidate in (
+                    answer_locations.items()
+                )
+                if candidate_question_id
+                == question_id
+            ]
+
+            if len(
+                same_question_locations
+            ) == 1:
+                location = (
+                    same_question_locations[0]
+                )
 
         feedback = {
             "summary": str(
@@ -1178,9 +1245,79 @@ def build_graded_result_json(
             [],
         ).append(grade)
 
+    manifest_qids = [
+        (
+                _normalize_qid(
+                    str(
+                        item.get("qid")
+                        or ""
+                    )
+                )
+                or str(
+            item.get("qid")
+            or ""
+        ).strip()
+        )
+        for item in manifest_items
+        if isinstance(item, dict)
+    ]
+
+    grade_qids = [
+        (
+                _normalize_qid(
+                    str(
+                        grade.get("qid")
+                        or grade.get("id")
+                        or grade.get(
+                            "question_id"
+                        )
+                        or ""
+                    )
+                )
+                or str(
+            grade.get("qid")
+            or grade.get("id")
+            or grade.get(
+                "question_id"
+            )
+            or ""
+        ).strip()
+        )
+        for grade in grade_items
+        if isinstance(grade, dict)
+    ]
+
+    missing_grade_qids = list(
+        (
+                Counter(manifest_qids)
+                - Counter(grade_qids)
+        ).elements()
+    )
+
+    unexpected_grade_qids = list(
+        (
+                Counter(grade_qids)
+                - Counter(manifest_qids)
+        ).elements()
+    )
+
+    if (
+            missing_grade_qids
+            or unexpected_grade_qids
+            or len(manifest_qids)
+            != len(grade_qids)
+    ):
+        raise RuntimeError(
+            "Cannot build a partial graded result. "
+            f"Manifest parts: {len(manifest_qids)}; "
+            f"grade parts: {len(grade_qids)}; "
+            f"missing: {missing_grade_qids or 'none'}; "
+            f"unexpected: {unexpected_grade_qids or 'none'}."
+        )
+
     payload_dir = (
-        manifest_json.parent
-        / "payloads"
+            manifest_json.parent
+            / "payloads"
     )
 
     parts: list[dict[str, Any]] = []
@@ -1269,6 +1406,42 @@ def build_graded_result_json(
             else {}
         )
 
+        student_source_key = (
+            student.get("source_key")
+            if isinstance(
+                student.get("source_key"),
+                dict,
+            )
+            else {}
+        )
+
+        try:
+            source_question_id = int(
+                student_source_key.get(
+                    "qnum"
+                )
+            )
+        except Exception:
+            source_question_id = (
+                question_id
+            )
+
+        source_part_raw = (
+            student_source_key.get(
+                "part"
+            )
+            if "part"
+            in student_source_key
+            else part_key
+        )
+
+        source_part_key = normalize_part(
+            str(
+                source_part_raw
+                or ""
+            )
+        )
+
         rubric = (
             payload.get("rubric")
             if isinstance(
@@ -1354,6 +1527,12 @@ def build_graded_result_json(
                 "qid": qid,
                 "question_id": question_id,
                 "part_key": part_key,
+                "source_question_id": (
+                    source_question_id
+                ),
+                "source_part_key": (
+                    source_part_key
+                ),
                 "question_text": str(
                     reference.get(
                         "question_text"
@@ -1474,6 +1653,12 @@ def build_graded_result_json(
                         question_id
                     ),
                     "part_key": part_key,
+                    "source_question_id": (
+                        question_id
+                    ),
+                    "source_part_key": (
+                        part_key
+                    ),
                     "question_text": "",
                     "student_answer": "",
                     "reference_solution": "",
@@ -1640,7 +1825,18 @@ def build_graded_result_json(
             manifest.get("subject")
             or "math"
         ),
-                "scoring": {
+        "coverage": {
+            "manifest_count": len(
+                manifest_qids
+            ),
+            "graded_count": len(
+                grade_qids
+            ),
+            "missing_qids": [],
+            "unexpected_qids": [],
+            "complete": True,
+        },
+        "scoring": {
             "mode": scoring_mode,
             "score_available": (
                 score_available
