@@ -3728,6 +3728,175 @@ if (resultType === "tex") {
       return bestScore >= 0.34 ? best : null;
     }
 
+    function overlayAnnotationSequence(
+      annotation,
+      fallback = 0
+    ) {
+      const markerMatch = String(
+        annotation?.marker || ""
+      ).match(/\d+/);
+
+      const markerNumber = markerMatch
+        ? Number(markerMatch[0])
+        : Number.NaN;
+
+      if (Number.isFinite(markerNumber)) {
+        return markerNumber;
+      }
+
+      const sequence = Number(
+        annotation?.sequence
+      );
+
+      return Number.isFinite(sequence)
+        ? sequence
+        : fallback;
+    }
+
+    function stabilizeFeedbackOverlayOrder(
+      annotations,
+      pageCount
+    ) {
+      const safePageCount = Math.max(
+        1,
+        Number(pageCount) || 1
+      );
+
+      const normalized = annotations.map(
+        (annotation, index) => ({
+          ...annotation,
+          sequence: Number.isFinite(
+            Number(annotation.sequence)
+          )
+            ? Number(annotation.sequence)
+            : index + 1
+        })
+      );
+
+      /*
+       * Keep annotations whose page is unknown beside the nearest
+       * preceding known annotation.
+       *
+       * When there is no preceding known page, use the next known
+       * page. Only fall back to page 1 when no page information
+       * exists anywhere.
+       */
+      let cursor = 0;
+
+      while (cursor < normalized.length) {
+        if (normalized[cursor].pageKnown) {
+          cursor += 1;
+          continue;
+        }
+
+        const runStart = cursor;
+
+        while (
+          cursor < normalized.length &&
+          !normalized[cursor].pageKnown
+        ) {
+          cursor += 1;
+        }
+
+        const previous =
+          runStart > 0
+            ? normalized[runStart - 1]
+            : null;
+
+        const next =
+          cursor < normalized.length
+            ? normalized[cursor]
+            : null;
+
+        const inferredPage = Math.max(
+          1,
+          Math.min(
+            safePageCount,
+            Number(
+              previous?.pageNumber ||
+              next?.pageNumber ||
+              1
+            ) || 1
+          )
+        );
+
+        for (
+          let index = runStart;
+          index < cursor;
+          index += 1
+        ) {
+          normalized[index].pageNumber =
+            inferredPage;
+        }
+      }
+
+      /*
+       * Arrange approximate markers according to their numerical
+       * position among the comments assigned to the page.
+       *
+       * Markers backed by OCR regions retain their real coordinates.
+       */
+      const annotationsByPage = new Map();
+
+      normalized.forEach((annotation) => {
+        const pageNumber = Math.max(
+          1,
+          Math.min(
+            safePageCount,
+            Number(annotation.pageNumber) || 1
+          )
+        );
+
+        annotation.pageNumber = pageNumber;
+
+        const pageItems =
+          annotationsByPage.get(pageNumber) || [];
+
+        pageItems.push(annotation);
+
+        annotationsByPage.set(
+          pageNumber,
+          pageItems
+        );
+      });
+
+      annotationsByPage.forEach((pageItems) => {
+        pageItems.sort(
+          (left, right) =>
+            overlayAnnotationSequence(left) -
+            overlayAnnotationSequence(right)
+        );
+
+        pageItems.forEach((annotation, index) => {
+          /*
+           * Do not change actual OCR coordinates.
+           */
+          if (annotation.region) {
+            return;
+          }
+
+          const relativePosition =
+            (index + 1) /
+            (pageItems.length + 1);
+
+          annotation.anchor = {
+            ...annotation.anchor,
+            x: 0.72,
+            y: Math.min(
+              0.90,
+              Math.max(
+                0.10,
+                0.10 +
+                relativePosition * 0.80
+              )
+            )
+          };
+        });
+      });
+
+      return normalized;
+    }
+
     function feedbackOverlayAnnotations(data, pageCount) {
       const explicit =
         data?.visual_overlay?.annotations ||
@@ -3736,44 +3905,116 @@ if (resultType === "tex") {
         [];
 
       if (Array.isArray(explicit) && explicit.length) {
-        return explicit.map((item, index) => {
-          const requestedPage = Number(item.page_number || 1);
-          const severity = String(item.severity || item.kind || "error");
-          const region = item.region && typeof item.region === "object"
-            ? item.region
-            : null;
+        const mapped = explicit.map((item, index) => {
+          const region =
+            item.region &&
+            typeof item.region === "object"
+              ? item.region
+              : null;
+
+          const requestedPageValue =
+            item.page_number ??
+            region?.page_number ??
+            null;
+
+          const requestedPage = Number(
+            requestedPageValue
+          );
+
+          const pageKnown = !!(
+            requestedPageValue !== null &&
+            requestedPageValue !== "" &&
+            Number.isFinite(requestedPage) &&
+            requestedPage > 0
+          );
+
+          const severity = String(
+            item.severity ||
+            item.kind ||
+            "error"
+          );
 
           return {
-            id: String(item.id || `feedback-${index + 1}`),
-            marker: String(item.marker || item.label || index + 1),
-            pageNumber: Math.max(
-              1,
-              Math.min(
-                pageCount,
-                Number.isFinite(requestedPage) ? requestedPage : 1
-              )
+            id: String(
+              item.id ||
+              `feedback-${index + 1}`
             ),
-            title: String(item.title || `Feedback ${index + 1}`),
-            text: String(item.text || item.note || ""),
-            category: overlayCategory(item.category, severity),
+
+            marker: String(
+              item.marker ||
+              item.label ||
+              index + 1
+            ),
+
+            sequence: index + 1,
+            pageKnown,
+
+            pageNumber: pageKnown
+              ? Math.max(
+                  1,
+                  Math.min(
+                    pageCount,
+                    requestedPage
+                  )
+                )
+              : 1,
+
+            title: String(
+              item.title ||
+              `Feedback ${index + 1}`
+            ),
+
+            text: String(
+              item.text ||
+              item.note ||
+              ""
+            ),
+
+            category: overlayCategory(
+              item.category,
+              severity
+            ),
+
             severity,
+
             anchor: {
-              x: Number(item.anchor?.x ?? item.x ?? 0.72),
-              y: Number(item.anchor?.y ?? item.y ?? (0.14 + index * 0.12))
+              x: Number(
+                item.anchor?.x ??
+                item.x ??
+                0.72
+              ),
+
+              y: Number(
+                item.anchor?.y ??
+                item.y ??
+                0.14 + index * 0.12
+              )
             },
+
             region,
+
             placement: String(
               item.placement || (
                 item.exact === true
                   ? "evidence"
-                  : (region ? "answer" : "approximate")
+                  : (
+                      region
+                        ? "answer"
+                        : "approximate"
+                    )
               )
             ),
+
             exact:
-              item.exact === true
-              || item.placement === "evidence"
+              item.exact === true ||
+              item.placement === "evidence"
           };
         });
+
+        return stabilizeFeedbackOverlayOrder(
+          mapped,
+          pageCount
+        );
       }
 
       const parts = Array.isArray(data?.parts) ? data.parts : [];
@@ -3934,16 +4175,31 @@ if (resultType === "tex") {
             ? "evidence"
             : (region ? "answer" : "approximate");
 
+          const requestedPageValue =
+            region?.page_number ??
+            pageNumbers[0] ??
+            null;
+
           const requestedPage = Number(
-            region?.page_number || pageNumbers[0] || 1
+            requestedPageValue
           );
-          const pageNumber = Math.max(
-            1,
-            Math.min(
-              pageCount,
-              Number.isFinite(requestedPage) ? requestedPage : 1
-            )
+
+          const pageKnown = !!(
+            requestedPageValue !== null &&
+            requestedPageValue !== "" &&
+            Number.isFinite(requestedPage) &&
+            requestedPage > 0
           );
+
+          const pageNumber = pageKnown
+            ? Math.max(
+                1,
+                Math.min(
+                  pageCount,
+                  requestedPage
+                )
+              )
+            : 1;
 
           let anchor;
           if (region) {
@@ -3967,6 +4223,8 @@ if (resultType === "tex") {
           annotations.push({
             id: `feedback-${markerNumber}`,
             marker: String(markerNumber),
+            sequence: markerNumber,
+            pageKnown,
             pageNumber,
             title: spec.title,
             text: spec.text,
@@ -3986,7 +4244,10 @@ if (resultType === "tex") {
         });
       });
 
-      return annotations;
+      return stabilizeFeedbackOverlayOrder(
+        annotations,
+        pageCount
+      );
     }
 
     function overlaySeverityClass(value) {
@@ -4528,9 +4789,17 @@ if (resultType === "tex") {
         feedbackOverlayPreview.innerHTML = "";
 
         for (const page of pages) {
-          const pageAnnotations = annotations.filter(
-            (annotation) => annotation.pageNumber === page.page_number
-          );
+          const pageAnnotations = annotations
+            .filter(
+              (annotation) =>
+                annotation.pageNumber ===
+                page.page_number
+            )
+            .sort(
+              (left, right) =>
+                overlayAnnotationSequence(left) -
+                overlayAnnotationSequence(right)
+            );
           const pageElement = await renderFeedbackOverlayPage(
             page,
             pageAnnotations
