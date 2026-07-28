@@ -1468,6 +1468,155 @@ def _align_student_answers_to_reference(
 
     consumed_pending_indexes: set[int] = set()
 
+    # Repair a partial OCR question-number shift.
+    #
+    # Example:
+    #
+    #   Correctly detected:
+    #     Q6(a), Q6(c)
+    #
+    #   Incorrectly detected:
+    #     Q7(b), Q7(d), Q7(e), Q7(f)
+    #
+    #   Recovered as:
+    #     Q6(b), Q6(d), Q6(e), Q6(f)
+    #
+    # This is safe only when:
+    #   1. the OCR source key is not a valid reference key;
+    #   2. the same part exists exactly one question earlier;
+    #   3. that target part has not already been matched; and
+    #   4. either another part of the target question already matched,
+    #      or at least two parts share the same numbering shift.
+    #
+    # Optional reference questions that the student did not answer are
+    # unaffected because this operates only on submitted OCR answers.
+    shifted_candidates: dict[
+        int,
+        list[
+            tuple[
+                int,
+                Key,
+                Key,
+                str,
+            ]
+        ],
+    ] = {}
+
+    for pending_index, (
+        source_key,
+        source_answer,
+    ) in enumerate(pending):
+        source_qnum, source_part = (
+            source_key
+        )
+
+        if (
+            source_qnum <= 1
+            or not source_part
+        ):
+            continue
+
+        # Do not reinterpret a real reference key. Pending valid keys
+        # can occur when OCR accidentally duplicated the same answer.
+        if (
+            source_key
+            in normalized_reference_keys
+        ):
+            continue
+
+        shifted_target = _normalize_key(
+            (
+                source_qnum - 1,
+                source_part,
+            )
+        )
+
+        if (
+            shifted_target
+            not in normalized_reference_keys
+            or shifted_target in aligned
+        ):
+            continue
+
+        shifted_candidates.setdefault(
+            shifted_target[0],
+            [],
+        ).append(
+            (
+                pending_index,
+                source_key,
+                shifted_target,
+                source_answer,
+            )
+        )
+
+    for (
+        target_qnum,
+        candidates,
+    ) in shifted_candidates.items():
+        target_has_matched_neighbor = any(
+            matched_key[0]
+            == target_qnum
+            for matched_key
+            in aligned.keys()
+        )
+
+        # One isolated shifted label is too ambiguous unless another
+        # part of the target question was already matched. Multiple
+        # consistent shifted parts provide enough structural evidence.
+        if (
+            not target_has_matched_neighbor
+            and len(candidates) < 2
+        ):
+            continue
+
+        candidate_target_keys = [
+            target_key
+            for (
+                _pending_index,
+                _source_key,
+                target_key,
+                _source_answer,
+            ) in candidates
+        ]
+
+        # Never let two OCR answers map to the same reference part.
+        if (
+            len(candidate_target_keys)
+            != len(
+                set(candidate_target_keys)
+            )
+        ):
+            continue
+
+        for (
+            pending_index,
+            source_key,
+            target_key,
+            source_answer,
+        ) in candidates:
+            if (
+                pending_index
+                in consumed_pending_indexes
+                or target_key in aligned
+            ):
+                continue
+
+            aligned[target_key] = (
+                source_answer
+            )
+
+            source_key_by_target[
+                target_key
+            ] = source_key
+
+            consumed_pending_indexes.add(
+                pending_index
+            )
+
+    # Keep the existing complete-sequence recovery below. It handles
+    # cases where the whole remainder of a question shifted together,
+    # beginning with an answer that has no part label.
     for pending_index, (
         anchor_key,
         anchor_answer,
