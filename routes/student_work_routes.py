@@ -9,7 +9,10 @@ from fastapi.responses import FileResponse, Response
 
 from core.security import require_session
 from services.student_access import get_student_code_record
-from services.student_work_store import resolve_student_work_file
+from services.student_work_store import (
+    resolve_student_work_file,
+    resolve_teacher_test_work_file,
+)
 
 router = APIRouter(prefix="/routes/student", tags=["student-work"])
 
@@ -91,7 +94,45 @@ def _authorized_work_file(
     requested_student_code: str,
     work_id: str,
     filename: str,
+    work_scope: str = "",
 ) -> tuple[str, Path]:
+    normalized_scope = str(
+        work_scope or ""
+    ).strip().lower()
+
+    if normalized_scope == "teacher_test":
+        if session.get("role") != "teacher":
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Teacher-test work requires "
+                    "a teacher session."
+                ),
+            )
+
+        teacher_id = str(
+            session.get("teacher_id")
+            or session.get("sub")
+            or ""
+        ).strip()
+
+        if not teacher_id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Missing teacher profile "
+                    "in session."
+                ),
+            )
+
+        path = resolve_teacher_test_work_file(
+            teacher_id,
+            work_id,
+            filename,
+        )
+
+        return "", path
+
     student_code = _session_student_code(
         session,
         requested_student_code,
@@ -174,6 +215,7 @@ def _page_url(
     filename: str,
     page_number: int,
     student_code: str = "",
+    work_scope: str = "",
 ) -> str:
     query = {
         "work_id": work_id,
@@ -182,9 +224,19 @@ def _page_url(
     }
 
     if student_code:
-        query["student_code"] = student_code
+        query["student_code"] = (
+            student_code
+        )
 
-    return "/routes/student/work_page?" + urlencode(query)
+    if work_scope:
+        query["work_scope"] = (
+            work_scope
+        )
+
+    return (
+        "/routes/student/work_page?"
+        + urlencode(query)
+    )
 
 
 @router.get("/work_file")
@@ -192,13 +244,19 @@ def student_work_file(
     work_id: str,
     filename: str,
     student_code: str = "",
-    _session: dict = Depends(require_session),
+    work_scope: str = "",
+    _session: dict = Depends(
+        require_session
+    ),
 ):
-    _resolved_code, path = _authorized_work_file(
-        _session,
-        student_code,
-        work_id,
-        filename,
+    _resolved_code, path = (
+        _authorized_work_file(
+            _session,
+            student_code,
+            work_id,
+            filename,
+            work_scope,
+        )
     )
     suffix = path.suffix.lower()
 
@@ -219,18 +277,31 @@ def student_work_manifest(
     work_id: str,
     filename: str,
     student_code: str = "",
-    _session: dict = Depends(require_session),
+    work_scope: str = "",
+    _session: dict = Depends(
+        require_session
+    ),
 ):
-    resolved_code, path = _authorized_work_file(
-        _session,
-        student_code,
-        work_id,
-        filename,
+    resolved_code, path = (
+        _authorized_work_file(
+            _session,
+            student_code,
+            work_id,
+            filename,
+            work_scope,
+        )
     )
 
     page_student_code = (
         resolved_code
-        if _session.get("role") == "teacher"
+        if (
+            _session.get("role")
+            == "teacher"
+            and str(
+                work_scope or ""
+            ).strip().lower()
+            != "teacher_test"
+        )
         else ""
     )
 
@@ -251,6 +322,7 @@ def student_work_manifest(
                         filename,
                         1,
                         page_student_code,
+                        work_scope,
                     ),
                 }
             ],
@@ -287,6 +359,7 @@ def student_work_manifest(
                             filename,
                             page_number,
                             page_student_code,
+                            work_scope,
                         ),
                     }
                 )
@@ -313,13 +386,19 @@ def student_work_page(
     page_number: int = 1,
     scale: float = 1.7,
     student_code: str = "",
-    _session: dict = Depends(require_session),
+    work_scope: str = "",
+    _session: dict = Depends(
+        require_session
+    ),
 ):
-    _resolved_code, path = _authorized_work_file(
-        _session,
-        student_code,
-        work_id,
-        filename,
+    _resolved_code, path = (
+        _authorized_work_file(
+            _session,
+            student_code,
+            work_id,
+            filename,
+            work_scope,
+        )
     )
     suffix = path.suffix.lower()
 

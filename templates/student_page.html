@@ -518,16 +518,20 @@
       PAGE_QUERY.get(
         "graded_result_filename"
       ) || "";
-
     function savedStudentWorkQuery(
       workId,
       filename,
-      studentCode = ""
+      studentCode = "",
+      workScope = ""
     ) {
       const query =
         new URLSearchParams({
-          work_id: String(workId || ""),
-          filename: String(filename || "")
+          work_id: String(
+            workId || ""
+          ),
+          filename: String(
+            filename || ""
+          )
         });
 
       if (studentCode) {
@@ -537,34 +541,45 @@
         );
       }
 
+      if (workScope) {
+        query.set(
+          "work_scope",
+          String(workScope)
+        );
+      }
+
       return query.toString();
     }
 
     const ENDPOINT_STUDENT_WORK_FILE = (
       workId,
       filename,
-      studentCode = ""
+      studentCode = "",
+      workScope = ""
     ) => (
       API_BASE +
       "/routes/student/work_file?" +
       savedStudentWorkQuery(
         workId,
         filename,
-        studentCode
+        studentCode,
+        workScope
       )
     );
 
     const ENDPOINT_STUDENT_WORK_MANIFEST = (
       workId,
       filename,
-      studentCode = ""
+      studentCode = "",
+      workScope = ""
     ) => (
       API_BASE +
       "/routes/student/work_manifest?" +
       savedStudentWorkQuery(
         workId,
         filename,
-        studentCode
+        studentCode,
+        workScope
       )
     );
 
@@ -700,6 +715,7 @@
     let ocrGeneratedBundleJson = "";
     let ocrGeneratedOriginalTex = "";
     let ocrCurrentWorkId = "";
+    let ocrCurrentWorkScope = "";
     let ocrPreviewTimer = null;
     let ocrPreviewRenderToken = 0;
     let ocrMathJaxPromise = null;
@@ -3528,6 +3544,11 @@ if (resultType === "tex") {
           TEACHER_REVIEW_STUDENT_CODE ||
           "";
 
+        const workScope =
+          parsed.searchParams.get(
+            "work_scope"
+          ) || "";
+
         setFeedbackOverlaySource(
           workId && filename
             ? {
@@ -3539,7 +3560,8 @@ if (resultType === "tex") {
 
                 workId,
                 filename,
-                studentCode
+                studentCode,
+                workScope
               }
             : null
         );
@@ -3562,6 +3584,16 @@ if (resultType === "tex") {
         storedWork?.work_id ||
         storedWork?.exam_folder ||
         ""
+      ).trim();
+
+      const workScope = String(
+        storedWork?.work_scope ||
+        (
+          currentRole === "teacher" &&
+          !TEACHER_REVIEW_MODE
+            ? "teacher_test"
+            : ""
+        )
       ).trim();
 
       const original = files.find(
@@ -3610,9 +3642,13 @@ if (resultType === "tex") {
           workId,
           filename: original.filename,
           studentCode:
-            currentRole === "teacher"
+            (
+              currentRole === "teacher" &&
+              workScope !== "teacher_test"
+            )
               ? TEACHER_REVIEW_STUDENT_CODE
-              : ""
+              : "",
+          workScope
         });
 
         return true;
@@ -3726,7 +3762,9 @@ if (resultType === "tex") {
               feedbackOverlaySource.workId,
               feedbackOverlaySource.filename,
               feedbackOverlaySource
-                .studentCode || ""
+                .studentCode || "",
+              feedbackOverlaySource
+                .workScope || ""
             ),
             {
               cache: "no-store"
@@ -7359,7 +7397,11 @@ function parseStructuredOcrPreview(value) {
       );
     }
 
-    ocrCurrentWorkId = workId || "";
+    ocrCurrentWorkId =
+      workId || "";
+
+    ocrCurrentWorkScope =
+      "student";
 
     if (handwrittenFile) {
       handwrittenFile.value = "";
@@ -7863,8 +7905,10 @@ function wireSavedOcrButtons() {
 
     function updateUI() {
       const stu = studentTex.files[0];
+
       if (stu) {
         ocrCurrentWorkId = "";
+        ocrCurrentWorkScope = "";
       }
       const generated = ocrGeneratedBundleFile || ocrGeneratedTexFile;
       stuChip.style.display = (stu || generated) ? "inline-flex" : "none";
@@ -8070,9 +8114,24 @@ function wireSavedOcrButtons() {
           || ""
         ).trim();
 
+        const responseWorkScope = (
+          res.headers.get(
+            "x-mathgrade-work-scope"
+          )
+          || ""
+        ).trim();
+
         if (responseWorkId) {
           ocrCurrentWorkId =
             responseWorkId;
+
+          ocrCurrentWorkScope =
+            responseWorkScope ||
+            (
+              currentRole === "teacher"
+                ? "teacher_test"
+                : "student"
+            );
         }
 
         if (!res.ok) {
@@ -8244,10 +8303,29 @@ function wireSavedOcrButtons() {
           activateOcrReviewTab("preview");
         }
 
-        if (data.stored_work && data.stored_work.work_id) {
-          ocrCurrentWorkId = data.stored_work.work_id || "";
-          setFeedbackOverlaySourceFromStoredWork(data.stored_work, hw);
-          lines.push(`[${nowTag()}] OCR result saved to your work history.`);
+        if (
+          data.stored_work &&
+          data.stored_work.work_id
+        ) {
+          ocrCurrentWorkId =
+            data.stored_work.work_id || "";
+
+          ocrCurrentWorkScope =
+            data.stored_work.work_scope ||
+            (
+              currentRole === "teacher"
+                ? "teacher_test"
+                : "student"
+            );
+
+          setFeedbackOverlaySourceFromStoredWork(
+            data.stored_work,
+            hw
+          );
+
+          lines.push(
+            `[${nowTag()}] OCR result saved persistently.`
+          );
         }
 
         lines.push(`[${nowTag()}] Review the generated LaTeX, then click "Use this as LaTeX answer".`);
