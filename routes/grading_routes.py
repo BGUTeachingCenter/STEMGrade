@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
 import tempfile
 from datetime import datetime
@@ -77,6 +78,197 @@ def _response_for_path(
         media_type="text/plain; charset=utf-8",
         filename="graded_union.tex",
         headers=headers or {},
+    )
+
+
+TEACHER_TEST_STRUCTURED_ROOT = (
+    RUNS_ROOT
+    / "teacher_test_structured_results"
+)
+
+
+def _teacher_id_from_session(
+    session: dict[str, Any] | None,
+) -> str:
+    session = (
+        session
+        if isinstance(session, dict)
+        else {}
+    )
+
+    return str(
+        session.get("teacher_id")
+        or session.get("sub")
+        or ""
+    ).strip()
+
+
+def _publish_teacher_test_structured_result(
+    *,
+    source_path: Path,
+    teacher_id: str,
+) -> tuple[str, str]:
+    """
+    Copy the structured feedback JSON into a teacher-scoped location.
+
+    The returned URL can be fetched by the existing frontend after the main
+    PDF/TeX response arrives. This lets teacher test mode use the same modern
+    student_feedback_v1 renderer as ordinary student grading.
+    """
+    source_path = Path(
+        source_path
+    )
+
+    if (
+        not source_path.exists()
+        or not source_path.is_file()
+    ):
+        raise RuntimeError(
+            "The structured teacher-test feedback file was not created."
+        )
+
+    normalized_teacher_id = (
+        _safe_name(
+            teacher_id,
+            "teacher",
+        )
+    )
+
+    token = secrets.token_urlsafe(
+        24
+    )
+
+    teacher_root = (
+        TEACHER_TEST_STRUCTURED_ROOT
+        / normalized_teacher_id
+    )
+
+    teacher_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    target_path = (
+        teacher_root
+        / f"{token}.json"
+    )
+
+    shutil.copy2(
+        source_path,
+        target_path,
+    )
+
+    structured_url = (
+        "/routes/teacher_test/structured_result"
+        f"?token={quote(token)}"
+    )
+
+    return (
+        structured_url,
+        target_path.name,
+    )
+
+
+@router.get(
+    "/teacher_test/structured_result"
+)
+def teacher_test_structured_result(
+    token: str,
+    session: dict = Depends(
+        require_session
+    ),
+):
+    """
+    Serve one structured teacher-test grading result.
+
+    A teacher can access only files stored under their own teacher ID.
+    """
+    if session.get("role") != "teacher":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Teacher test feedback "
+                "requires a teacher session."
+            ),
+        )
+
+    teacher_id = (
+        _teacher_id_from_session(
+            session
+        )
+    )
+
+    if not teacher_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Missing teacher identity.",
+        )
+
+    safe_token = str(
+        token or ""
+    ).strip()
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9_-]{20,120}",
+        safe_token,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid teacher-test "
+                "feedback token."
+            ),
+        )
+
+    teacher_root = (
+        TEACHER_TEST_STRUCTURED_ROOT
+        / _safe_name(
+            teacher_id,
+            "teacher",
+        )
+    ).resolve()
+
+    result_path = (
+        teacher_root
+        / f"{safe_token}.json"
+    ).resolve()
+
+    try:
+        result_path.relative_to(
+            teacher_root
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Invalid teacher-test "
+                "feedback path."
+            ),
+        ) from error
+
+    if (
+        not result_path.exists()
+        or not result_path.is_file()
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Teacher-test structured "
+                "feedback was not found."
+            ),
+        )
+
+    return FileResponse(
+        path=str(result_path),
+        media_type="application/json",
+        filename=(
+            "student_feedback.json"
+        ),
+        headers={
+            "Cache-Control": (
+                "private, no-store"
+            ),
+        },
     )
 
 
@@ -1471,7 +1663,62 @@ async def _grade_tex_flow(
             ),
         )
 
-        response_headers: dict[str, str] = {}
+        response_headers: dict[
+            str,
+            str,
+        ] = {}
+
+        #  * Teacher test mode does not have a student_code or canonical
+        #  * student-work folder. Publish its student_feedback.json separately
+        #  * so the existing browser renderer can load the modern structured
+        #  * presentation instead of trying to interpret the generated TeX.
+        if session_role == "teacher":
+            teacher_test_id = (
+                _teacher_id_from_session(
+                    session
+                )
+            )
+
+            if not teacher_test_id:
+                raise RuntimeError(
+                    "Could not publish teacher-test feedback "
+                    "because the teacher identity is missing."
+                )
+
+            (
+                teacher_structured_url,
+                teacher_structured_filename,
+            ) = (
+                _publish_teacher_test_structured_result(
+                    source_path=(
+                        structured_persistent_path
+                    ),
+                    teacher_id=(
+                        teacher_test_id
+                    ),
+                )
+            )
+
+            response_headers[
+                "X-MathGrade-Structured-Url"
+            ] = teacher_structured_url
+
+            response_headers[
+                "X-MathGrade-Structured-Filename"
+            ] = (
+                teacher_structured_filename
+            )
+
+            trace.log(
+                "teacher_test",
+                "structured_feedback_published",
+                structured_url=(
+                    teacher_structured_url
+                ),
+                structured_filename=(
+                    teacher_structured_filename
+                ),
+            )
 
         if student_code and source_work_id:
             try:
@@ -1733,6 +1980,7 @@ async def grade_tex_chatgpt(
         job_id=job_id,
         session=session,
         request=request,
+        selected_exam_id=selected_exam_id,
         source_work_id=source_work_id,
         debug=DEBUG,
     )

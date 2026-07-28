@@ -108,15 +108,98 @@ def _lookup_student_work_context(
         except Exception:
             raw_voucher_id = ""
 
-    return {
-        "student_code": raw_student_code,
-        "teacher_id": raw_teacher_id,
-        "voucher_id": raw_voucher_id,
-        "safe_student_code": _safe_student_code(raw_student_code),
-        "safe_teacher_id": _safe_teacher_id(raw_teacher_id),
-        "safe_voucher_id": _safe_voucher_id(raw_voucher_id),
-    }
+        return {
+            "student_code": raw_student_code,
+            "teacher_id": raw_teacher_id,
+            "voucher_id": raw_voucher_id,
+            "safe_student_code": _safe_student_code(raw_student_code),
+            "safe_teacher_id": _safe_teacher_id(raw_teacher_id),
+            "safe_voucher_id": _safe_voucher_id(raw_voucher_id),
+        }
 
+def _lookup_teacher_test_context(
+    teacher_id: str,
+    *,
+    voucher_id: str = "",
+    ) -> dict[str, str]:
+        """
+        Resolve the active course used for teacher-test storage.
+
+        Teacher tests are stored separately from real student work:
+
+          data/teachers/<teacher>/courses/<voucher>/teacher_tests/<work_id>/
+        """
+        raw_teacher_id = str(
+            teacher_id or ""
+        ).strip()
+
+        if not raw_teacher_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Missing teacher ID for "
+                    "teacher-test storage."
+                ),
+            )
+
+        try:
+            from services.teacher_profiles import (
+                get_teacher,
+            )
+
+            profile = (
+                    get_teacher(raw_teacher_id)
+                    or {}
+            )
+        except Exception:
+            profile = {}
+
+        active_course = (
+            profile.get("active_course")
+            if isinstance(
+                profile.get("active_course"),
+                dict,
+            )
+            else {}
+        )
+
+        raw_voucher_id = str(
+            voucher_id
+            or active_course.get("voucher_id")
+            or active_course.get("course_id")
+            or profile.get("voucher_id")
+            or profile.get("active_course_id")
+            or ""
+        ).strip()
+
+        if not raw_voucher_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Choose an active course before "
+                    "saving teacher-test work."
+                ),
+            )
+
+        return {
+            "teacher_id": raw_teacher_id,
+            "voucher_id": raw_voucher_id,
+            "course_label": str(
+                active_course.get("course_label")
+                or profile.get("course_label")
+                or "Teacher test"
+            ).strip(),
+            "safe_teacher_id": (
+                _safe_teacher_id(
+                    raw_teacher_id
+                )
+            ),
+            "safe_voucher_id": (
+                _safe_voucher_id(
+                    raw_voucher_id
+                )
+            ),
+        }
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
@@ -152,6 +235,22 @@ def _course_root_from_ctx(ctx: dict[str, str]) -> Path:
 def _students_root_from_ctx(ctx: dict[str, str]) -> Path:
     root = _course_root_from_ctx(ctx) / "students"
     root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _teacher_tests_root_from_ctx(
+    ctx: dict[str, str],
+) -> Path:
+    root = (
+        _course_root_from_ctx(ctx)
+        / "teacher_tests"
+    )
+
+    root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     return root
 
 
@@ -379,6 +478,71 @@ def _find_work_dir(
     return None
 
 
+def _find_teacher_test_work_dir(
+    teacher_id: str,
+    work_id: str,
+    *,
+    voucher_id: str = "",
+) -> Path | None:
+    work_id = _assert_safe_token(
+        work_id,
+        label="work_id",
+    )
+
+    ctx = _lookup_teacher_test_context(
+        teacher_id,
+        voucher_id=voucher_id,
+    )
+
+    courses_root = (
+        TEACHERS_ROOT
+        / ctx["safe_teacher_id"]
+        / "courses"
+    )
+
+    candidate_roots = [
+        (
+            courses_root
+            / ctx["safe_voucher_id"]
+            / "teacher_tests"
+        )
+    ]
+
+    # Work IDs are globally random, so searching the teacher's other
+    # courses also lets an older test remain accessible after the
+    # teacher changes the active course.
+    if courses_root.exists():
+        candidate_roots.extend(
+            courses_root.glob(
+                "*/teacher_tests"
+            )
+        )
+
+    seen: set[str] = set()
+
+    for root in candidate_roots:
+        key = (
+            str(root.resolve())
+            if root.exists()
+            else str(root)
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        work_dir = root / work_id
+
+        if (
+            work_dir
+            / "metadata.json"
+        ).exists():
+            return work_dir
+
+    return None
+
+
 def _assert_safe_token(value: str, *, label: str) -> str:
     value = (value or "").strip()
     if not value or "/" in value or "\\" in value or ".." in value:
@@ -390,9 +554,10 @@ def _assert_safe_token(value: str, *, label: str) -> str:
 
 def save_ocr_student_work(
     *,
-    student_code: str,
+    student_code: str = "",
     teacher_id: str = "",
     voucher_id: str = "",
+    work_scope: str = "student",
     source_filename: str,
     uploaded_bytes: bytes,
     ocr_provider: str,
@@ -416,23 +581,61 @@ def save_ocr_student_work(
     - student_answer_bundle.json, if available
     - student_summary.json, if available
     """
-    student_code = (student_code or "").strip()
-    if not student_code:
-        raise HTTPException(status_code=400, detail="Missing student code for OCR storage.")
+    normalized_scope = str(
+        work_scope or "student"
+    ).strip().lower()
 
-    ctx = _lookup_student_work_context(
-        student_code,
-        teacher_id=teacher_id,
-        voucher_id=voucher_id,
+    student_code = (
+        student_code or ""
+    ).strip()
+
+    if normalized_scope == "teacher_test":
+        ctx = _lookup_teacher_test_context(
+            teacher_id,
+            voucher_id=voucher_id,
+        )
+
+        work_id = _new_work_id(
+            "teacher_test_ocr"
+        )
+
+        work_dir = (
+            _teacher_tests_root_from_ctx(
+                ctx
+            )
+            / work_id
+        )
+    else:
+        if not student_code:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Missing student code "
+                    "for OCR storage."
+                ),
+            )
+
+        ctx = _lookup_student_work_context(
+            student_code,
+            teacher_id=teacher_id,
+            voucher_id=voucher_id,
+        )
+
+        work_id = _new_work_id("ocr")
+
+        work_dir = (
+            _student_root(
+                student_code,
+                teacher_id=ctx["teacher_id"],
+                voucher_id=ctx["voucher_id"],
+            )
+            / work_id
+        )
+
+    work_dir.mkdir(
+        parents=True,
+        exist_ok=False,
     )
-
-    work_id = _new_work_id("ocr")
-    work_dir = _student_root(
-        student_code,
-        teacher_id=ctx["teacher_id"],
-        voucher_id=ctx["voucher_id"],
-    ) / work_id
-    work_dir.mkdir(parents=True, exist_ok=False)
 
     original_name = "original_" + _safe_name(source_filename or "upload.bin", "upload.bin")
     original_path = work_dir / original_name
@@ -519,45 +722,130 @@ def save_ocr_student_work(
             }
         )
 
-    metadata = {
-        "schema_version": "student_work_v1",
-        "kind": "ocr",
-        "status": "ocr_ready",
-        "work_id": work_id,
-        "student_code": student_code,
-        "teacher_id": ctx["teacher_id"],
-        "voucher_id": ctx["voucher_id"],
-        "storage_schema": "teacher_course_voucher_students_v2",
-        "storage_path_parts": {
-            "teacher": ctx["safe_teacher_id"],
-            "courses": "courses",
-            "voucher": ctx["safe_voucher_id"],
-            "students": "students",
-            "student": ctx["safe_student_code"],
-        },
-        "source_filename": source_filename or "",
-        "saved_at": _now(),
-        "ocr_provider": ocr_provider or "",
-        "ocr_model": ocr_model or "",
-        "document_type": document_type or "",
-        "ocr_path": ocr_path or "",
-        "route_reason": route_reason or "",
-        "debug_trace_id": debug_trace_id or "",
-        "debug_trace_dir": debug_trace_dir or "",
-        "primary_filename": primary_filename,
-        "files": files,
-    }
+        if normalized_scope == "teacher_test":
+            metadata = {
+                "schema_version": (
+                    "teacher_test_work_v1"
+                ),
+                "work_scope": "teacher_test",
+                "student_code": "",
+                "teacher_id": ctx["teacher_id"],
+                "voucher_id": ctx["voucher_id"],
+                "course_label": (
+                        ctx.get("course_label")
+                        or ""
+                ),
+                "storage_schema": (
+                    "teacher_course_teacher_tests_v1"
+                ),
+                "storage_path_parts": {
+                    "teacher": (
+                        ctx["safe_teacher_id"]
+                    ),
+                    "courses": "courses",
+                    "voucher": (
+                        ctx["safe_voucher_id"]
+                    ),
+                    "teacher_tests": (
+                        "teacher_tests"
+                    ),
+                },
+            }
+        else:
+            metadata = {
+                "schema_version": (
+                    "student_work_v1"
+                ),
+                "work_scope": "student",
+                "student_code": student_code,
+                "teacher_id": ctx["teacher_id"],
+                "voucher_id": ctx["voucher_id"],
+                "storage_schema": (
+                    "teacher_course_voucher_students_v2"
+                ),
+                "storage_path_parts": {
+                    "teacher": (
+                        ctx["safe_teacher_id"]
+                    ),
+                    "courses": "courses",
+                    "voucher": (
+                        ctx["safe_voucher_id"]
+                    ),
+                    "students": "students",
+                    "student": (
+                        ctx["safe_student_code"]
+                    ),
+                },
+            }
 
-    _write_json(work_dir / "metadata.json", metadata)
-    _upsert_course_upload_log(metadata)
-    return metadata
+        metadata.update(
+            {
+                "kind": "ocr",
+                "status": "ocr_ready",
+                "work_id": work_id,
+                "source_filename": (
+                        source_filename or ""
+                ),
+                "saved_at": _now(),
+                "ocr_provider": (
+                        ocr_provider or ""
+                ),
+                "ocr_model": (
+                        ocr_model or ""
+                ),
+                "document_type": (
+                        document_type or ""
+                ),
+                "ocr_path": ocr_path or "",
+                "route_reason": (
+                        route_reason or ""
+                ),
+                "debug_trace_id": (
+                        debug_trace_id or ""
+                ),
+                "debug_trace_dir": (
+                        debug_trace_dir or ""
+                ),
+                "primary_filename": (
+                    primary_filename
+                ),
+                "files": files,
+            }
+        )
 
+        _write_json(
+            work_dir / "metadata.json",
+            metadata,
+        )
+
+        # Teacher tests must not affect real student upload analytics.
+        if normalized_scope != "teacher_test":
+            _upsert_course_upload_log(
+                metadata
+            )
+
+        return metadata
+
+    def save_ocr_teacher_test_work(
+            *,
+            teacher_id: str,
+            voucher_id: str = "",
+            **kwargs: Any,
+    ) -> dict[str, Any]:
+        return save_ocr_student_work(
+            student_code="",
+            teacher_id=teacher_id,
+            voucher_id=voucher_id,
+            work_scope="teacher_test",
+            **kwargs,
+        )
 
 def create_tex_student_work(
     *,
-    student_code: str,
+    student_code: str = "",
     teacher_id: str = "",
     voucher_id: str = "",
+    work_scope: str = "student",
     source_filename: str,
     uploaded_bytes: bytes,
     debug_trace_id: str = "",
@@ -569,23 +857,61 @@ def create_tex_student_work(
     This makes direct TeX uploads use the same canonical storage as OCR uploads:
       data/student_work/<teacher>/<voucher>/<student>/<work_id>/
     """
-    student_code = (student_code or "").strip()
-    if not student_code:
-        raise HTTPException(status_code=400, detail="Missing student code for student-work storage.")
+    normalized_scope = str(
+        work_scope or "student"
+    ).strip().lower()
 
-    ctx = _lookup_student_work_context(
-        student_code,
-        teacher_id=teacher_id,
-        voucher_id=voucher_id,
+    student_code = (
+        student_code or ""
+    ).strip()
+
+    if normalized_scope == "teacher_test":
+        ctx = _lookup_teacher_test_context(
+            teacher_id,
+            voucher_id=voucher_id,
+        )
+
+        work_id = _new_work_id(
+            "teacher_test_tex"
+        )
+
+        work_dir = (
+            _teacher_tests_root_from_ctx(
+                ctx
+            )
+            / work_id
+        )
+    else:
+        if not student_code:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Missing student code for "
+                    "student-work storage."
+                ),
+            )
+
+        ctx = _lookup_student_work_context(
+            student_code,
+            teacher_id=teacher_id,
+            voucher_id=voucher_id,
+        )
+
+        work_id = _new_work_id("tex")
+
+        work_dir = (
+            _student_root(
+                student_code,
+                teacher_id=ctx["teacher_id"],
+                voucher_id=ctx["voucher_id"],
+            )
+            / work_id
+        )
+
+    work_dir.mkdir(
+        parents=True,
+        exist_ok=False,
     )
-
-    work_id = _new_work_id("tex")
-    work_dir = _student_root(
-        student_code,
-        teacher_id=ctx["teacher_id"],
-        voucher_id=ctx["voucher_id"],
-    ) / work_id
-    work_dir.mkdir(parents=True, exist_ok=False)
 
     original_name = "original_" + _safe_name(source_filename or "student_answer.tex", "student_answer.tex")
     original_path = work_dir / original_name
@@ -599,31 +925,109 @@ def create_tex_student_work(
         }
     ]
 
-    metadata = {
-        "schema_version": "student_work_v1",
-        "storage_schema": "teacher_voucher_student_work_v1",
-        "kind": "tex",
-        "status": "uploaded",
-        "work_id": work_id,
-        "student_code": student_code,
-        "teacher_id": ctx["teacher_id"],
-        "voucher_id": ctx["voucher_id"],
-        "storage_path_parts": {
-            "teacher": ctx["safe_teacher_id"],
-            "voucher": ctx["safe_voucher_id"],
-            "student": ctx["safe_student_code"],
-        },
-        "source_filename": source_filename or "",
-        "saved_at": _now(),
-        "debug_trace_id": debug_trace_id or "",
-        "debug_trace_dir": debug_trace_dir or "",
-        "primary_filename": original_name,
-        "files": files,
-    }
+    if normalized_scope == "teacher_test":
+        metadata = {
+            "schema_version": (
+                "teacher_test_work_v1"
+            ),
+            "work_scope": "teacher_test",
+            "student_code": "",
+            "teacher_id": ctx["teacher_id"],
+            "voucher_id": ctx["voucher_id"],
+            "course_label": (
+                    ctx.get("course_label")
+                    or ""
+            ),
+            "storage_schema": (
+                "teacher_course_teacher_tests_v1"
+            ),
+            "storage_path_parts": {
+                "teacher": (
+                    ctx["safe_teacher_id"]
+                ),
+                "courses": "courses",
+                "voucher": (
+                    ctx["safe_voucher_id"]
+                ),
+                "teacher_tests": (
+                    "teacher_tests"
+                ),
+            },
+        }
+    else:
+        metadata = {
+            "schema_version": (
+                "student_work_v1"
+            ),
+            "work_scope": "student",
+            "student_code": student_code,
+            "teacher_id": ctx["teacher_id"],
+            "voucher_id": ctx["voucher_id"],
+            "storage_schema": (
+                "teacher_voucher_student_work_v1"
+            ),
+            "storage_path_parts": {
+                "teacher": (
+                    ctx["safe_teacher_id"]
+                ),
+                "voucher": (
+                    ctx["safe_voucher_id"]
+                ),
+                "student": (
+                    ctx["safe_student_code"]
+                ),
+            },
+        }
 
-    _write_json(work_dir / "metadata.json", metadata)
-    _upsert_course_upload_log(metadata)
+    metadata.update(
+        {
+            "kind": "tex",
+            "status": "uploaded",
+            "work_id": work_id,
+            "source_filename": (
+                    source_filename or ""
+            ),
+            "saved_at": _now(),
+            "debug_trace_id": (
+                    debug_trace_id or ""
+            ),
+            "debug_trace_dir": (
+                    debug_trace_dir or ""
+            ),
+            "primary_filename": (
+                original_name
+            ),
+            "files": files,
+        }
+    )
+
+    _write_json(
+        work_dir / "metadata.json",
+        metadata,
+    )
+
+    # Teacher tests must not affect student upload counts.
+    if normalized_scope != "teacher_test":
+        _upsert_course_upload_log(
+            metadata
+        )
+
     return metadata
+
+
+def create_tex_teacher_test_work(
+        *,
+        teacher_id: str,
+        voucher_id: str = "",
+        **kwargs: Any,
+) -> dict[str, Any]:
+    return create_tex_student_work(
+        student_code="",
+        teacher_id=teacher_id,
+        voucher_id=voucher_id,
+        work_scope="teacher_test",
+        **kwargs,
+    )
 
 
 def _student_work_download_url(work_id: str, filename: str) -> str:
@@ -662,7 +1066,10 @@ def _upsert_file_entry(files: list[dict[str, Any]], entry: dict[str, Any]) -> li
 
 def attach_grading_feedback_to_student_work(
     *,
-    student_code: str,
+    student_code: str = "",
+    teacher_id: str = "",
+    voucher_id: str = "",
+    work_scope: str = "student",
     work_id: str,
     exam_id: str,
     provider: str,
@@ -682,22 +1089,35 @@ def attach_grading_feedback_to_student_work(
       - canonical graded_result.json
       - source TeX used to produce the PDF
     """
+    normalized_scope = str(
+        work_scope or "student"
+    ).strip().lower()
+
     student_code = (
         student_code or ""
     ).strip()
-
-    if not student_code:
-        return None
 
     work_id = _assert_safe_token(
         work_id,
         label="work_id",
     )
 
-    work_dir = _find_work_dir(
-        student_code,
-        work_id,
-    )
+    if normalized_scope == "teacher_test":
+        work_dir = (
+            _find_teacher_test_work_dir(
+                teacher_id,
+                work_id,
+                voucher_id=voucher_id,
+            )
+        )
+    else:
+        if not student_code:
+            return None
+
+        work_dir = _find_work_dir(
+            student_code,
+            work_id,
+        )
 
     if work_dir is None:
         return None
@@ -966,13 +1386,48 @@ def attach_grading_feedback_to_student_work(
         meta,
     )
 
-    _upsert_course_upload_log(
-        meta
-    )
+    if normalized_scope != "teacher_test":
+        _upsert_course_upload_log(
+            meta
+        )
 
     return meta
 
-def list_teacher_student_work_metadata(teacher_id: str) -> list[dict[str, Any]]:
+
+def attach_grading_feedback_to_teacher_test_work(
+        *,
+        teacher_id: str,
+        work_id: str,
+        exam_id: str,
+        provider: str,
+        final_path: Path,
+        voucher_id: str = "",
+        graded_result_json_path: Path | None = None,
+        graded_result_tex_path: Path | None = None,
+        saved_at: str | None = None,
+) -> dict[str, Any] | None:
+    return attach_grading_feedback_to_student_work(
+        student_code="",
+        teacher_id=teacher_id,
+        voucher_id=voucher_id,
+        work_scope="teacher_test",
+        work_id=work_id,
+        exam_id=exam_id,
+        provider=provider,
+        final_path=final_path,
+        graded_result_json_path=(
+            graded_result_json_path
+        ),
+        graded_result_tex_path=(
+            graded_result_tex_path
+        ),
+        saved_at=saved_at,
+    )
+
+
+def list_teacher_student_work_metadata(
+        teacher_id: str,
+) -> list[dict[str, Any]]:
     """
     Return canonical student-work metadata for a teacher, across vouchers/courses.
 
@@ -1180,6 +1635,93 @@ def list_student_work_for_dashboard(student_code: str) -> list[dict[str, Any]]:
 
     items.sort(key=lambda x: x.get("saved_at") or "", reverse=True)
     return items
+
+
+def resolve_teacher_test_work_file(
+    teacher_id: str,
+    work_id: str,
+    filename: str,
+    *,
+    voucher_id: str = "",
+) -> Path:
+    filename = _assert_safe_token(
+        filename,
+        label="filename",
+    )
+
+    work_dir = (
+        _find_teacher_test_work_dir(
+            teacher_id,
+            work_id,
+            voucher_id=voucher_id,
+        )
+    )
+
+    if work_dir is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Teacher-test work folder "
+                "not found."
+            ),
+        )
+
+    metadata = _read_json(
+        work_dir / "metadata.json"
+    )
+
+    if (
+        not metadata
+        or str(
+            metadata.get("teacher_id")
+            or ""
+        ).strip()
+        != str(teacher_id or "").strip()
+        or str(
+            metadata.get("work_scope")
+            or ""
+        ).strip()
+        != "teacher_test"
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Teacher-test work was "
+                "not found."
+            ),
+        )
+
+    root = work_dir.resolve()
+
+    path = (
+        work_dir
+        / filename
+    ).resolve()
+
+    try:
+        path.relative_to(root)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Invalid teacher-test "
+                "work path."
+            ),
+        ) from error
+
+    if (
+        not path.exists()
+        or not path.is_file()
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Teacher-test work file "
+                "not found."
+            ),
+        )
+
+    return path
 
 
 def resolve_student_work_file(student_code: str, work_id: str, filename: str) -> Path:
