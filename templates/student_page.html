@@ -711,6 +711,7 @@
     let feedbackOverlayRenderToken = 0;
     let feedbackOverlayFilter = "all";
     let feedbackOverlayShowHighlights = true;
+    let feedbackOverlayExpandedGroups = new Set();
 
     let activeOcrReviewTab = "preview";
     let reviewOriginalDownload = null;
@@ -3876,6 +3877,100 @@ if (resultType === "tex") {
         : fallback;
     }
 
+    function feedbackOverlayGroupKey(
+      question,
+      partKey,
+      fallback = ""
+    ) {
+      const questionValue = String(
+        question ?? ""
+      ).trim();
+
+      const partValue = String(
+        partKey ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      if (
+        questionValue ||
+        partValue
+      ) {
+        return [
+          questionValue || "unknown",
+          partValue || "single"
+        ].join("::");
+      }
+
+      return String(
+        fallback ||
+        "feedback-group"
+      );
+    }
+
+    function prepareFeedbackOverlayGroups(
+      annotations
+    ) {
+      const groups = new Map();
+
+      annotations.forEach(
+        (annotation, index) => {
+          const groupKey = String(
+            annotation.groupKey ||
+            feedbackOverlayGroupKey(
+              annotation.questionId,
+              annotation.partKey,
+              `feedback-group-${index + 1}`
+            )
+          );
+
+          annotation.groupKey =
+            groupKey;
+
+          const groupItems =
+            groups.get(groupKey) ||
+            [];
+
+          groupItems.push(
+            annotation
+          );
+
+          groups.set(
+            groupKey,
+            groupItems
+          );
+        }
+      );
+
+      groups.forEach((groupItems) => {
+        groupItems.sort(
+          (left, right) =>
+            overlayAnnotationSequence(left) -
+            overlayAnnotationSequence(right)
+        );
+
+        const primary =
+          groupItems.find(
+            (item) =>
+              item.isPrimary === true
+          ) ||
+          groupItems[0];
+
+        groupItems.forEach((item) => {
+          item.isPrimary =
+            item === primary;
+
+          item.detailCount =
+            Math.max(
+              0,
+              groupItems.length - 1
+            );
+        });
+      });
+
+      return annotations;
+    }
+
     function stabilizeFeedbackOverlayOrder(
       annotations,
       pageCount
@@ -4057,6 +4152,50 @@ if (resultType === "tex") {
             "error"
           );
 
+          const normalizedSeverity =
+            severity.toLowerCase();
+
+          const correctnessLevel =
+            normalizeStudentFeedbackCorrectnessLevel(
+              item.correctness_level ||
+              item.correctness?.level ||
+              item.level ||
+              severity
+            ) || (
+              normalizedSeverity.includes("success") ||
+              normalizedSeverity.includes("correct")
+                ? "correct"
+                : (
+                    normalizedSeverity.includes("warning") ||
+                    normalizedSeverity.includes("partial")
+                      ? "partially_correct"
+                      : "needs_work"
+                  )
+            );
+
+          const questionId =
+            item.question_id ??
+            item.questionId ??
+            item.qid ??
+            "";
+
+          const partKey =
+            item.part_key ??
+            item.partKey ??
+            item.part ??
+            "";
+
+          const groupKey = String(
+            item.group_id ||
+            item.groupKey ||
+            item.part_id ||
+            feedbackOverlayGroupKey(
+              questionId,
+              partKey,
+              `explicit-feedback-${index + 1}`
+            )
+          );
+
           return {
             id: String(
               item.id ||
@@ -4070,6 +4209,17 @@ if (resultType === "tex") {
             ),
 
             sequence: index + 1,
+            questionId,
+            partKey,
+            groupKey,
+
+            isPrimary:
+              item.is_primary === true ||
+              item.primary === true ||
+              String(
+                item.category || ""
+              ).toLowerCase() === "summary",
+
             pageKnown,
 
             pageNumber: pageKnown
@@ -4098,6 +4248,7 @@ if (resultType === "tex") {
               severity
             ),
 
+            correctnessLevel,
             severity,
 
             anchor: {
@@ -4135,7 +4286,9 @@ if (resultType === "tex") {
         });
 
         return stabilizeFeedbackOverlayOrder(
-          mapped,
+          prepareFeedbackOverlayGroups(
+            mapped
+          ),
           pageCount
         );
       }
@@ -4187,102 +4340,207 @@ if (resultType === "tex") {
           : [];
         const titlePrefix =
           `Question ${question}${partLabel ? ` · Part ${partLabel}` : ""}`;
+
+        const groupKey =
+          feedbackOverlayGroupKey(
+            question,
+            part?.part_key || "",
+            `part-${partIndex + 1}`
+          );
+
         const specs = [];
 
-        mistakes.slice(0, 3).forEach((mistake, index) => {
-          const improvement = improvements[index] || "";
-          const evidence = evidenceMistakes[index] || "";
+        const correctnessMeta =
+          studentFeedbackCorrectnessMeta(
+            level
+          );
 
-          specs.push({
-            category: "mistake",
-            severity: "error",
-            title: `${titlePrefix} · Needs attention`,
-            evidence,
-            text: [
-              mistake,
-              evidence
-                ? (
-                    lineContainsHebrew(evidence)
-                      ? `ראיה מהתשובה: ${evidence}`
-                      : `Evidence from the answer: ${evidence}`
-                  )
-                : "",
-              improvement
-                ? (
-                    lineContainsHebrew(improvement)
-                      ? `כיצד לשפר: ${improvement}`
-                      : `How to improve: ${improvement}`
-                  )
-                : ""
-            ].filter(Boolean).join("\n")
-          });
+        const mainFeedbackText =
+          summary ||
+          correctItems[0] ||
+          mistakes[0] ||
+          nextStep ||
+          "Review the structured grading result.";
+
+        const mainSeverity =
+          level === "correct"
+            ? "success"
+            : (
+                level === "mostly_correct" ||
+                level === "partially_correct"
+                  ? "warning"
+                  : "error"
+              );
+
+        /*
+         * One compact primary note is visible initially.
+         * The remaining comments are grouped as expandable details.
+         */
+        specs.push({
+          category:
+            level === "correct"
+              ? "correct"
+              : "summary",
+
+          severity:
+            mainSeverity,
+
+          title:
+            `${titlePrefix} · ${correctnessMeta.label}`,
+
+          evidence:
+            level === "correct"
+              ? (
+                  evidenceCorrect[0] ||
+                  ""
+                )
+              : (
+                  evidenceMistakes[0] ||
+                  ""
+                ),
+
+          text:
+            mainFeedbackText,
+
+          isPrimary:
+            true
         });
 
-        improvements.slice(mistakes.length, 4).forEach((improvement) => {
-          const improvementLabel =
-            lineContainsHebrew(improvement)
-              ? "כיצד לשפר"
-              : "How to improve";
+        mistakes
+          .slice(0, 3)
+          .forEach((mistake, index) => {
+            const improvement =
+              improvements[index] ||
+              "";
 
-          specs.push({
-            category: "suggestion",
-            severity: "warning",
-            title: `${titlePrefix} · ${improvementLabel}`,
-            text: improvement
-          });
-        });
+            const evidence =
+              evidenceMistakes[index] ||
+              "";
 
-        if (level === "correct") {
-          const positiveText = correctItems.slice(0, 2).join("\n") || summary;
-          if (positiveText) {
-            specs.unshift({
-              category: "correct",
-              severity: "success",
-              title: `${titlePrefix} · Correct work`,
-              evidence: evidenceCorrect[0] || "",
+            specs.push({
+              category:
+                "mistake",
+
+              severity:
+                "error",
+
+              title:
+                `${titlePrefix} · Needs attention`,
+
+              evidence,
+
               text: [
-                positiveText,
-                evidenceCorrect[0]
+                mistake,
+
+                evidence
                   ? (
-                      lineContainsHebrew(evidenceCorrect[0])
-                        ? `ראיה מהתשובה: ${evidenceCorrect[0]}`
-                        : `Evidence from the answer: ${evidenceCorrect[0]}`
+                      lineContainsHebrew(evidence)
+                        ? `ראיה מהתשובה: ${evidence}`
+                        : `Evidence from the answer: ${evidence}`
+                    )
+                  : "",
+
+                improvement
+                  ? (
+                      lineContainsHebrew(improvement)
+                        ? `כיצד לשפר: ${improvement}`
+                        : `How to improve: ${improvement}`
                     )
                   : ""
-              ].filter(Boolean).join("\n")
+              ]
+                .filter(Boolean)
+                .join("\n"),
+
+              isPrimary:
+                false
             });
-          }
-        } else if (!specs.length && summary) {
+          });
+
+        if (
+          level === "correct"
+        ) {
+          correctItems
+            .filter(
+              (item) =>
+                item !==
+                mainFeedbackText
+            )
+            .slice(0, 2)
+            .forEach((item, index) => {
+              specs.push({
+                category:
+                  "correct",
+
+                severity:
+                  "success",
+
+                title:
+                  `${titlePrefix} · What was done well`,
+
+                evidence:
+                  evidenceCorrect[index] ||
+                  "",
+
+                text:
+                  item,
+
+                isPrimary:
+                  false
+              });
+            });
+        }
+
+        improvements
+          .slice(
+            mistakes.length,
+            4
+          )
+          .forEach((improvement) => {
+            const improvementLabel =
+              lineContainsHebrew(
+                improvement
+              )
+                ? "כיצד לשפר"
+                : "How to improve";
+
+            specs.push({
+              category:
+                "suggestion",
+
+              severity:
+                "warning",
+
+              title:
+                `${titlePrefix} · ${improvementLabel}`,
+
+              text:
+                improvement,
+
+              isPrimary:
+                false
+            });
+          });
+
+        if (nextStep) {
           specs.push({
-            category: "summary",
+            category:
+              "suggestion",
+
             severity:
-              level === "mostly_correct" || level === "partially_correct"
-                ? "warning"
-                : "error",
-            title: `${titlePrefix} · Grading note`,
-            text: summary
+              "warning",
+
+            title:
+              `${titlePrefix} · Suggested next step`,
+
+            text:
+              nextStep,
+
+            isPrimary:
+              false
           });
         }
 
-        if (nextStep && specs.length < 5) {
-          specs.push({
-            category: "suggestion",
-            severity: "warning",
-            title: `${titlePrefix} · Suggested next step`,
-            text: nextStep
-          });
-        }
-
-        if (!specs.length) {
-          specs.push({
-            category: level === "correct" ? "correct" : "summary",
-            severity: level === "correct" ? "success" : "warning",
-            title: titlePrefix,
-            text: "Review the structured grading result."
-          });
-        }
-
-        specs.slice(0, 5).forEach((spec, specIndex) => {
+        specs.forEach((spec, specIndex) => {
           const evidenceRegion = bestOverlayRegion(
             regions,
             spec.evidence || ""
@@ -4347,11 +4605,24 @@ if (resultType === "tex") {
             id: `feedback-${markerNumber}`,
             marker: String(markerNumber),
             sequence: markerNumber,
+
+            questionId:
+              question,
+
+            partKey:
+              part?.part_key || "",
+
+            groupKey,
+
+            isPrimary:
+              spec.isPrimary === true,
+
             pageKnown,
             pageNumber,
             title: spec.title,
             text: spec.text,
             category: spec.category,
+            correctnessLevel: level,
             severity: spec.severity,
             anchor,
             region,
@@ -4368,20 +4639,79 @@ if (resultType === "tex") {
       });
 
       return stabilizeFeedbackOverlayOrder(
-        annotations,
+        prepareFeedbackOverlayGroups(
+          annotations
+        ),
         pageCount
       );
     }
 
     function overlaySeverityClass(value) {
       const normalized = String(value || "").toLowerCase();
-      if (normalized.includes("success") || normalized.includes("correct")) {
+
+      if (
+        normalized.includes("success") ||
+        normalized.includes("correct")
+      ) {
         return "is-success";
       }
-      if (normalized.includes("warning") || normalized.includes("partial")) {
+
+      if (
+        normalized.includes("warning") ||
+        normalized.includes("partial")
+      ) {
         return "is-warning";
       }
+
       return "is-error";
+    }
+
+    function overlayCorrectnessClass(
+      value,
+      severity = ""
+    ) {
+      const level =
+        normalizeStudentFeedbackCorrectnessLevel(
+          value
+        );
+
+      const classes = {
+        correct: "is-correct",
+        mostly_correct: "is-mostly-correct",
+        partially_correct: "is-partially-correct",
+        needs_work: "is-needs-work",
+        not_answered: "is-not-answered"
+      };
+
+      if (
+        level &&
+        classes[level]
+      ) {
+        return classes[level];
+      }
+
+      /*
+       * Compatibility fallback for older overlay JSON that contains
+       * severity but not an explicit correctness level.
+       */
+      const severityClass =
+        overlaySeverityClass(severity);
+
+      if (
+        severityClass ===
+        "is-success"
+      ) {
+        return "is-correct";
+      }
+
+      if (
+        severityClass ===
+        "is-warning"
+      ) {
+        return "is-partially-correct";
+      }
+
+      return "is-needs-work";
     }
 
     function overlayCategoryLabel(value) {
@@ -4391,6 +4721,64 @@ if (resultType === "tex") {
         correct: "Correct",
         summary: "Summary"
       }[value] || "Feedback";
+    }
+
+    function compactFeedbackOverlayTitle(
+      annotation
+    ) {
+      const rawQuestion = String(
+        annotation?.questionId || ""
+      ).trim();
+
+      /*
+       * Supports all of these forms:
+       *
+       *   1
+       *   Q1
+       *   Question 1
+       *   Q1(a)
+       */
+      const questionMatch =
+        rawQuestion.match(/\d+/);
+
+      const questionLabel =
+        questionMatch
+          ? questionMatch[0]
+          : rawQuestion
+              .replace(
+                /^question\s*/i,
+                ""
+              )
+              .replace(
+                /^q\s*/i,
+                ""
+              )
+              .trim();
+
+      /*
+       * Normally partKey is available separately.
+       * The QID fallback also supports explicit overlay annotations
+       * whose question ID is stored as Q1(a).
+       */
+      const qidPartMatch =
+        rawQuestion.match(
+          /\(([a-zא-ת])\)/i
+        );
+
+      const partLabel =
+        formatOcrPart(
+          annotation?.partKey ||
+          qidPartMatch?.[1] ||
+          ""
+        );
+
+      return [
+        `Q${questionLabel || "?"}`,
+
+        partLabel
+          ? `(${partLabel})`
+          : ""
+      ].join("");
     }
 
     function overlaySvgElement(name, attributes = {}) {
@@ -4563,6 +4951,103 @@ if (resultType === "tex") {
       }
     }
 
+    function feedbackOverlayGroupIsExpanded(
+      groupKey
+    ) {
+      return feedbackOverlayExpandedGroups.has(
+        String(groupKey || "")
+      );
+    }
+
+    function setFeedbackOverlayGroupExpanded(
+      groupKey,
+      expanded
+    ) {
+      const normalizedGroupKey =
+        String(groupKey || "");
+
+      if (!normalizedGroupKey) {
+        return;
+      }
+
+      if (expanded) {
+        feedbackOverlayExpandedGroups.add(
+          normalizedGroupKey
+        );
+      } else {
+        feedbackOverlayExpandedGroups.delete(
+          normalizedGroupKey
+        );
+      }
+
+      applyFeedbackOverlayFilters();
+
+      if (!expanded) {
+        return;
+      }
+
+      const selector =
+        `.mg-feedback-overlay-note`
+        + `[data-overlay-group="`
+        + `${CSS.escape(normalizedGroupKey)}"]`
+        + `[data-overlay-primary="false"]`;
+
+      const detailNotes =
+        Array.from(
+          feedbackOverlayPreview
+            ?.querySelectorAll(
+              selector
+            ) || []
+        )
+        .filter(
+          (note) =>
+            !note.classList.contains(
+              "is-filtered-out"
+            )
+        );
+
+      if (!detailNotes.length) {
+        return;
+      }
+
+      /*
+       * Collapsed notes may not have been typeset by MathJax during
+       * the initial render. Render their equations when opened.
+       */
+      ensureMathJaxForOcrPreview()
+        .then((mathJax) => {
+          if (
+            typeof mathJax.typesetClear ===
+            "function"
+          ) {
+            mathJax.typesetClear(
+              detailNotes
+            );
+          }
+
+          return mathJax.typesetPromise(
+            detailNotes
+          );
+        })
+        .catch((error) => {
+          console.warn(
+            "Could not render expanded overlay details:",
+            error
+          );
+        });
+    }
+
+    function toggleFeedbackOverlayGroup(
+      groupKey
+    ) {
+      setFeedbackOverlayGroupExpanded(
+        groupKey,
+        !feedbackOverlayGroupIsExpanded(
+          groupKey
+        )
+      );
+    }
+
     function overlayFilterMatches(category) {
       if (feedbackOverlayFilter === "all") return true;
       if (feedbackOverlayFilter === "mistake") {
@@ -4570,26 +5055,114 @@ if (resultType === "tex") {
       }
       return category === feedbackOverlayFilter;
     }
-
     function applyFeedbackOverlayFilters() {
-      if (!feedbackOverlayPreview) return;
+      if (!feedbackOverlayPreview) {
+        return;
+      }
 
-      let visibleNotes = 0;
+      const elements = Array.from(
+        feedbackOverlayPreview.querySelectorAll(
+          "[data-overlay-category]"
+        )
+      );
 
-      feedbackOverlayPreview
-        .querySelectorAll("[data-overlay-category]")
-        .forEach((element) => {
-          const visible = overlayFilterMatches(
-            element.dataset.overlayCategory || "summary"
+      let visibleMainNotes = 0;
+      let visibleDetailNotes = 0;
+
+      elements.forEach((element) => {
+        const category =
+          element.dataset.overlayCategory ||
+          "summary";
+
+        const groupKey =
+          element.dataset.overlayGroup ||
+          "";
+
+        const isPrimary =
+          element.dataset.overlayPrimary ===
+          "true";
+
+        const groupExpanded =
+          feedbackOverlayGroupIsExpanded(
+            groupKey
           );
-          element.classList.toggle("is-filtered-out", !visible);
-          if (
-            visible &&
-            element.classList.contains("mg-feedback-overlay-note")
-          ) {
-            visibleNotes += 1;
+
+        let categoryVisible =
+          overlayFilterMatches(
+            category
+          );
+
+        /*
+         * Keep a part's main card visible under a filter when one of
+         * its collapsed detail comments matches that filter.
+         */
+        if (
+          isPrimary &&
+          feedbackOverlayFilter !== "all" &&
+          groupKey
+        ) {
+          categoryVisible =
+            categoryVisible ||
+            elements.some((candidate) => (
+              candidate !== element &&
+              candidate.dataset.overlayGroup ===
+                groupKey &&
+              candidate.dataset.overlayPrimary ===
+                "false" &&
+              overlayFilterMatches(
+                candidate.dataset
+                  .overlayCategory ||
+                "summary"
+              )
+            ));
+        }
+
+        const groupVisible =
+          isPrimary ||
+          groupExpanded;
+
+        element.classList.toggle(
+          "is-filtered-out",
+          !categoryVisible
+        );
+
+        element.classList.toggle(
+          "is-group-collapsed",
+          categoryVisible &&
+          !groupVisible
+        );
+
+        if (isPrimary) {
+          element.classList.toggle(
+            "is-expanded",
+            groupExpanded
+          );
+
+          element.setAttribute(
+            "aria-expanded",
+            groupExpanded
+              ? "true"
+              : "false"
+          );
+        }
+
+        const visible =
+          categoryVisible &&
+          groupVisible;
+
+        if (
+          visible &&
+          element.classList.contains(
+            "mg-feedback-overlay-note"
+          )
+        ) {
+          if (isPrimary) {
+            visibleMainNotes += 1;
+          } else {
+            visibleDetailNotes += 1;
           }
-        });
+        }
+      });
 
       feedbackOverlayPreview.classList.toggle(
         "hide-highlights",
@@ -4597,46 +5170,99 @@ if (resultType === "tex") {
       );
 
       feedbackOverlayFilterButtons.forEach((button) => {
-        const active = button.dataset.overlayFilter === feedbackOverlayFilter;
-        button.classList.toggle("active", active);
-        button.setAttribute("aria-pressed", active ? "true" : "false");
+        const active =
+          button.dataset.overlayFilter ===
+          feedbackOverlayFilter;
+
+        button.classList.toggle(
+          "active",
+          active
+        );
+
+        button.setAttribute(
+          "aria-pressed",
+          active
+            ? "true"
+            : "false"
+        );
       });
 
       if (feedbackOverlayHighlightsToggle) {
-        feedbackOverlayHighlightsToggle.checked = feedbackOverlayShowHighlights;
+        feedbackOverlayHighlightsToggle.checked =
+          feedbackOverlayShowHighlights;
       }
 
       const total = Number(
-        feedbackOverlayPreview.dataset.annotationCount || 0
-      );
-      const exact = Number(
-        feedbackOverlayPreview.dataset.exactCount || 0
-      );
-      const answerArea = Number(
-        feedbackOverlayPreview.dataset.answerAreaCount || 0
+        feedbackOverlayPreview
+          .dataset.annotationCount ||
+        0
       );
 
-      if (total && feedbackOverlayStatus) {
+      const groupCount = Number(
+        feedbackOverlayPreview
+          .dataset.groupCount ||
+        0
+      );
+
+      const exact = Number(
+        feedbackOverlayPreview
+          .dataset.exactCount ||
+        0
+      );
+
+      const answerArea = Number(
+        feedbackOverlayPreview
+          .dataset.answerAreaCount ||
+        0
+      );
+
+      if (
+        total &&
+        feedbackOverlayStatus
+      ) {
         const approximate = Math.max(
           0,
-          total - exact - answerArea
+          total -
+          exact -
+          answerArea
         );
 
         const placementText = [
           exact
             ? `${exact} evidence-matched`
             : "",
+
           answerArea
             ? `${answerArea} linked to answer area`
             : "",
+
           approximate
             ? `${approximate} approximate`
             : ""
-        ].filter(Boolean).join(", ");
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        const detailText =
+          visibleDetailNotes
+            ? (
+                ` ${visibleDetailNotes} detail note`
+                + (
+                    visibleDetailNotes === 1
+                      ? ""
+                      : "s"
+                  )
+                + " expanded."
+              )
+            : (
+                " Click a main feedback card or marker "
+                + "to show its details."
+              );
 
         feedbackOverlayStatus.textContent =
-          `${visibleNotes} of ${total} notes visible. `
-          + `Placement: ${placementText}.`;
+          `${visibleMainNotes} of ${groupCount} parts shown.`
+          + detailText
+          + ` Placement: ${placementText}.`;
       }
     }
 
@@ -4671,20 +5297,92 @@ if (resultType === "tex") {
       notes.className = "mg-feedback-overlay-notes";
 
       annotations.forEach((annotation) => {
-        const severityClass = overlaySeverityClass(annotation.severity);
-        const category = overlayCategory(annotation.category, annotation.severity);
+        const correctnessClass =
+          overlayCorrectnessClass(
+            annotation.correctnessLevel,
+            annotation.severity
+          );
+
+        const category = overlayCategory(
+          annotation.category,
+          annotation.severity
+        );
+
+        const groupKey = String(
+          annotation.groupKey ||
+          annotation.id
+        );
+
+        const isPrimary =
+          annotation.isPrimary === true;
+
+        const detailCount =
+          Math.max(
+            0,
+            Number(
+              annotation.detailCount
+            ) || 0
+          );
+
+        const feedbackRoleClass =
+          isPrimary
+            ? "is-primary-feedback"
+            : "is-detail-feedback";
+
         const x = normalizeOverlayNumber(annotation.anchor?.x, width, width * 0.72);
         const y = normalizeOverlayNumber(annotation.anchor?.y, height, height * 0.2);
         const radius = Math.max(12, Math.min(width, height) * 0.018);
 
         const markerGroup = overlaySvgElement("g", {
-          class: `mg-feedback-overlay-annotation ${severityClass}`,
-          "data-overlay-id": annotation.id,
-          "data-overlay-category": category,
-          role: "button",
-          tabindex: "0",
-          "aria-label": `${annotation.marker}. ${annotation.title}`
+          class:
+            `mg-feedback-overlay-annotation ${correctnessClass} ${feedbackRoleClass}`,
+
+          "data-overlay-id":
+            annotation.id,
+
+          "data-overlay-category":
+            category,
+
+          "data-overlay-group":
+            groupKey,
+
+          "data-overlay-primary":
+            isPrimary
+              ? "true"
+              : "false",
+
+          role:
+            "button",
+
+          tabindex:
+            "0",
+
+          "aria-label":
+            `${annotation.marker}. ${annotation.title}`
+            + (
+                isPrimary &&
+                detailCount
+                  ? (
+                      `. Activate to show ${detailCount} detailed feedback note`
+                      + (
+                          detailCount === 1
+                            ? ""
+                            : "s"
+                        )
+                    )
+                  : ""
+              )
         });
+
+        if (
+          isPrimary &&
+          detailCount
+        ) {
+          markerGroup.setAttribute(
+            "aria-expanded",
+            "false"
+          );
+        }
 
         if (annotation.region) {
           const region = annotation.region;
@@ -4698,7 +5396,7 @@ if (resultType === "tex") {
             y: ry,
             width: rw,
             height: rh,
-            class: `mg-feedback-overlay-highlight ${severityClass}`
+            class: `mg-feedback-overlay-highlight ${correctnessClass}`
           }));
         }
 
@@ -4707,14 +5405,14 @@ if (resultType === "tex") {
           y1: y,
           x2: width * 0.985,
           y2: y,
-          class: `mg-feedback-overlay-line ${severityClass}`
+          class: `mg-feedback-overlay-line ${correctnessClass}`
         }));
 
         const circle = overlaySvgElement("circle", {
           cx: x,
           cy: y,
           r: radius,
-          class: `mg-feedback-overlay-marker ${severityClass}`
+          class: `mg-feedback-overlay-marker ${correctnessClass}`
         });
         const label = overlaySvgElement("text", {
           x,
@@ -4727,28 +5425,70 @@ if (resultType === "tex") {
         markerGroup.append(circle, label);
         svg.appendChild(markerGroup);
 
-        const activateFromMarker = () => {
-          setFeedbackOverlayActive(annotation.id, { scrollNote: true });
-        };
-        markerGroup.addEventListener("click", activateFromMarker);
-        markerGroup.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            activateFromMarker();
+        const activateAnnotation = (
+          scrollNote = false
+        ) => {
+          setFeedbackOverlayActive(
+            annotation.id,
+            {
+              scrollNote
+            }
+          );
+
+          if (
+            isPrimary &&
+            detailCount
+          ) {
+            toggleFeedbackOverlayGroup(
+              groupKey
+            );
           }
-        });
+        };
+
+        markerGroup.addEventListener(
+          "click",
+          () => {
+            activateAnnotation(
+              true
+            );
+          }
+        );
+
+        markerGroup.addEventListener(
+          "keydown",
+          (event) => {
+            if (
+              event.key === "Enter" ||
+              event.key === " "
+            ) {
+              event.preventDefault();
+
+              activateAnnotation(
+                true
+              );
+            }
+          }
+        );
 
         const card =
           document.createElement("section");
 
         card.className =
-          `mg-feedback-overlay-note ${severityClass}`;
+          `mg-feedback-overlay-note ${correctnessClass} ${feedbackRoleClass}`;
 
         card.dataset.overlayId =
           annotation.id;
 
         card.dataset.overlayCategory =
           category;
+
+        card.dataset.overlayGroup =
+          groupKey;
+
+        card.dataset.overlayPrimary =
+          isPrimary
+            ? "true"
+            : "false";
 
         /*
          * The card chrome and heading are English/LTR.
@@ -4760,6 +5500,16 @@ if (resultType === "tex") {
           "role",
           "button"
         );
+
+        if (
+          isPrimary &&
+          detailCount
+        ) {
+          card.setAttribute(
+            "aria-expanded",
+            "false"
+          );
+        }
 
         const heading =
           document.createElement("div");
@@ -4776,22 +5526,114 @@ if (resultType === "tex") {
         title.dir = "ltr";
 
         title.textContent =
-          `${annotation.marker}. ${annotation.title}`;
+          compactFeedbackOverlayTitle(
+            annotation
+          );
+
+        /*
+         * The complete descriptive title remains available as a
+         * browser tooltip without making the card heading too long.
+         */
+        title.title = String(
+          annotation.title || ""
+        );
+
+        const headingActions =
+          document.createElement(
+            "span"
+          );
+
+        headingActions.className =
+          "mg-feedback-overlay-note-actions";
 
         const categoryBadge =
           document.createElement("span");
 
         categoryBadge.className =
-          `mg-feedback-overlay-category is-${category}`;
+          isPrimary
+            ? (
+                "mg-feedback-overlay-category "
+                + "is-main"
+              )
+            : (
+                "mg-feedback-overlay-category "
+                + `is-${category}`
+              );
 
-        categoryBadge.dir = "ltr";
+        categoryBadge.dir =
+          "ltr";
 
         categoryBadge.textContent =
-          overlayCategoryLabel(category);
+          isPrimary
+            ? (
+                studentFeedbackCorrectnessMeta(
+                  annotation.correctnessLevel
+                ).label
+              )
+            : (
+                overlayCategoryLabel(
+                  category
+                )
+              );
+
+        headingActions.appendChild(
+          categoryBadge
+        );
+
+        if (
+          isPrimary &&
+          detailCount
+        ) {
+          const expandIndicator =
+            document.createElement(
+              "span"
+            );
+
+          expandIndicator.className =
+            "mg-feedback-overlay-expand";
+
+          const expandText =
+            document.createElement(
+              "span"
+            );
+
+          expandText.textContent =
+            `${detailCount} detail`
+            + (
+                detailCount === 1
+                  ? ""
+                  : "s"
+              );
+
+          const expandIcon =
+            document.createElement(
+              "span"
+            );
+
+          expandIcon.className =
+            "mg-feedback-overlay-expand-icon";
+
+          expandIcon.setAttribute(
+            "aria-hidden",
+            "true"
+          );
+
+          expandIcon.textContent =
+            "⌄";
+
+          expandIndicator.append(
+            expandText,
+            expandIcon
+          );
+
+          headingActions.appendChild(
+            expandIndicator
+          );
+        }
 
         heading.append(
           title,
-          categoryBadge
+          headingActions
         );
 
         const body =
@@ -4818,13 +5660,20 @@ if (resultType === "tex") {
         );
 
         coordinateBadge.className =
-          placement === "evidence"
-            ? "mg-feedback-overlay-coordinate is-exact"
-            : (
-                placement === "answer"
-                  ? "mg-feedback-overlay-coordinate is-answer-area"
-                  : "mg-feedback-overlay-coordinate is-approximate"
-              );
+          (
+            placement === "evidence"
+              ? "mg-feedback-overlay-coordinate is-exact"
+              : (
+                  placement === "answer"
+                    ? "mg-feedback-overlay-coordinate is-answer-area"
+                    : "mg-feedback-overlay-coordinate is-approximate"
+                )
+          )
+          + (
+              isPrimary
+                ? " mg-feedback-overlay-primary-extra"
+                : ""
+            );
 
         coordinateBadge.textContent =
           placement === "evidence"
@@ -4846,7 +5695,12 @@ if (resultType === "tex") {
         if (annotation.ocrNeedsReview) {
           const reviewBadge = document.createElement("small");
           reviewBadge.className =
-            "mg-feedback-overlay-coordinate is-review";
+            "mg-feedback-overlay-coordinate is-review"
+            + (
+                isPrimary
+                  ? " mg-feedback-overlay-primary-extra"
+                  : ""
+              );
 
           reviewBadge.textContent =
             annotation.ocrWarnings?.length
@@ -4863,16 +5717,35 @@ if (resultType === "tex") {
           body.appendChild(reviewBadge);
         }
 
-        card.append(heading, body);
-        card.addEventListener("click", () => {
-          setFeedbackOverlayActive(annotation.id);
-        });
-        card.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setFeedbackOverlayActive(annotation.id);
+        card.append(
+          heading,
+          body
+        );
+
+        card.addEventListener(
+          "click",
+          () => {
+            activateAnnotation(
+              false
+            );
           }
-        });
+        );
+
+        card.addEventListener(
+          "keydown",
+          (event) => {
+            if (
+              event.key === "Enter" ||
+              event.key === " "
+            ) {
+              event.preventDefault();
+
+              activateAnnotation(
+                false
+              );
+            }
+          }
+        );
         notes.appendChild(card);
       });
 
@@ -4909,6 +5782,12 @@ if (resultType === "tex") {
           pages.length || 1
         );
 
+        /*
+         * Every overlay initially opens in skim mode:
+         * one main feedback card per question part.
+         */
+        feedbackOverlayExpandedGroups.clear();
+
         feedbackOverlayPreview.innerHTML = "";
 
         for (const page of pages) {
@@ -4941,6 +5820,19 @@ if (resultType === "tex") {
 
         feedbackOverlayPreview.dataset.annotationCount =
           String(annotations.length);
+
+        feedbackOverlayPreview.dataset.groupCount =
+          String(
+            new Set(
+              annotations.map(
+                (item) =>
+                  String(
+                    item.groupKey ||
+                    item.id
+                  )
+              )
+            ).size
+          );
 
         feedbackOverlayPreview.dataset.exactCount =
           String(exactCount);

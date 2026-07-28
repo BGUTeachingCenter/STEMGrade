@@ -6431,45 +6431,100 @@ mjx-container {
   outline: none;
 }
 
+/*
+ * The overlay uses the same five correctness colors as the
+ * structured graded result.
+ *
+ * The tinted page highlight remains more transparent than the
+ * result pill so handwriting stays easy to read.
+ */
+.mg-feedback-overlay-annotation,
+.mg-feedback-overlay-note {
+  --mg-overlay-accent: #c94c3d;
+  --mg-overlay-border: #efbcb5;
+  --mg-overlay-background: #fff1ef;
+  --mg-overlay-fill: rgba(201, 76, 61, .05);
+  --mg-overlay-shadow: rgba(201, 76, 61, .11);
+}
+
+.mg-feedback-overlay-annotation.is-correct,
+.mg-feedback-overlay-note.is-correct {
+  --mg-overlay-accent: #3c9848;
+  --mg-overlay-border: #acd5b1;
+  --mg-overlay-background: #edf8ef;
+  --mg-overlay-fill: rgba(60, 152, 72, .045);
+  --mg-overlay-shadow: rgba(60, 152, 72, .10);
+}
+
+.mg-feedback-overlay-annotation.is-mostly-correct,
+.mg-feedback-overlay-note.is-mostly-correct {
+  --mg-overlay-accent: #78b84f;
+  --mg-overlay-border: #c6dfaa;
+  --mg-overlay-background: #f3f9eb;
+  --mg-overlay-fill: rgba(120, 184, 79, .045);
+  --mg-overlay-shadow: rgba(120, 184, 79, .11);
+}
+
+.mg-feedback-overlay-annotation.is-partially-correct,
+.mg-feedback-overlay-note.is-partially-correct {
+  --mg-overlay-accent: #f0a12a;
+  --mg-overlay-border: #f3ce91;
+  --mg-overlay-background: #fff7e8;
+  --mg-overlay-fill: rgba(240, 161, 42, .05);
+  --mg-overlay-shadow: rgba(240, 161, 42, .11);
+}
+
+.mg-feedback-overlay-annotation.is-needs-work,
+.mg-feedback-overlay-note.is-needs-work {
+  --mg-overlay-accent: #c94c3d;
+  --mg-overlay-border: #efbcb5;
+  --mg-overlay-background: #fff1ef;
+  --mg-overlay-fill: rgba(201, 76, 61, .05);
+  --mg-overlay-shadow: rgba(201, 76, 61, .11);
+}
+
+.mg-feedback-overlay-annotation.is-not-answered,
+.mg-feedback-overlay-note.is-not-answered {
+  --mg-overlay-accent: #9b9ba0;
+  --mg-overlay-border: #d7d7da;
+  --mg-overlay-background: #f3f3f4;
+  --mg-overlay-fill: rgba(155, 155, 160, .045);
+  --mg-overlay-shadow: rgba(116, 116, 120, .10);
+}
+
 .mg-feedback-overlay-highlight {
-  fill: rgba(196,61,47,.10);
-  stroke: rgba(196,61,47,.78);
+  fill: var(--mg-overlay-fill);
+  stroke: var(--mg-overlay-accent);
+  stroke-opacity: .76;
   stroke-width: 3;
   stroke-dasharray: 10 7;
-  transition: opacity .18s ease, fill .18s ease, stroke-width .18s ease;
-}
-
-.mg-feedback-overlay-highlight.is-warning {
-  fill: rgba(245,158,11,.10);
-  stroke: rgba(217,127,8,.80);
-}
-
-.mg-feedback-overlay-highlight.is-success {
-  fill: rgba(47,125,50,.09);
-  stroke: rgba(47,125,50,.76);
+  transition:
+    opacity .18s ease,
+    fill .18s ease,
+    stroke-width .18s ease;
 }
 
 .mg-feedback-overlay-line {
-  stroke: rgba(196,61,47,.82);
+  stroke: var(--mg-overlay-accent);
+  stroke-opacity: .80;
   stroke-width: 3;
   stroke-dasharray: 10 7;
-  transition: opacity .18s ease, stroke-width .18s ease;
+  transition:
+    opacity .18s ease,
+    stroke-width .18s ease;
 }
 
-.mg-feedback-overlay-line.is-warning { stroke: rgba(217,127,8,.82); }
-.mg-feedback-overlay-line.is-success { stroke: rgba(47,125,50,.78); }
-
 .mg-feedback-overlay-marker {
-  fill: #c43d2f;
+  fill: var(--mg-overlay-accent);
   stroke: #fff;
   stroke-width: 3;
-  transition: filter .18s ease, transform .18s ease, stroke-width .18s ease;
+  transition:
+    filter .18s ease,
+    transform .18s ease,
+    stroke-width .18s ease;
   transform-box: fill-box;
   transform-origin: center;
 }
-
-.mg-feedback-overlay-marker.is-warning { fill: #d97f08; }
-.mg-feedback-overlay-marker.is-success { fill: #2f7d32; }
 
 .mg-feedback-overlay-svg text {
   fill: #fff;
@@ -6501,9 +6556,9 @@ mjx-container {
 
 .mg-feedback-overlay-note {
   padding: 14px;
-  border: 1px solid #f2c4bd;
+  border: 1px solid var(--mg-overlay-border);
   border-radius: 18px;
-  background: #fff5f3;
+  background: var(--mg-overlay-background);
 
   /*
    * Keep the card shell stable. Direction is selected separately
@@ -6524,42 +6579,109 @@ mjx-container {
 .mg-feedback-overlay-note:focus-visible,
 .mg-feedback-overlay-note.is-active {
   transform: translateY(-1px);
-  border-color: #d66b5f;
-  box-shadow: 0 12px 26px rgba(196,61,47,.13);
+  border-color: var(--mg-overlay-accent);
+  box-shadow:
+    0 12px 26px
+    var(--mg-overlay-shadow);
 }
 
-.mg-feedback-overlay-note.is-warning {
-  border-color: #f4d4a7;
-  background: #fff8ef;
+/*
+ * Overlay skim mode:
+ * one primary correctness-colored card per question part.
+ * Detail cards and page markers appear when the primary is opened.
+ */
+.mg-feedback-overlay-note.is-primary-feedback {
+  border-width: 2px;
 }
 
-.mg-feedback-overlay-note.is-warning:hover,
-.mg-feedback-overlay-note.is-warning:focus-visible,
-.mg-feedback-overlay-note.is-warning.is-active {
-  border-color: #e2a64d;
-  box-shadow: 0 12px 26px rgba(217,127,8,.13);
+.mg-feedback-overlay-note.is-primary-feedback.is-expanded {
+  box-shadow:
+    0 14px 30px
+    var(--mg-overlay-shadow);
 }
 
-.mg-feedback-overlay-note.is-success {
-  border-color: #cfe7d1;
-  background: #f2faf3;
+.mg-feedback-overlay-note.is-detail-feedback {
+  margin-left: 12px;
+  border-style: dashed;
 }
 
-.mg-feedback-overlay-note.is-success:hover,
-.mg-feedback-overlay-note.is-success:focus-visible,
-.mg-feedback-overlay-note.is-success.is-active {
-  border-color: #78bc80;
-  box-shadow: 0 12px 26px rgba(47,125,50,.12);
+.mg-feedback-overlay-note-actions {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mg-feedback-overlay-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 4px 8px;
+  border: 1px solid var(--mg-overlay-border);
+  border-radius: 999px;
+  background: rgba(255,255,255,.68);
+  color: var(--mg-overlay-accent);
+  font-size: 10px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.mg-feedback-overlay-expand-icon {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform .18s ease;
+}
+
+.mg-feedback-overlay-note.is-expanded
+  .mg-feedback-overlay-expand-icon {
+  transform: rotate(180deg);
+}
+
+.mg-feedback-overlay-category.is-main {
+  color: var(--mg-overlay-accent);
+  border: 1px solid var(--mg-overlay-border);
+  background: rgba(255,255,255,.68);
+}
+
+.mg-feedback-overlay-primary-extra {
+  display: none;
+}
+
+.mg-feedback-overlay-note.is-expanded
+  .mg-feedback-overlay-primary-extra {
+  display: block;
 }
 
 .mg-feedback-overlay-note-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
   color: var(--text);
   font-size: 14px;
   font-weight: 950;
+}
+
+.mg-feedback-overlay-note-title {
+  min-width: 0;
+  padding-top: 4px;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.mg-feedback-overlay-category,
+.mg-feedback-overlay-expand {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .mg-feedback-overlay-category {
@@ -6696,7 +6818,8 @@ mjx-container {
   opacity: 0;
 }
 
-.mg-feedback-overlay-preview .is-filtered-out {
+.mg-feedback-overlay-preview .is-filtered-out,
+.mg-feedback-overlay-preview .is-group-collapsed {
   display: none !important;
 }
 
