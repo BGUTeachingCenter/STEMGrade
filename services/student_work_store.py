@@ -826,7 +826,7 @@ def save_ocr_student_work(
 
         return metadata
 
-    def save_ocr_teacher_test_work(
+def save_ocr_teacher_test_work(
             *,
             teacher_id: str,
             voucher_id: str = "",

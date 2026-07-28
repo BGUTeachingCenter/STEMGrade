@@ -21,8 +21,12 @@ from schemas.ocr_response import OcrOptions
 from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_result
 from services.ocr_routing import decide_student_ocr_path
 from common.exam_summary import write_student_summary, read_json_file
-from services.student_work_store import save_ocr_student_work
+from services.student_work_store import (
+    save_ocr_student_work,
+    save_ocr_teacher_test_work,
+)
 from services.student_access import get_student_code_record
+from services.teacher_profiles import get_teacher
 
 router = APIRouter(prefix="/routes", tags=["ocr"])
 
@@ -91,11 +95,42 @@ async def ocr_handwritten(
     voucher_id = ""
 
     if session_role == "teacher":
-        teacher_id = (
-                _session.get("teacher_id")
-                or _session.get("sub")
-                or ""
+        teacher_id = str(
+            _session.get("teacher_id")
+            or _session.get("sub")
+            or ""
         ).strip()
+
+        teacher_profile = (
+            get_teacher(teacher_id)
+            or {}
+        )
+
+        active_course = (
+            teacher_profile.get("active_course")
+            if isinstance(
+                teacher_profile.get("active_course"),
+                dict,
+            )
+            else {}
+        )
+
+        voucher_id = str(
+            active_course.get("voucher_id")
+            or active_course.get("course_id")
+            or teacher_profile.get("voucher_id")
+            or teacher_profile.get("active_course_id")
+            or ""
+        ).strip()
+
+        if not teacher_id or not voucher_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Choose an active course before running "
+                    "teacher-test OCR."
+                ),
+            )
 
     elif session_role == "student":
         student_code = (_session.get("sub") or "").strip()
@@ -281,33 +316,87 @@ async def ocr_handwritten(
     tex_path = Path(student_result.student_tex_path)
 
     stored_work: dict | None = None
-    if session_role == "student" and student_code:
-        try:
+
+    common_storage_kwargs = {
+        "source_filename": filename,
+        "uploaded_bytes": uploaded_bytes,
+        "ocr_provider": (
+            ocr_result.provider
+            or ocr_provider
+        ),
+        "ocr_model": (
+            ocr_result.model
+            or ocr_model
+            or ""
+        ),
+        "document_type": (
+            route_decision.document_type
+        ),
+        "ocr_path": (
+            route_decision.ocr_path
+        ),
+        "route_reason": (
+            route_decision.reason
+        ),
+        "debug_trace_id": (
+            trace.run_id
+        ),
+        "debug_trace_dir": (
+            str(trace.path)
+            if trace.enabled
+            else ""
+        ),
+        "ocr_response_path": out_path,
+        "student_work_result": student_result,
+        "student_summary_path": student_summary_path,
+    }
+
+    try:
+        if (
+            session_role == "student"
+            and student_code
+        ):
             stored_work = save_ocr_student_work(
                 student_code=student_code,
                 teacher_id=teacher_id,
-                source_filename=filename,
-                uploaded_bytes=uploaded_bytes,
-                ocr_provider=ocr_result.provider or ocr_provider,
-                ocr_model=ocr_result.model or ocr_model or "",
-                document_type=route_decision.document_type,
-                ocr_path=route_decision.ocr_path,
-                route_reason=route_decision.reason,
-                debug_trace_id=trace.run_id,
-                debug_trace_dir=str(trace.path) if trace.enabled else "",
-                ocr_response_path=out_path,
-                student_work_result=student_result,
-                student_summary_path=student_summary_path,
+                voucher_id=voucher_id,
+                **common_storage_kwargs,
             )
+
+        elif (
+            session_role == "teacher"
+            and teacher_id
+        ):
+            stored_work = save_ocr_teacher_test_work(
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+                **common_storage_kwargs,
+            )
+
+        if stored_work:
             trace.log(
                 "student_work_store",
                 "saved",
-                work_id=stored_work.get("work_id"),
-                primary_filename=stored_work.get("primary_filename"),
+                work_scope=stored_work.get(
+                    "work_scope"
+                ),
+                work_id=stored_work.get(
+                    "work_id"
+                ),
+                primary_filename=stored_work.get(
+                    "primary_filename"
+                ),
             )
-        except Exception as e:
-            # Do not fail OCR just because archival storage failed.
-            trace.log("student_work_store", "failed", status="warning", error=str(e)[:500])
+
+    except Exception as error:
+        # OCR itself succeeded. Preserve the result, but make archival
+        # failures visible in the debug trace.
+        trace.log(
+            "student_work_store",
+            "failed",
+            status="warning",
+            error=str(error)[:500],
+        )
 
     return {
         "ok": True,

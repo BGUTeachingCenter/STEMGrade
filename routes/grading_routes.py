@@ -45,10 +45,14 @@ from services.student_grading.student_answer_bundle import (
 from core.ai_clients.ai_usage_logger import bind_usage_context
 from services.student_work_store import (
     attach_grading_feedback_to_student_work,
+    attach_grading_feedback_to_teacher_test_work,
     create_tex_student_work,
+    create_tex_teacher_test_work,
     resolve_student_work_file,
+    resolve_teacher_test_work_file,
 )
 from services.student_access import get_student_code_record
+from services.teacher_profiles import get_teacher
 
 router = APIRouter(prefix="/routes", tags=["grading"])
 
@@ -499,9 +503,28 @@ async def _grade_tex_flow(
     source_work_id: str | None = None,
     debug: bool = False,
 ) -> FileResponse:
-    # Trust only the session for identity; never the form field.
-    student_code = session["sub"] if session.get("role") == "student" else None
-    source_work_id = (source_work_id or "").strip() if student_code else ""
+    # Trust only the session for identity; never a submitted identity field.
+    session_role = str(
+        session.get("role") or ""
+    ).strip()
+
+    student_code = (
+        session.get("sub")
+        if session_role == "student"
+        else None
+    )
+
+    # Both students and teachers may submit a work ID, but the server
+    # resolves it only inside the authenticated session's storage scope.
+    source_work_id = (
+        (source_work_id or "").strip()
+        if session_role in {
+            "student",
+            "teacher",
+        }
+        else ""
+    )
+
     """
     Canonical flow (no duplicate extraction):
 
@@ -526,8 +549,10 @@ async def _grade_tex_flow(
         session_role=session.get("role") if session else None,
         student_code=student_code,
     )
-    session_role = session.get("role")
-    teacher_id = (session.get("teacher_id") or "").strip()
+    teacher_id = (
+        session.get("teacher_id")
+        or ""
+    ).strip()
 
     if session_role == "teacher" and not teacher_id:
         teacher_id = (session.get("sub") or "").strip()
@@ -542,15 +567,57 @@ async def _grade_tex_flow(
 
     if session_role == "student" and student_code:
         try:
-            student_record = get_student_code_record(student_code) or {}
+            student_record = (
+                get_student_code_record(
+                    student_code
+                )
+                or {}
+            )
+
             bank_voucher_id = str(
                 student_record.get("voucher_id")
                 or student_record.get("voucher_hash")
                 or student_record.get("voucher_code")
                 or ""
             ).strip()
+
         except Exception:
             bank_voucher_id = ""
+
+    elif (
+        session_role == "teacher"
+        and teacher_id
+    ):
+        teacher_profile = (
+            get_teacher(teacher_id)
+            or {}
+        )
+
+        active_course = (
+            teacher_profile.get("active_course")
+            if isinstance(
+                teacher_profile.get("active_course"),
+                dict,
+            )
+            else {}
+        )
+
+        bank_voucher_id = str(
+            active_course.get("voucher_id")
+            or active_course.get("course_id")
+            or teacher_profile.get("voucher_id")
+            or teacher_profile.get("active_course_id")
+            or ""
+        ).strip()
+
+        if not bank_voucher_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Choose an active course before running "
+                    "teacher-test grading."
+                ),
+            )
 
     active_bank_root = teacher_bank_root(teacher_id, voucher_id=bank_voucher_id) if teacher_id else BANK_ROOT
     bind_bank_root(active_bank_root)
@@ -643,33 +710,101 @@ async def _grade_tex_flow(
                     ),
                 )
 
-        # If this is a direct student TeX/TXT upload, create a canonical
-        # student-work folder now. OCR uploads already created one earlier and
-        # pass source_work_id from the frontend.
-        if student_code and not source_work_id:
+        # Direct TeX/TXT uploads get a canonical work folder immediately.
+        # OCR uploads already created one and pass source_work_id.
+        if not source_work_id:
             try:
-                created_work = create_tex_student_work(
-                    student_code=student_code,
-                    teacher_id=teacher_id,
-                    source_filename=uploaded_name,
-                    uploaded_bytes=student_upload_bytes,
-                    debug_trace_id=trace.run_id,
-                    debug_trace_dir=str(trace.path) if trace.enabled else "",
-                )
-                source_work_id = str(created_work.get("work_id") or "").strip()
-                trace.log(
-                    "student_work_store",
-                    "direct_tex_saved",
-                    work_id=source_work_id,
-                    teacher_id=created_work.get("teacher_id"),
-                    voucher_id=created_work.get("voucher_id"),
-                )
-            except Exception as e:
+                created_work: (
+                    dict[str, Any]
+                    | None
+                ) = None
+
+                if student_code:
+                    created_work = (
+                        create_tex_student_work(
+                            student_code=student_code,
+                            teacher_id=teacher_id,
+                            voucher_id=bank_voucher_id,
+                            source_filename=(
+                                uploaded_name
+                            ),
+                            uploaded_bytes=(
+                                student_upload_bytes
+                            ),
+                            debug_trace_id=(
+                                trace.run_id
+                            ),
+                            debug_trace_dir=(
+                                str(trace.path)
+                                if trace.enabled
+                                else ""
+                            ),
+                        )
+                    )
+
+                elif (
+                    session_role == "teacher"
+                    and teacher_id
+                ):
+                    created_work = (
+                        create_tex_teacher_test_work(
+                            teacher_id=teacher_id,
+                            voucher_id=bank_voucher_id,
+                            source_filename=(
+                                uploaded_name
+                            ),
+                            uploaded_bytes=(
+                                student_upload_bytes
+                            ),
+                            debug_trace_id=(
+                                trace.run_id
+                            ),
+                            debug_trace_dir=(
+                                str(trace.path)
+                                if trace.enabled
+                                else ""
+                            ),
+                        )
+                    )
+
+                if created_work:
+                    source_work_id = str(
+                        created_work.get(
+                            "work_id"
+                        )
+                        or ""
+                    ).strip()
+
+                    trace.log(
+                        "student_work_store",
+                        "direct_tex_saved",
+                        work_scope=(
+                            created_work.get(
+                                "work_scope"
+                            )
+                        ),
+                        work_id=source_work_id,
+                        teacher_id=(
+                            created_work.get(
+                                "teacher_id"
+                            )
+                        ),
+                        voucher_id=(
+                            created_work.get(
+                                "voucher_id"
+                            )
+                        ),
+                    )
+
+            except Exception as error:
                 trace.log(
                     "student_work_store",
                     "direct_tex_save_failed",
                     status="warning",
-                    error=_safe_str(e, 500),
+                    error=_safe_str(
+                        error,
+                        500,
+                    ),
                 )
         if job_id:
             push(job_id, "Saved student file")
@@ -1371,23 +1506,35 @@ async def _grade_tex_flow(
             else None
         )
 
-        # Prefer the original saved OCR bundle for page coordinates. This keeps
-        # the visual anchors even when the student edits the reviewable LaTeX
-        # before grading.
-        if student_code and source_work_id:
+        # Prefer the saved OCR bundle for page coordinates. This preserves
+        # visual anchors when the reviewed LaTeX is edited before grading.
+        if source_work_id:
             try:
-                stored_overlay_bundle = (
-                    resolve_student_work_file(
-                        student_code,
-                        source_work_id,
-                        "student_answer_bundle.json",
+                if student_code:
+                    stored_overlay_bundle = (
+                        resolve_student_work_file(
+                            student_code,
+                            source_work_id,
+                            "student_answer_bundle.json",
+                        )
                     )
-                )
+                else:
+                    stored_overlay_bundle = (
+                        resolve_teacher_test_work_file(
+                            teacher_id,
+                            source_work_id,
+                            "student_answer_bundle.json",
+                            voucher_id=(
+                                bank_voucher_id
+                            ),
+                        )
+                    )
 
                 if stored_overlay_bundle.exists():
                     overlay_bundle_json = (
                         stored_overlay_bundle
                     )
+
             except HTTPException:
                 pass
 
@@ -1667,36 +1814,70 @@ async def _grade_tex_flow(
             str,
             str,
         ] = {}
-
-        #  * Teacher test mode does not have a student_code or canonical
-        #  * student-work folder. Publish its student_feedback.json separately
-        #  * so the existing browser renderer can load the modern structured
-        #  * presentation instead of trying to interpret the generated TeX.
-        if session_role == "teacher":
-            teacher_test_id = (
-                _teacher_id_from_session(
-                    session
+        # Teacher tests use the same artifact set as student work,
+        # but live under the active course's teacher_tests folder.
+        if (
+                session_role == "teacher"
+                and teacher_id
+                and source_work_id
+        ):
+            updated_teacher_test = (
+                attach_grading_feedback_to_teacher_test_work(
+                    teacher_id=teacher_id,
+                    voucher_id=bank_voucher_id,
+                    work_id=source_work_id,
+                    exam_id=str(exam_id),
+                    provider=normalized_provider,
+                    final_path=(
+                        final_persistent_path
+                    ),
+                    graded_result_json_path=(
+                        structured_persistent_path
+                    ),
+                    graded_result_tex_path=(
+                        graded_tex_persistent_path
+                    ),
+                    saved_at=result_saved_at,
                 )
             )
 
-            if not teacher_test_id:
+            if not updated_teacher_test:
                 raise RuntimeError(
-                    "Could not publish teacher-test feedback "
-                    "because the teacher identity is missing."
+                    "Could not attach grading feedback to "
+                    "the saved teacher-test work."
                 )
 
-            (
-                teacher_structured_url,
-                teacher_structured_filename,
-            ) = (
-                _publish_teacher_test_structured_result(
-                    source_path=(
-                        structured_persistent_path
-                    ),
-                    teacher_id=(
-                        teacher_test_id
-                    ),
+            teacher_feedback = (
+                updated_teacher_test.get(
+                    "feedback"
                 )
+                if isinstance(
+                    updated_teacher_test.get(
+                        "feedback"
+                    ),
+                    dict,
+                )
+                else {}
+            )
+
+            teacher_structured_filename = str(
+                teacher_feedback.get(
+                    "structured_json_filename"
+                )
+                or ""
+            ).strip()
+
+            if not teacher_structured_filename:
+                raise RuntimeError(
+                    "Teacher-test structured feedback "
+                    "was not saved."
+                )
+
+            teacher_structured_url = (
+                "/routes/student/work_file"
+                "?work_scope=teacher_test"
+                f"&work_id={quote(source_work_id)}"
+                f"&filename={quote(teacher_structured_filename)}"
             )
 
             response_headers[
@@ -1705,16 +1886,20 @@ async def _grade_tex_flow(
 
             response_headers[
                 "X-MathGrade-Structured-Filename"
-            ] = (
-                teacher_structured_filename
-            )
+            ] = teacher_structured_filename
+
+            response_headers[
+                "X-MathGrade-Work-Id"
+            ] = source_work_id
+
+            response_headers[
+                "X-MathGrade-Work-Scope"
+            ] = "teacher_test"
 
             trace.log(
                 "teacher_test",
-                "structured_feedback_published",
-                structured_url=(
-                    teacher_structured_url
-                ),
+                "feedback_attached",
+                work_id=source_work_id,
                 structured_filename=(
                     teacher_structured_filename
                 ),
@@ -1834,6 +2019,10 @@ async def _grade_tex_flow(
                     response_headers[
                         "X-MathGrade-Work-Id"
                     ] = source_work_id
+
+                    response_headers[
+                        "X-MathGrade-Work-Scope"
+                    ] = "student"
             except Exception as e:
                 trace.log(
                     "student_work_store",
