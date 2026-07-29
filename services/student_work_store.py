@@ -1030,10 +1030,25 @@ def create_tex_teacher_test_work(
     )
 
 
-def _student_work_download_url(work_id: str, filename: str) -> str:
+def _student_work_download_url(
+    work_id: str,
+    filename: str,
+) -> str:
     return (
         "/routes/student/work_file"
         f"?work_id={quote(work_id)}"
+        f"&filename={quote(filename)}"
+    )
+
+
+def _teacher_test_work_download_url(
+    work_id: str,
+    filename: str,
+) -> str:
+    return (
+        "/routes/student/work_file"
+        "?work_scope=teacher_test"
+        f"&work_id={quote(work_id)}"
         f"&filename={quote(filename)}"
     )
 
@@ -1513,7 +1528,360 @@ def list_teacher_student_work_metadata(
     return items
 
 
-def list_student_work_for_dashboard(student_code: str) -> list[dict[str, Any]]:
+def list_teacher_test_work_for_dashboard(
+    teacher_id: str,
+    *,
+    voucher_id: str = "",
+) -> list[dict[str, Any]]:
+    """
+    List saved teacher-test attempts for the teacher's active course.
+
+    Teacher tests are stored separately from student submissions and are
+    therefore not read from upload_log.json.
+    """
+    teacher_id = str(
+        teacher_id or ""
+    ).strip()
+
+    if not teacher_id:
+        return []
+
+    try:
+        ctx = _lookup_teacher_test_context(
+            teacher_id,
+            voucher_id=voucher_id,
+        )
+    except HTTPException:
+        return []
+
+    root = (
+        TEACHERS_ROOT
+        / ctx["safe_teacher_id"]
+        / "courses"
+        / ctx["safe_voucher_id"]
+        / "teacher_tests"
+    )
+
+    if not root.exists():
+        return []
+
+    items: list[dict[str, Any]] = []
+
+    for meta_path in root.glob(
+        "*/metadata.json"
+    ):
+        meta = _read_json(meta_path)
+
+        if not meta:
+            continue
+
+        if (
+            str(
+                meta.get("teacher_id")
+                or ""
+            ).strip()
+            != teacher_id
+        ):
+            continue
+
+        if (
+            str(
+                meta.get("work_scope")
+                or ""
+            ).strip()
+            != "teacher_test"
+        ):
+            continue
+
+        work_id = str(
+            meta.get("work_id")
+            or meta_path.parent.name
+        ).strip()
+
+        if not work_id:
+            continue
+
+        primary_filename = str(
+            meta.get("primary_filename")
+            or ""
+        ).strip()
+
+        if not primary_filename:
+            continue
+
+        primary_path = (
+            meta_path.parent
+            / primary_filename
+        )
+
+        if not primary_path.exists():
+            continue
+
+        feedback = (
+            meta.get("feedback")
+            if isinstance(
+                meta.get("feedback"),
+                dict,
+            )
+            else {}
+        )
+
+        feedback_filename = str(
+            feedback.get("filename")
+            or ""
+        ).strip()
+
+        feedback_path = (
+            meta_path.parent
+            / feedback_filename
+            if feedback_filename
+            else None
+        )
+
+        has_feedback = bool(
+            feedback_path
+            and feedback_path.exists()
+        )
+
+        files: list[dict[str, Any]] = []
+
+        raw_files = (
+            meta.get("files")
+            if isinstance(
+                meta.get("files"),
+                list,
+            )
+            else []
+        )
+
+        for file_meta in raw_files:
+            if not isinstance(
+                file_meta,
+                dict,
+            ):
+                continue
+
+            filename = str(
+                file_meta.get("filename")
+                or ""
+            ).strip()
+
+            if not filename:
+                continue
+
+            file_path = (
+                meta_path.parent
+                / filename
+            )
+
+            if not file_path.exists():
+                continue
+
+            files.append(
+                {
+                    "kind": str(
+                        file_meta.get("kind")
+                        or ""
+                    ),
+                    "label": str(
+                        file_meta.get("label")
+                        or filename
+                    ),
+                    "filename": filename,
+                    "download_url": (
+                        _teacher_test_work_download_url(
+                            work_id,
+                            filename,
+                        )
+                    ),
+                }
+            )
+
+        source_filename = str(
+            meta.get("source_filename")
+            or "Teacher test upload"
+        ).strip()
+
+        work_kind = str(
+            meta.get("kind")
+            or "tex"
+        ).strip().lower()
+
+        item_kind = (
+            "ocr"
+            if work_kind == "ocr"
+            else "tex"
+        )
+
+        exam_id = str(
+            meta.get("exam_id")
+            or ""
+        ).strip()
+
+        if not exam_id:
+            exam_id = (
+                f"OCR review: {source_filename}"
+                if item_kind == "ocr"
+                else (
+                    "Uploaded work: "
+                    f"{source_filename}"
+                )
+            )
+
+        ocr_provider = str(
+            meta.get("ocr_provider")
+            or ""
+        ).strip()
+
+        grading_provider = str(
+            feedback.get("provider")
+            or meta.get("grading_provider")
+            or ""
+        ).strip()
+
+        display_provider = (
+            grading_provider
+            or ocr_provider
+            or "teacher test"
+        )
+
+        ocr_saved_at = str(
+            meta.get("saved_at")
+            or ""
+        )
+
+        graded_at = str(
+            feedback.get("saved_at")
+            or meta.get("graded_at")
+            or ""
+        )
+
+        latest_saved_at = (
+            graded_at
+            or str(
+                meta.get("updated_at")
+                or ""
+            )
+            or ocr_saved_at
+        )
+
+        primary_url = (
+            _teacher_test_work_download_url(
+                work_id,
+                primary_filename,
+            )
+        )
+
+        item: dict[str, Any] = {
+            "kind": item_kind,
+            "status": str(
+                meta.get("status")
+                or ""
+            ),
+            "work_scope": "teacher_test",
+            "work_id": work_id,
+            "exam_id": exam_id,
+            "exam_folder": work_id,
+            "provider": display_provider,
+            "ocr_provider": ocr_provider,
+            "grading_provider": (
+                grading_provider
+            ),
+            "saved_at": latest_saved_at,
+            "ocr_saved_at": ocr_saved_at,
+            "graded_at": graded_at,
+            "source_filename": (
+                source_filename
+            ),
+            "filename": primary_filename,
+            "file_type": (
+                primary_path.suffix
+                .lower()
+                .lstrip(".")
+                or "file"
+            ),
+            "download_url": primary_url,
+            "teacher_id": teacher_id,
+            "voucher_id": str(
+                meta.get("voucher_id")
+                or ctx["voucher_id"]
+            ),
+            "storage_path_parts": (
+                meta.get(
+                    "storage_path_parts"
+                )
+                or {}
+            ),
+            "files": files,
+            "original_download_url": next(
+                (
+                    entry["download_url"]
+                    for entry in files
+                    if entry.get("kind")
+                    in {
+                        "original",
+                        "student_tex",
+                    }
+                ),
+                "",
+            ),
+            "graded_result_json_download_url": next(
+                (
+                    entry["download_url"]
+                    for entry in files
+                    if entry.get("kind")
+                    == "graded_result_json"
+                ),
+                "",
+            ),
+            "graded_result_tex_download_url": next(
+                (
+                    entry["download_url"]
+                    for entry in files
+                    if entry.get("kind")
+                    == "graded_result_tex"
+                ),
+                "",
+            ),
+        }
+
+        if has_feedback:
+            item["feedback_download_url"] = (
+                _teacher_test_work_download_url(
+                    work_id,
+                    feedback_filename,
+                )
+            )
+
+            item["feedback_filename"] = (
+                feedback_filename
+            )
+
+            item["feedback_file_type"] = str(
+                feedback.get("file_type")
+                or Path(
+                    feedback_filename
+                ).suffix
+                .lower()
+                .lstrip(".")
+            )
+
+        items.append(item)
+
+    items.sort(
+        key=lambda item: str(
+            item.get("saved_at")
+            or ""
+        ),
+        reverse=True,
+    )
+
+    return items
+
+
+def list_student_work_for_dashboard(
+    student_code: str,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen_work_ids: set[str] = set()
 

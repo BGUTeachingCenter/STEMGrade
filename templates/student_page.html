@@ -7401,7 +7401,12 @@ function parseStructuredOcrPreview(value) {
       workId || "";
 
     ocrCurrentWorkScope =
-      "student";
+      (
+        currentRole === "teacher" &&
+        !TEACHER_REVIEW_MODE
+      )
+        ? "teacher_test"
+        : "student";
 
     if (handwrittenFile) {
       handwrittenFile.value = "";
@@ -7857,9 +7862,27 @@ function wireSavedOcrButtons() {
         }
 
         if (studentResultsList) {
-          studentResultsList.innerHTML = results.length
-            ? results.map(resultCard).join("")
-            : `<div class="mg-empty-student-results">Your OCR results and graded PDFs/TeX files will appear here after you submit work.</div>`;
+          const emptyMessage =
+            j.is_teacher_test
+              ? (
+                  "Teacher-test OCR results and graded files " +
+                  "for the active course will appear here."
+                )
+              : (
+                  "Your OCR results and graded PDFs/TeX files " +
+                  "will appear here after you submit work."
+                );
+
+          studentResultsList.innerHTML =
+            results.length
+              ? results
+                  .map(resultCard)
+                  .join("")
+              : (
+                  `<div class="mg-empty-student-results">` +
+                  `${escapeHtml(emptyMessage)}` +
+                  `</div>`
+                );
 
           wireSavedOcrButtons();
         }
@@ -8218,7 +8241,10 @@ function wireSavedOcrButtons() {
         lines.push(`[${nowTag()}] Done ✅ (${finalName})`);
         setStatusText(lines, "ok");
 
-        if (currentRole === "student") {
+        if (
+          currentRole === "student" ||
+          currentRole === "teacher"
+        ) {
           await loadStudentDashboard();
         }
       } catch (e) {
@@ -8331,7 +8357,10 @@ function wireSavedOcrButtons() {
         lines.push(`[${nowTag()}] Review the generated LaTeX, then click "Use this as LaTeX answer".`);
         setStatusText(lines, "ok");
 
-        if (currentRole === "student") {
+        if (
+          currentRole === "student" ||
+          currentRole === "teacher"
+        ) {
           await loadStudentDashboard();
         }
       } catch (e) {

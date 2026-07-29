@@ -30,7 +30,10 @@ from services.student_access import (
     update_student_codes_for_teacher,
 )
 from services.teacher_profiles import get_teacher
-from services.student_work_store import list_student_work_for_dashboard
+from services.student_work_store import (
+    list_student_work_for_dashboard,
+    list_teacher_test_work_for_dashboard,
+)
 
 from openpyxl import Workbook, load_workbook
 
@@ -428,26 +431,117 @@ def student_dashboard(_session: dict = Depends(require_session)):
     role = _session.get("role")
 
     if role == "teacher":
-        teacher_id = (_session.get("teacher_id") or _session.get("sub") or "").strip()
-        teacher = get_teacher(teacher_id) or {}
+        teacher_id = str(
+            _session.get("teacher_id")
+            or _session.get("sub")
+            or ""
+        ).strip()
+
+        if not teacher_id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Missing teacher profile "
+                    "in session."
+                ),
+            )
+
+        teacher = (
+            get_teacher(teacher_id)
+            or {}
+        )
+
+        active_course = (
+            teacher.get("active_course")
+            if isinstance(
+                teacher.get("active_course"),
+                dict,
+            )
+            else {}
+        )
+
+        active_voucher_id = str(
+            active_course.get("voucher_id")
+            or active_course.get("course_id")
+            or teacher.get("voucher_id")
+            or teacher.get("active_course_id")
+            or ""
+        ).strip()
+
+        teacher_test_results = (
+            list_teacher_test_work_for_dashboard(
+                teacher_id,
+                voucher_id=active_voucher_id,
+            )
+            if active_voucher_id
+            else []
+        )
+
+        active_course_label = str(
+            active_course.get("course_label")
+            or teacher.get("course_label")
+            or ""
+        ).strip()
+
+        active_subject = str(
+            active_course.get("subject")
+            or teacher.get("subject")
+            or "math"
+        ).strip()
+
+        active_subject_label = str(
+            active_course.get(
+                "subject_label"
+            )
+            or teacher.get(
+                "subject_label"
+            )
+            or active_subject
+            or "Math"
+        ).strip()
+
         return {
             "ok": True,
             "role": "teacher",
             "is_teacher_test": True,
             "teacher": {
                 "teacher_id": teacher_id,
-                "name": teacher.get("name") or "Teacher",
-                "email": teacher.get("email") or "",
-                "subject": teacher.get("subject") or "math",
-                "subject_label": teacher.get("subject_label") or teacher.get("subject") or "Math",
+                "name": (
+                    teacher.get("name")
+                    or teacher.get("username")
+                    or "Teacher"
+                ),
+                "email": (
+                    teacher.get("email")
+                    or ""
+                ),
+                "subject": active_subject,
+                "subject_label": (
+                    active_subject_label
+                ),
             },
             "course": {
-                "course_label": "Teacher test mode",
-                "subject": teacher.get("subject") or "math",
-                "subject_label": teacher.get("subject_label") or teacher.get("subject") or "Math",
+                "course_label": (
+                    "Teacher test mode"
+                ),
+                "subject": active_subject,
+                "subject_label": (
+                    active_subject_label
+                ),
+                "note": (
+                    f"Active course: "
+                    f"{active_course_label}"
+                    if active_course_label
+                    else ""
+                ),
+                "voucher_id": (
+                    active_voucher_id
+                ),
             },
             "student": None,
-            "previous_results": [],
+            "previous_results": (
+                teacher_test_results[:40]
+            ),
         }
 
     if role != "student":
