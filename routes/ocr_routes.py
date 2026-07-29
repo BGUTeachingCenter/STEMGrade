@@ -22,6 +22,9 @@ from services.handwritten_ocr.student_work_ocr import build_student_work_ocr_res
 from services.ocr_routing import decide_student_ocr_path
 from common.exam_summary import write_student_summary, read_json_file
 from services.student_work_store import (
+    finalize_student_ocr_slot,
+    release_student_ocr_slot,
+    reserve_student_ocr_slot,
     save_ocr_student_work,
     save_ocr_teacher_test_work,
 )
@@ -93,6 +96,8 @@ async def ocr_handwritten(
     student_code = ""
 
     voucher_id = ""
+    ocr_reservation_id = ""
+    ocr_quota: dict | None = None
 
     if session_role == "teacher":
         teacher_id = str(
@@ -159,6 +164,34 @@ async def ocr_handwritten(
             ).strip()
             voucher_id = ""
 
+    def release_ocr_reservation() -> None:
+        nonlocal ocr_reservation_id
+        nonlocal ocr_quota
+
+        if (
+            session_role != "student"
+            or not student_code
+            or not ocr_reservation_id
+        ):
+            return
+
+        try:
+            ocr_quota = release_student_ocr_slot(
+                student_code,
+                ocr_reservation_id,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+        except Exception as release_error:
+            trace.log(
+                "ocr_quota",
+                "release_failed",
+                status="warning",
+                error=str(release_error)[:500],
+            )
+        finally:
+            ocr_reservation_id = ""
+
     bind_usage_context(
         debug_run_id=trace.run_id,
         route="ocr_handwritten",
@@ -195,6 +228,48 @@ async def ocr_handwritten(
         reason=route_decision.reason,
         native_text_char_count=route_decision.native_text_char_count,
     )
+
+    if (
+        session_role == "student"
+        and student_code
+    ):
+        quota_reservation = (
+            reserve_student_ocr_slot(
+                student_code,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+        )
+
+        ocr_reservation_id = str(
+            quota_reservation.get(
+                "reservation_id"
+            )
+            or ""
+        ).strip()
+
+        ocr_quota = {
+            key: value
+            for key, value in (
+                quota_reservation.items()
+            )
+            if key != "reservation_id"
+        }
+
+        trace.log(
+            "ocr_quota",
+            "reserved",
+            reservation_id=(
+                ocr_reservation_id
+            ),
+            used=ocr_quota.get("used"),
+            reserved=ocr_quota.get(
+                "reserved"
+            ),
+            remaining=ocr_quota.get(
+                "remaining"
+            ),
+        )
 
     try:
         if route_decision.ocr_path == "native_pdf_text_layer":
@@ -241,11 +316,22 @@ async def ocr_handwritten(
                 ),
             )
     except OcrClientError as e:
+        release_ocr_reservation()
         trace.error("ocr", e)
-        raise HTTPException(status_code=400, detail=str(e)) from e
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        ) from e
+
     except Exception as e:
+        release_ocr_reservation()
         trace.error("ocr", e)
-        raise HTTPException(status_code=500, detail=f"OCR failed: {e}") from e
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"OCR failed: {e}",
+        ) from e
 
     # Save provider-neutral OCR result for debugging / later review UI
     out_path = run_dir / "ocr_response.json"
@@ -265,13 +351,36 @@ async def ocr_handwritten(
         line_count=len(ocr_result.pages[0].line_data) if ocr_result.pages else 0,
     )
 
-    student_result = build_student_work_ocr_result(
-        ocr=ocr_result,
-        source_name=filename,
-        out_dir=run_dir,
-        document_type=route_decision.document_type,
-        ocr_path=route_decision.ocr_path,
-    )
+    try:
+        student_result = (
+            build_student_work_ocr_result(
+                ocr=ocr_result,
+                source_name=filename,
+                out_dir=run_dir,
+                document_type=(
+                    route_decision.document_type
+                ),
+                ocr_path=(
+                    route_decision.ocr_path
+                ),
+            )
+        )
+    except Exception as error:
+        release_ocr_reservation()
+
+        trace.error(
+            "student_tex",
+            error,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "OCR finished, but the "
+                "reviewable student result "
+                f"could not be built: {error}"
+            ),
+        ) from error
     trace.save_json("student_work_ocr_result.json", student_result.model_dump(), stage="student_tex")
     if student_result.student_answer_bundle:
         trace.save_json("student_answer_bundle.json", student_result.student_answer_bundle, stage="student_answer_bundle")
@@ -389,8 +498,9 @@ async def ocr_handwritten(
             )
 
     except Exception as error:
-        # OCR itself succeeded. Preserve the result, but make archival
-        # failures visible in the debug trace.
+        # Do not consume the quota unless persistent storage succeeds.
+        release_ocr_reservation()
+
         trace.log(
             "student_work_store",
             "failed",
@@ -398,47 +508,180 @@ async def ocr_handwritten(
             error=str(error)[:500],
         )
 
+    if (
+        session_role == "student"
+        and student_code
+        and stored_work
+        and ocr_reservation_id
+    ):
+        try:
+            ocr_quota = finalize_student_ocr_slot(
+                student_code,
+                ocr_reservation_id,
+                work_id=str(
+                    stored_work.get(
+                        "work_id"
+                    )
+                    or ""
+                ),
+                provider=str(
+                    stored_work.get(
+                        "ocr_provider"
+                    )
+                    or ocr_result.provider
+                    or ocr_provider
+                    or ""
+                ),
+                source_filename=filename,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+
+            trace.log(
+                "ocr_quota",
+                "finalized",
+                work_id=stored_work.get(
+                    "work_id"
+                ),
+                used=ocr_quota.get(
+                    "used"
+                ),
+                remaining=ocr_quota.get(
+                    "remaining"
+                ),
+            )
+
+            ocr_reservation_id = ""
+
+        except Exception as error:
+            release_ocr_reservation()
+
+            trace.error(
+                "ocr_quota",
+                error,
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "OCR was saved, but its "
+                    "daily usage record could "
+                    "not be finalized."
+                ),
+            ) from error
+
     return {
         "ok": True,
         "debug_trace_id": trace.run_id,
-        "debug_trace_dir": str(trace.path) if trace.enabled else None,
+        "debug_trace_dir": (
+            str(trace.path)
+            if trace.enabled
+            else None
+        ),
         "uploaded_filename": filename,
         "saved_path": str(saved_path),
         "raw_json_path": str(out_path),
         "stored_work": stored_work,
+        "ocr_quota": ocr_quota,
 
-        "ocr_route_requested_mode": route_decision.requested_mode,
-        "ocr_document_type": route_decision.document_type,
-        "ocr_path": route_decision.ocr_path,
-        "ocr_route_reason": route_decision.reason,
-        "native_text_char_count": route_decision.native_text_char_count,
+        "ocr_route_requested_mode": (
+            route_decision.requested_mode
+        ),
+        "ocr_document_type": (
+            route_decision.document_type
+        ),
+        "ocr_path": (
+            route_decision.ocr_path
+        ),
+        "ocr_route_reason": (
+            route_decision.reason
+        ),
+        "native_text_char_count": (
+            route_decision.native_text_char_count
+        ),
 
-        "ocr_schema_version": ocr_result.schema_version,
-        "ocr_provider": ocr_result.provider,
-        "ocr_model": ocr_result.model,
-        "ocr_input_kind": ocr_result.input_kind,
-        "ocr_provider_mode": ocr_result.provider_mode,
-        "ocr_provider_document_id": ocr_result.provider_document_id,
-        "ocr_provider_status": ocr_result.provider_status,
-        "ocr_response_id": ocr_result.response_id,
-        "ocr_usage": ocr_result.usage.model_dump(),
+        "ocr_schema_version": (
+            ocr_result.schema_version
+        ),
+        "ocr_provider": (
+            ocr_result.provider
+        ),
+        "ocr_model": (
+            ocr_result.model
+        ),
+        "ocr_input_kind": (
+            ocr_result.input_kind
+        ),
+        "ocr_provider_mode": (
+            ocr_result.provider_mode
+        ),
+        "ocr_provider_document_id": (
+            ocr_result.provider_document_id
+        ),
+        "ocr_provider_status": (
+            ocr_result.provider_status
+        ),
+        "ocr_response_id": (
+            ocr_result.response_id
+        ),
+        "ocr_usage": (
+            ocr_result.usage.model_dump()
+        ),
 
         "text": detected_text,
         "html": ocr_result.html,
-        "latex_styled": ocr_result.latex_styled,
+        "latex_styled": (
+            ocr_result.latex_styled
+        ),
 
-        "student_ocr_schema_version": student_result.schema_version,
+        "student_ocr_schema_version": (
+            student_result.schema_version
+        ),
         "student_tex": generated_tex,
         "student_tex_path": str(tex_path),
-        "student_answer_bundle": student_result.student_answer_bundle,
-        "student_answer_bundle_json": (json.dumps(student_result.student_answer_bundle, ensure_ascii=False, indent=2) if student_result.student_answer_bundle else ""),
-        "student_answer_bundle_path": student_result.student_answer_bundle_path or None,
-        "student_summary_path": str(student_summary_path) if student_summary_path else None,
-        "student_summary": student_summary or {},
-        "student_ocr_warnings": student_result.warnings,
-        "student_ocr_needs_teacher_review": student_result.needs_teacher_review,
+        "student_answer_bundle": (
+            student_result.student_answer_bundle
+        ),
+        "student_answer_bundle_json": (
+            json.dumps(
+                student_result.student_answer_bundle,
+                ensure_ascii=False,
+                indent=2,
+            )
+            if student_result.student_answer_bundle
+            else ""
+        ),
+        "student_answer_bundle_path": (
+            student_result.student_answer_bundle_path
+            or None
+        ),
+        "student_summary_path": (
+            str(student_summary_path)
+            if student_summary_path
+            else None
+        ),
+        "student_summary": (
+            student_summary
+            or {}
+        ),
+        "student_ocr_warnings": (
+            student_result.warnings
+        ),
+        "student_ocr_needs_teacher_review": (
+            student_result.needs_teacher_review
+        ),
 
-        "line_count": len(ocr_result.pages[0].line_data) if ocr_result.pages else 0,
-        "is_handwritten": ocr_result.is_handwritten,
-        "confidence": ocr_result.confidence,
+        "line_count": (
+            len(
+                ocr_result.pages[0].line_data
+            )
+            if ocr_result.pages
+            else 0
+        ),
+        "is_handwritten": (
+            ocr_result.is_handwritten
+        ),
+        "confidence": (
+            ocr_result.confidence
+        ),
     }

@@ -31,6 +31,7 @@ from services.student_access import (
 )
 from services.teacher_profiles import get_teacher
 from services.student_work_store import (
+    get_student_ocr_daily_usage,
     list_student_work_for_dashboard,
     list_teacher_test_work_for_dashboard,
 )
@@ -555,8 +556,30 @@ def student_dashboard(_session: dict = Depends(require_session)):
     if not record:
         raise HTTPException(status_code=404, detail="Student code record not found.")
 
-    teacher_id = str(record.get("teacher_id") or "").strip()
-    teacher = get_teacher(teacher_id) or {}
+    teacher_id = str(
+        record.get("teacher_id")
+        or ""
+    ).strip()
+
+    teacher = (
+        get_teacher(teacher_id)
+        or {}
+    )
+
+    voucher_id = str(
+        record.get("voucher_id")
+        or record.get("voucher_hash")
+        or record.get("voucher_code")
+        or ""
+    ).strip()
+
+    ocr_quota = (
+        get_student_ocr_daily_usage(
+            student_code,
+            teacher_id=teacher_id,
+            voucher_id=voucher_id,
+        )
+    )
 
     return {
         "ok": True,
@@ -578,9 +601,16 @@ def student_dashboard(_session: dict = Depends(require_session)):
             "subject_label": record.get("subject_label") or teacher.get("subject_label") or record.get("subject") or "Math",
             "note": record.get("note") or "",
         },
+        "ocr_quota": ocr_quota,
+
         # Canonical student-visible history now lives in:
-        # data/student_work/<teacher>/<voucher>/<student>/<work_id>/
-        "previous_results": list_student_work_for_dashboard(student_code)[:40],
+        # data/teachers/<teacher>/courses/<voucher>/
+        # students/<student>/<work_id>/
+        "previous_results": (
+            list_student_work_for_dashboard(
+                student_code
+            )[:40]
+        ),
     }
 
 

@@ -4,14 +4,25 @@ import json
 import re
 import secrets
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import (
+    ZoneInfo,
+    ZoneInfoNotFoundError,
+)
 
 from fastapi import HTTPException
 
-from core.config import PROJECT_ROOT, TEACHERS_ROOT
+from core.config import (
+    APP_TIMEZONE,
+    PROJECT_ROOT,
+    STUDENT_OCR_DAILY_LIMIT,
+    STUDENT_OCR_RESERVATION_TTL_SECONDS,
+    TEACHERS_ROOT,
+)
 
 # Legacy layout, kept readable:
 #   data/student_work/<teacher>/<voucher>/<student>/<work_id>/
@@ -23,6 +34,10 @@ STUDENT_WORK_ROOT = LEGACY_STUDENT_WORK_ROOT
 
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,180}$")
+
+# Prevent simultaneous OCR requests in the same application process from
+# updating one student's quota file at the same time.
+_OCR_USAGE_LOCK = Lock()
 
 
 def _now() -> str:
@@ -596,6 +611,717 @@ def _assert_safe_token(value: str, *, label: str) -> str:
     if not _SAFE_TOKEN_RE.match(value):
         raise HTTPException(status_code=400, detail=f"Invalid {label}.")
     return value
+
+
+def _ocr_local_now() -> datetime:
+    try:
+        return datetime.now(
+            ZoneInfo(APP_TIMEZONE)
+        )
+    except (
+        ZoneInfoNotFoundError,
+        ValueError,
+    ):
+        # Windows may not have the IANA timezone database installed.
+        return datetime.now().astimezone()
+
+
+def _student_ocr_usage_path(
+    student_code: str,
+    *,
+    teacher_id: str = "",
+    voucher_id: str = "",
+) -> tuple[Path, dict[str, str]]:
+    ctx = _lookup_student_work_context(
+        student_code,
+        teacher_id=teacher_id,
+        voucher_id=voucher_id,
+    )
+
+    root = _student_root(
+        student_code,
+        teacher_id=ctx["teacher_id"],
+        voucher_id=ctx["voucher_id"],
+    )
+
+    return (
+        root / "ocr_usage.json",
+        ctx,
+    )
+
+
+def _parse_ocr_usage_time(
+    value: Any,
+    *,
+    fallback_tz,
+) -> datetime | None:
+    text = str(
+        value or ""
+    ).strip()
+
+    if not text:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(
+            text.replace(
+                "Z",
+                "+00:00",
+            )
+        )
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(
+            tzinfo=fallback_tz
+        )
+
+    return parsed
+
+
+def _load_student_ocr_usage(
+    path: Path,
+    ctx: dict[str, str],
+    now: datetime,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+]:
+    current = (
+        _read_json(path)
+        or {}
+    )
+
+    raw_days = (
+        current.get("days")
+        if isinstance(
+            current.get("days"),
+            dict,
+        )
+        else {}
+    )
+
+    cleaned_days: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    history_cutoff = (
+        now.date()
+        - timedelta(days=31)
+    )
+
+    for day_key, raw_day in raw_days.items():
+        try:
+            day_date = datetime.strptime(
+                str(day_key),
+                "%Y-%m-%d",
+            ).date()
+        except ValueError:
+            continue
+
+        if day_date < history_cutoff:
+            continue
+
+        day = (
+            raw_day
+            if isinstance(
+                raw_day,
+                dict,
+            )
+            else {}
+        )
+
+        runs = [
+            item
+            for item in (
+                day.get("runs")
+                if isinstance(
+                    day.get("runs"),
+                    list,
+                )
+                else []
+            )
+            if isinstance(
+                item,
+                dict,
+            )
+        ]
+
+        reservations: list[
+            dict[str, Any]
+        ] = []
+
+        for item in (
+            day.get("reservations")
+            if isinstance(
+                day.get("reservations"),
+                list,
+            )
+            else []
+        ):
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            expires_at = (
+                _parse_ocr_usage_time(
+                    item.get("expires_at"),
+                    fallback_tz=now.tzinfo,
+                )
+            )
+
+            if (
+                expires_at is not None
+                and expires_at > now
+            ):
+                reservations.append(
+                    item
+                )
+
+        cleaned_days[
+            str(day_key)
+        ] = {
+            "limit": (
+                STUDENT_OCR_DAILY_LIMIT
+            ),
+            "used": len(runs),
+            "runs": runs,
+            "reservations": (
+                reservations
+            ),
+        }
+
+    today = (
+        now.date().isoformat()
+    )
+
+    current_day = (
+        cleaned_days.setdefault(
+            today,
+            {
+                "limit": (
+                    STUDENT_OCR_DAILY_LIMIT
+                ),
+                "used": 0,
+                "runs": [],
+                "reservations": [],
+            },
+        )
+    )
+
+    state = {
+        "schema_version": (
+            "student_ocr_usage_v1"
+        ),
+        "student_code": (
+            ctx.get("student_code")
+            or ""
+        ),
+        "teacher_id": (
+            ctx.get("teacher_id")
+            or ""
+        ),
+        "voucher_id": (
+            ctx.get("voucher_id")
+            or ""
+        ),
+        "timezone": APP_TIMEZONE,
+        "days": cleaned_days,
+        "updated_at": (
+            now.isoformat(
+                timespec="seconds"
+            )
+        ),
+    }
+
+    return (
+        state,
+        current_day,
+    )
+
+
+def _student_ocr_quota_snapshot(
+    day: dict[str, Any],
+    now: datetime,
+) -> dict[str, Any]:
+    runs = (
+        day.get("runs")
+        if isinstance(
+            day.get("runs"),
+            list,
+        )
+        else []
+    )
+
+    reservations = (
+        day.get("reservations")
+        if isinstance(
+            day.get("reservations"),
+            list,
+        )
+        else []
+    )
+
+    used = len(runs)
+    reserved = len(reservations)
+
+    remaining = max(
+        0,
+        STUDENT_OCR_DAILY_LIMIT
+        - used
+        - reserved,
+    )
+
+    next_day = (
+        now + timedelta(days=1)
+    ).date()
+
+    reset_at = datetime.combine(
+        next_day,
+        datetime.min.time(),
+        tzinfo=now.tzinfo,
+    )
+
+    return {
+        "date": (
+            now.date().isoformat()
+        ),
+        "timezone": APP_TIMEZONE,
+        "limit": (
+            STUDENT_OCR_DAILY_LIMIT
+        ),
+        "used": used,
+        "reserved": reserved,
+        "remaining": remaining,
+        "reached": (
+            remaining <= 0
+        ),
+        "reset_at": (
+            reset_at.isoformat(
+                timespec="seconds"
+            )
+        ),
+    }
+
+
+def get_student_ocr_daily_usage(
+    student_code: str,
+    *,
+    teacher_id: str = "",
+    voucher_id: str = "",
+) -> dict[str, Any]:
+    student_code = str(
+        student_code or ""
+    ).strip()
+
+    if not student_code:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Missing student code "
+                "for OCR quota lookup."
+            ),
+        )
+
+    with _OCR_USAGE_LOCK:
+        path, ctx = (
+            _student_ocr_usage_path(
+                student_code,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+        )
+
+        now = _ocr_local_now()
+
+        (
+            state,
+            current_day,
+        ) = _load_student_ocr_usage(
+            path,
+            ctx,
+            now,
+        )
+
+        _write_json(
+            path,
+            state,
+        )
+
+        return (
+            _student_ocr_quota_snapshot(
+                current_day,
+                now,
+            )
+        )
+
+
+def reserve_student_ocr_slot(
+    student_code: str,
+    *,
+    teacher_id: str = "",
+    voucher_id: str = "",
+) -> dict[str, Any]:
+    student_code = str(
+        student_code or ""
+    ).strip()
+
+    if not student_code:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Missing student code "
+                "for OCR quota reservation."
+            ),
+        )
+
+    with _OCR_USAGE_LOCK:
+        path, ctx = (
+            _student_ocr_usage_path(
+                student_code,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+        )
+
+        now = _ocr_local_now()
+
+        (
+            state,
+            current_day,
+        ) = _load_student_ocr_usage(
+            path,
+            ctx,
+            now,
+        )
+
+        quota = (
+            _student_ocr_quota_snapshot(
+                current_day,
+                now,
+            )
+        )
+
+        if quota["reached"]:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Daily OCR limit reached. "
+                    f"Students may complete "
+                    f"{STUDENT_OCR_DAILY_LIMIT} "
+                    "successful OCR uploads per day. "
+                    "Saved OCR work can still be "
+                    "opened, edited, and graded."
+                ),
+            )
+
+        reservation_id = (
+            "ocr_res_"
+            + secrets.token_hex(12)
+        )
+
+        expires_at = (
+            now
+            + timedelta(
+                seconds=(
+                    STUDENT_OCR_RESERVATION_TTL_SECONDS
+                )
+            )
+        )
+
+        current_day[
+            "reservations"
+        ].append(
+            {
+                "reservation_id": (
+                    reservation_id
+                ),
+                "created_at": (
+                    now.isoformat(
+                        timespec="seconds"
+                    )
+                ),
+                "expires_at": (
+                    expires_at.isoformat(
+                        timespec="seconds"
+                    )
+                ),
+            }
+        )
+
+        state["updated_at"] = (
+            now.isoformat(
+                timespec="seconds"
+            )
+        )
+
+        _write_json(
+            path,
+            state,
+        )
+
+        result = (
+            _student_ocr_quota_snapshot(
+                current_day,
+                now,
+            )
+        )
+
+        result["reservation_id"] = (
+            reservation_id
+        )
+
+        return result
+
+
+def release_student_ocr_slot(
+    student_code: str,
+    reservation_id: str,
+    *,
+    teacher_id: str = "",
+    voucher_id: str = "",
+) -> dict[str, Any]:
+    with _OCR_USAGE_LOCK:
+        path, ctx = (
+            _student_ocr_usage_path(
+                student_code,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+        )
+
+        now = _ocr_local_now()
+
+        (
+            state,
+            current_day,
+        ) = _load_student_ocr_usage(
+            path,
+            ctx,
+            now,
+        )
+
+        for day in (
+            state["days"].values()
+        ):
+            day["reservations"] = [
+                item
+                for item in (
+                    day["reservations"]
+                )
+                if str(
+                    item.get(
+                        "reservation_id"
+                    )
+                    or ""
+                )
+                != reservation_id
+            ]
+
+        state["updated_at"] = (
+            now.isoformat(
+                timespec="seconds"
+            )
+        )
+
+        _write_json(
+            path,
+            state,
+        )
+
+        return (
+            _student_ocr_quota_snapshot(
+                current_day,
+                now,
+            )
+        )
+
+
+def finalize_student_ocr_slot(
+    student_code: str,
+    reservation_id: str,
+    *,
+    work_id: str,
+    provider: str,
+    source_filename: str,
+    teacher_id: str = "",
+    voucher_id: str = "",
+) -> dict[str, Any]:
+    student_code = str(
+        student_code or ""
+    ).strip()
+
+    reservation_id = str(
+        reservation_id or ""
+    ).strip()
+
+    work_id = str(
+        work_id or ""
+    ).strip()
+
+    if (
+        not student_code
+        or not reservation_id
+        or not work_id
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "The successful OCR result "
+                "could not be recorded in "
+                "the daily quota."
+            ),
+        )
+
+    with _OCR_USAGE_LOCK:
+        path, ctx = (
+            _student_ocr_usage_path(
+                student_code,
+                teacher_id=teacher_id,
+                voucher_id=voucher_id,
+            )
+        )
+
+        now = _ocr_local_now()
+
+        (
+            state,
+            current_day,
+        ) = _load_student_ocr_usage(
+            path,
+            ctx,
+            now,
+        )
+
+        # Idempotency: finalizing the same work or reservation twice must not
+        # consume another slot.
+        for day in (
+            state["days"].values()
+        ):
+            for run in day["runs"]:
+                if (
+                    str(
+                        run.get(
+                            "reservation_id"
+                        )
+                        or ""
+                    )
+                    == reservation_id
+                    or str(
+                        run.get("work_id")
+                        or ""
+                    )
+                    == work_id
+                ):
+                    return (
+                        _student_ocr_quota_snapshot(
+                            current_day,
+                            now,
+                        )
+                    )
+
+        reserved_day = next(
+            (
+                day
+                for day in (
+                    state[
+                        "days"
+                    ].values()
+                )
+                if any(
+                    str(
+                        item.get(
+                            "reservation_id"
+                        )
+                        or ""
+                    )
+                    == reservation_id
+                    for item in (
+                        day[
+                            "reservations"
+                        ]
+                    )
+                )
+            ),
+            None,
+        )
+
+        if reserved_day is None:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "The OCR quota reservation "
+                    "expired before the successful "
+                    "result was saved."
+                ),
+            )
+
+        reserved_day[
+            "reservations"
+        ] = [
+            item
+            for item in (
+                reserved_day[
+                    "reservations"
+                ]
+            )
+            if str(
+                item.get(
+                    "reservation_id"
+                )
+                or ""
+            )
+            != reservation_id
+        ]
+
+        reserved_day[
+            "runs"
+        ].append(
+            {
+                "reservation_id": (
+                    reservation_id
+                ),
+                "work_id": work_id,
+                "provider": (
+                    provider or ""
+                ),
+                "source_filename": (
+                    source_filename or ""
+                ),
+                "completed_at": (
+                    now.isoformat(
+                        timespec="seconds"
+                    )
+                ),
+            }
+        )
+
+        reserved_day["used"] = len(
+            reserved_day["runs"]
+        )
+
+        state["updated_at"] = (
+            now.isoformat(
+                timespec="seconds"
+            )
+        )
+
+        _write_json(
+            path,
+            state,
+        )
+
+        return (
+            _student_ocr_quota_snapshot(
+                current_day,
+                now,
+            )
+        )
+
 
 
 def save_ocr_student_work(

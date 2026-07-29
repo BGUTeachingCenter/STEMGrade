@@ -82,6 +82,16 @@ DEFAULT_OCR_MAX_OUTPUT_TOKENS = "12000"
 DEFAULT_OPENAI_OCR_MAX_OUTPUT_TOKENS = "30000"
 DEFAULT_GEMINI_OCR_MAX_OUTPUT_TOKENS = "60000"
 
+# Student OCR quota.
+#
+# OCR happens before the system identifies the homework, so this is a
+# per-student daily limit rather than a per-homework limit.
+DEFAULT_APP_TIMEZONE = "Asia/Jerusalem"
+DEFAULT_STUDENT_OCR_DAILY_LIMIT = "3"
+
+# An unfinished OCR request keeps its reserved slot for at most 20 minutes.
+DEFAULT_STUDENT_OCR_RESERVATION_TTL_SECONDS = "1200"
+
 
 # Make config.py the source of default environment values.
 os.environ.setdefault(
@@ -147,6 +157,21 @@ os.environ.setdefault(
     os.environ["GEMINI_OCR_MAX_OUTPUT_TOKENS"],
 )
 
+os.environ.setdefault(
+    "MATHGRADE_TIMEZONE",
+    DEFAULT_APP_TIMEZONE,
+)
+
+os.environ.setdefault(
+    "STUDENT_OCR_DAILY_LIMIT",
+    DEFAULT_STUDENT_OCR_DAILY_LIMIT,
+)
+
+os.environ.setdefault(
+    "STUDENT_OCR_RESERVATION_TTL_SECONDS",
+    DEFAULT_STUDENT_OCR_RESERVATION_TTL_SECONDS,
+)
+
 
 # Parsed values used by application code.
 OCR_MAX_OUTPUT_TOKENS = env_positive_int(
@@ -167,6 +192,23 @@ GEMINI_OCR_MAX_OUTPUT_TOKENS = env_positive_int(
 GOOGLE_OCR_MAX_OUTPUT_TOKENS = env_positive_int(
     "GOOGLE_OCR_MAX_OUTPUT_TOKENS",
     GEMINI_OCR_MAX_OUTPUT_TOKENS,
+)
+
+APP_TIMEZONE = env_str(
+    "MATHGRADE_TIMEZONE",
+    DEFAULT_APP_TIMEZONE,
+)
+
+STUDENT_OCR_DAILY_LIMIT = env_positive_int(
+    "STUDENT_OCR_DAILY_LIMIT",
+    int(DEFAULT_STUDENT_OCR_DAILY_LIMIT),
+)
+
+STUDENT_OCR_RESERVATION_TTL_SECONDS = env_positive_int(
+    "STUDENT_OCR_RESERVATION_TTL_SECONDS",
+    int(
+        DEFAULT_STUDENT_OCR_RESERVATION_TTL_SECONDS
+    ),
 )
 
 # Mathpix API key

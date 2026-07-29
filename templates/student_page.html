@@ -65,7 +65,18 @@
             <div class="mg-student-info-lines">
               <div><strong>Subject:</strong> <span id="studentCourseSubject">—</span></div>
               <div><strong>Teacher:</strong> <span id="studentTeacherName">—</span></div>
-              <div><strong>Student:</strong> <span id="studentCodeDisplay">—</span></div>
+              <div>
+                <strong>Student:</strong>
+                <span id="studentCodeDisplay">—</span>
+              </div>
+
+              <div
+                id="studentOcrQuotaRow"
+                style="display:none;"
+              >
+                <strong>OCR today:</strong>
+                <span id="studentOcrQuota">—</span>
+              </div>
             </div>
             <div id="studentCourseNote" class="small mg-student-course-note" style="display:none;"></div>
           </article>
@@ -703,13 +714,32 @@
     const studentCourseTitle = document.getElementById("studentCourseTitle");
     const studentCourseSubject = document.getElementById("studentCourseSubject");
     const studentTeacherName = document.getElementById("studentTeacherName");
-    const studentCodeDisplay = document.getElementById("studentCodeDisplay");
-    const studentCourseNote = document.getElementById("studentCourseNote");
+    const studentCodeDisplay =
+      document.getElementById(
+        "studentCodeDisplay"
+      );
+
+    const studentOcrQuotaRow =
+      document.getElementById(
+        "studentOcrQuotaRow"
+      );
+
+    const studentOcrQuota =
+      document.getElementById(
+        "studentOcrQuota"
+      );
+
+    const studentCourseNote =
+      document.getElementById(
+        "studentCourseNote"
+      );
     const studentResultsTitle = document.getElementById("studentResultsTitle");
     const studentResultsList = document.getElementById("studentResultsList");
 
     let currentRole = null;
     let currentUserCode = null;
+    let studentOcrQuotaState = null;
+    let studentOcrQuotaReached = false;
     let ocrGeneratedTexFile = null;
     let ocrGeneratedBundleFile = null;
     let ocrGeneratedBundleJson = "";
@@ -6943,13 +6973,113 @@ function parseStructuredOcrPreview(value) {
       return "job_" + Date.now() + "_" + Math.random().toString(16).slice(2);
     }
 
+    function applyStudentOcrQuota(
+      quota,
+      isTeacherTest = false
+    ) {
+      const showStudentQuota =
+        currentRole === "student" &&
+        !isTeacherTest;
+
+      studentOcrQuotaState =
+        quota &&
+        typeof quota === "object"
+          ? quota
+          : null;
+
+      studentOcrQuotaReached = !!(
+        showStudentQuota &&
+        studentOcrQuotaState &&
+        (
+          studentOcrQuotaState.reached === true ||
+          Number(
+            studentOcrQuotaState.remaining
+          ) <= 0
+        )
+      );
+
+      if (studentOcrQuotaRow) {
+        studentOcrQuotaRow.style.display =
+          showStudentQuota
+            ? "block"
+            : "none";
+      }
+
+      if (
+        studentOcrQuota &&
+        showStudentQuota
+      ) {
+        const used = Number(
+          studentOcrQuotaState?.used || 0
+        );
+
+        const limit = Number(
+          studentOcrQuotaState?.limit || 3
+        );
+
+        const remaining = Math.max(
+          0,
+          Number(
+            studentOcrQuotaState?.remaining ??
+            limit - used
+          )
+        );
+
+        studentOcrQuota.textContent =
+          `${used} / ${limit} · ` +
+          (
+            remaining
+              ? `${remaining} remaining`
+              : "daily limit reached"
+          );
+      }
+    }
+
     function disableAll(disabled) {
-      const readyTex = !!((studentTex && studentTex.files && studentTex.files[0]) || ocrGeneratedBundleFile || ocrGeneratedTexFile);
-      const readyOcr = !!(handwrittenFile && handwrittenFile.files && handwrittenFile.files[0]);
-      gradeOllamaBtn.disabled = disabled || !readyTex;
-      gradeGoogleBtn.disabled = disabled || !readyTex;
-      gradeGptBtn.disabled = disabled || !readyTex;
-      ocrBtn.disabled = disabled || !readyOcr;
+      const readyTex = !!(
+        (
+          studentTex &&
+          studentTex.files &&
+          studentTex.files[0]
+        ) ||
+        ocrGeneratedBundleFile ||
+        ocrGeneratedTexFile
+      );
+
+      const readyOcr = !!(
+        handwrittenFile &&
+        handwrittenFile.files &&
+        handwrittenFile.files[0]
+      );
+
+      gradeOllamaBtn.disabled =
+        disabled || !readyTex;
+
+      gradeGoogleBtn.disabled =
+        disabled || !readyTex;
+
+      gradeGptBtn.disabled =
+        disabled || !readyTex;
+
+      ocrBtn.disabled =
+        disabled ||
+        !readyOcr ||
+        (
+          currentRole === "student" &&
+          studentOcrQuotaReached
+        );
+
+      ocrBtn.title =
+        (
+          currentRole === "student" &&
+          studentOcrQuotaReached
+        )
+          ? (
+              "Daily OCR limit reached. " +
+              "You can still open, edit, and " +
+              "grade saved OCR work."
+            )
+          : "";
     }
 
     async function ensureSession() {
@@ -7815,6 +7945,11 @@ function wireSavedOcrButtons() {
           ? j.previous_results
           : [];
 
+        applyStudentOcrQuota(
+          j.ocr_quota,
+          j.is_teacher_test === true
+        );
+
         /*
          * OCR initially gives the browser a local File object. That is
          * sufficient for an image overlay, but PDF overlays require the
@@ -8289,12 +8424,50 @@ function wireSavedOcrButtons() {
         form.append("ocr_document_mode", "handwritten");
         const res = await authedFetch(ENDPOINT_OCR, { method: "POST", body: form });
         const contentType = (res.headers.get("content-type") || "").toLowerCase();
-        const data = contentType.includes("application/json") ? await res.json() : null;
+        const data =
+          contentType.includes(
+            "application/json"
+          )
+            ? await res.json()
+            : null;
+
         if (!res.ok || !data) {
-          throw new Error(data?.detail || `OCR request failed (${res.status})`);
+          if (
+            res.status === 429 &&
+            currentRole === "student"
+          ) {
+            await loadStudentDashboard();
+          }
+
+          throw new Error(
+            data?.detail ||
+            `OCR request failed (${res.status})`
+          );
         }
 
-        lines.push(`[${nowTag()}] OCR finished ✅`);
+        if (
+          data.ocr_quota &&
+          currentRole === "student"
+        ) {
+          applyStudentOcrQuota(
+            data.ocr_quota,
+            false
+          );
+        }
+
+        lines.push(
+          `[${nowTag()}] OCR finished ✅`
+        );
+        if (
+          data.ocr_quota &&
+          currentRole === "student"
+        ) {
+          lines.push(
+            `[${nowTag()}] OCR today: ` +
+            `${data.ocr_quota.used} / ` +
+            `${data.ocr_quota.limit}.`
+          );
+        }
         if (data.ocr_document_type) lines.push(`[${nowTag()}] Document type: ${data.ocr_document_type}`);
         if (data.ocr_path) lines.push(`[${nowTag()}] OCR path: ${data.ocr_path}`);
         if (data.student_summary && data.student_summary.part_count !== undefined) {
