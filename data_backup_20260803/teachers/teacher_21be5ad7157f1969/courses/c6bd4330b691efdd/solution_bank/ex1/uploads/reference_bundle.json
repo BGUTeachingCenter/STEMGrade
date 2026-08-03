@@ -1,0 +1,411 @@
+{
+  "schema_version": "full_solution_bundle_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "subject": "math",
+  "grading_prompt_extra": "Grade modeling assumptions, equations, units, constraints, calculations, safety factors, diagrams, and interpretation of engineering results.",
+  "questions": [
+    {
+      "question_id": 1,
+      "parts": [
+        {
+          "part": "א",
+          "part_key": "a",
+          "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+          "required_action": "",
+          "official_solution": "לפי הגדרת ערך מוחלט,\n\\[\n|x-2|\\le 5 \\iff -5\\le x-2\\le 5.\n\\]\nנוסיף 2 לכל אגפי האי-שוויון:\n\\[\n-3\\le x\\le 7.\n\\]\nלכן\n\\[\n\\boxed{x\\in[-3,7]}.\n\\]",
+          "expected_answer": "x\\in[-3,7]",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ב",
+          "part_key": "b",
+          "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+          "required_action": "",
+          "official_solution": "\\[\n|x+20|\\le 2 \\iff -2\\le x+20\\le 2.\n\\]\nנחסר 20:\n\\[\n-22\\le x\\le -18.\n\\]\nלכן\n\\[\n\\boxed{x\\in[-22,-18]}.\n\\]",
+          "expected_answer": "x\\in[-22,-18]",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ג",
+          "part_key": "c",
+          "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+          "required_action": "",
+          "official_solution": "אי-שוויון מהצורה \\(|u|>1\\) מתקיים כאשר \\(u>1\\) או \\(u<-1\\). לכן\n\\[\ny-6>1 \\quad \\text{או} \\quad y-6<-1.\n\\]\nנקבל\n\\[\ny>7 \\quad \\text{או} \\quad y<5.\n\\]\nלכן\n\\[\n\\boxed{y\\in(-\\infty,5)\\cup(7,\\infty)}.\n\\]",
+          "expected_answer": "y\\in(-\\infty,5)\\cup(7,\\infty)",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ד",
+          "part_key": "d",
+          "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+          "required_action": "",
+          "official_solution": "נקודות השבירה הן \\(-3\\) ו-\\(-2\\), ולכן נפתור בשלושה תחומים.\n\nאם \\(x\\le -3\\), אז\n\\[\n|x+2|+|x+3|=-(x+2)-(x+3)=-2x-5.\n\\]\nלכן\n\\[\n-2x-5\\le 2 \\iff x\\ge -\\frac{7}{2}.\n\\]\nביחד עם \\(x\\le -3\\) נקבל \\(x\\in[-\\frac72,-3]\\).\n\nאם \\(-3\\le x\\le -2\\), אז\n\\[\n|x+2|+|x+3|=-(x+2)+(x+3)=1,\n\\]\nולכן כל התחום \\([-3,-2]\\) מתאים.\n\nאם \\(x\\ge -2\\), אז\n\\[\n|x+2|+|x+3|=(x+2)+(x+3)=2x+5.\n\\]\nלכן\n\\[\n2x+5\\le 2 \\iff x\\le -\\frac32.\n\\]\nביחד עם \\(x\\ge -2\\) נקבל \\(x\\in[-2,-\\frac32]\\).\n\nמאיחוד שלושת התחומים נקבל\n\\[\n\\boxed{x\\in\\left[-\\frac72,-\\frac32\\right]}.\n\\]",
+          "expected_answer": "x\\in\\left[-\\frac72,-\\frac32\\right]",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ה",
+          "part_key": "e",
+          "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+          "required_action": "",
+          "official_solution": "הביטוי \\(|x+5|+|x+7|\\) הוא סכום המרחקים של \\(x\\) מן הנקודות \\(-5\\) ו-\\(-7\\). לפי אי-שוויון המשולש,\n\\[\n|x+5|+|x+7|\\ge |(-5)-(-7)|=2.\n\\]\nמאחר ש-\\(2>1\\), האי-שוויון מתקיים לכל \\(x\\in\\R\\). לכן\n\\[\n\\boxed{x\\in\\R}.\n\\]",
+          "expected_answer": "x\\in\\R",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 2,
+      "parts": [
+        {
+          "part": "א",
+          "part_key": "a",
+          "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.",
+          "required_action": "",
+          "official_solution": "הטענה נכונה. אם \\(a\\ge b\\), אז \\(|a-b|=a-b\\). מכיוון ש-\\(a<d\\) ו-\\(b>c\\), נקבל\n\\[\na-b<d-c.\n\\]\nאם \\(b>a\\), אז \\(|a-b|=b-a\\), ובאותו אופן, מכיוון ש-\\(b<d\\) ו-\\(a>c\\), נקבל\n\\[\nb-a<d-c.\n\\]\nלכן בכל מקרה \\(|a-b|<d-c\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ב",
+          "part_key": "b",
+          "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.",
+          "required_action": "",
+          "official_solution": "הטענה אינה נכונה. ניקח למשל\n\\[\na=0.8,\\qquad b=0.9.\n\\]\nאז \\(0<a<b<1\\), אבל\n\\[\n|a+b|=|1.7|=1.7>1.\n\\]\nזו דוגמה נגדית.",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ג",
+          "part_key": "c",
+          "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.\n\n{b}<\\frac{c}{d}\\)}",
+          "required_action": "",
+          "official_solution": "הטענה אינה נכונה. ניקח למשל\n\\[\na=5,\\qquad c=6,\\qquad b=1,\\qquad d=2.\n\\]\nאז \\(0<a<c\\) וגם \\(0<b<d\\), אבל\n\\[\n\\frac{a}{b}=5,\\qquad \\frac{c}{d}=3,\n\\]\nולכן לא מתקיים \\(\\frac{a}{b}<\\frac{c}{d}\\). זו דוגמה נגדית.",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ד",
+          "part_key": "d",
+          "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.\n\n{b}<\\frac{c}{d}\\)}",
+          "required_action": "",
+          "official_solution": "הטענה נכונה. מאחר ש-\\(0<a<c\\) ו-\\(b>0\\), נקבל\n\\[\n\\frac{a}{b}<\\frac{c}{b}.\n\\]\nמאחר ש-\\(0<d<b\\), נקבל \\(\\frac1b<\\frac1d\\), ולכן\n\\[\n\\frac{c}{b}<\\frac{c}{d}.\n\\]\nבסך הכול,\n\\[\n\\frac{a}{b}<\\frac{c}{b}<\\frac{c}{d},\n\\]\nולכן \\(\\frac{a}{b}<\\frac{c}{d}\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 3,
+      "parts": [
+        {
+          "part": "א",
+          "part_key": "a",
+          "question_text": "הוכיחו את האי-שוויונות הבאים.\n\n^n x_i\\right|\\le \\sum_{i=1}^n |x_i|\\)}",
+          "required_action": "",
+          "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=1\\) מתקיים\n\\[\n|x_1|\\le |x_1|,\n\\]\nולכן הטענה נכונה.\n\nנניח שהטענה נכונה עבור \\(n=k\\), כלומר\n\\[\n\\left|\\sum_{i=1}^k x_i\\right|\\le \\sum_{i=1}^k |x_i|.\n\\]\nנוכיח עבור \\(n=k+1\\). לפי אי-שוויון המשולש עבור שני איברים ולפי הנחת האינדוקציה,\n\\[\n\\left|\\sum_{i=1}^{k+1} x_i\\right|\n=\\left|\\left(\\sum_{i=1}^k x_i\\right)+x_{k+1}\\right|\n\\le \\left|\\sum_{i=1}^k x_i\\right|+|x_{k+1}|\n\\le \\sum_{i=1}^k |x_i|+|x_{k+1}|\n=\\sum_{i=1}^{k+1}|x_i|.\n\\]\nלכן הטענה נכונה לכל \\(n\\in\\N\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ב",
+          "part_key": "b",
+          "question_text": "הוכיחו את האי-שוויונות הבאים.",
+          "required_action": "",
+          "official_solution": "נשתמש באי-שוויון המשולש. מצד אחד,\n\\[\n|a|=|(a-b)+b|\\le |a-b|+|b|,\n\\]\nולכן\n\\[\n|a|-|b|\\le |a-b|.\n\\]\nמצד שני,\n\\[\n|b|=|(b-a)+a|\\le |b-a|+|a|=|a-b|+|a|,\n\\]\nולכן\n\\[\n|b|-|a|\\le |a-b|.\n\\]\nשני האי-שוויונות יחד אומרים בדיוק ש-\n\\[\n\\bigl||a|-|b|\\bigr|\\le |a-b|.\n\\]",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 4,
+      "parts": [
+        {
+          "part": "a",
+          "part_key": "a",
+          "question_text": "יהיו \\(a,a_0,b,b_0\\in\\R\\). הוכיחו כי\n\\[\n|ab-a_0b_0|\\le |a|\\,|b-b_0|+|b_0|\\,|a-a_0|.\n\\]",
+          "required_action": "",
+          "official_solution": "נשתמש ברמז ונוסיף ונחסר את \\(ab_0\\):\n\\[\nab-a_0b_0=ab-ab_0+ab_0-a_0b_0.\n\\]\nנוציא גורמים משותפים:\n\\[\nab-a_0b_0=a(b-b_0)+b_0(a-a_0).\n\\]\nלכן, לפי אי-שוויון המשולש,\n\\[\n|ab-a_0b_0|\n=|a(b-b_0)+b_0(a-a_0)|\n\\le |a|\\,|b-b_0|+|b_0|\\,|a-a_0|.\n\\]",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 5,
+      "parts": [
+        {
+          "part": "a",
+          "part_key": "a",
+          "question_text": "אתם נמצאים בכיתת לימוד מלבנית. האורך והרוחב של הכיתה לא עולים על 10 מטר. אפשר למדוד את אורך הקירות בדיוק של עד סנטימטר בודד. מהי השגיאה המקסימלית של הערכת שטח הכיתה?",
+          "required_action": "",
+          "official_solution": "נסמן את האורך והרוחב האמיתיים של הכיתה ב-\\(a,b\\), ואת המדידות ב-\\(a_0,b_0\\). שטח הכיתה האמיתי הוא\n\\[\nS=ab,\n\\]\nוהשטח המחושב לפי המדידות הוא\n\\[\nS_0=a_0b_0.\n\\]\nדיוק של סנטימטר אחד פירושו, במטרים,\n\\[\n|a-a_0|\\le 0.01,\\qquad |b-b_0|\\le 0.01.\n\\]\nבנוסף, האורך והרוחב אינם עולים על 10 מטר, ולכן נשתמש בחסם \\(|a|\\le 10\\) ו-\\(|b_0|\\le 10\\) לפי המודל המקובל של התרגיל. לפי שאלה 4,\n\\[\n|S-S_0|=|ab-a_0b_0|\n\\le |a|\\,|b-b_0|+|b_0|\\,|a-a_0|.\n\\]\nלכן\n\\[\n|S-S_0|\\le 10\\cdot 0.01+10\\cdot 0.01=0.2.\n\\]\nכלומר השגיאה המקסימלית בהערכת השטח היא לכל היותר\n\\[\n\\boxed{0.2\\text{ מטר רבוע}}.\n\\]",
+          "expected_answer": "0.2\\text{ מטר רבוע}",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 6,
+      "parts": [
+        {
+          "part": "א",
+          "part_key": "a",
+          "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n^n k^2=\\frac{n(n+1)(2n+1)}{6}\\)}",
+          "required_action": "",
+          "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\):\n\\[\n\\sum_{k=0}^0 k^2=0,\n\\qquad\n\\frac{0\\cdot1\\cdot1}{6}=0.\n\\]\nלכן הטענה נכונה.\n\nנניח שהטענה נכונה עבור \\(n\\), כלומר\n\\[\n\\sum_{k=0}^n k^2=\\frac{n(n+1)(2n+1)}{6}.\n\\]\nנוכיח עבור \\(n+1\\):\n\\[\n\\sum_{k=0}^{n+1} k^2\n=\\sum_{k=0}^n k^2+(n+1)^2\n=\\frac{n(n+1)(2n+1)}{6}+(n+1)^2.\n\\]\nנוציא \\(n+1\\) כגורם משותף:\n\\[\n\\sum_{k=0}^{n+1} k^2\n=(n+1)\\left(\\frac{n(2n+1)}{6}+n+1\\right)\n=(n+1)\\frac{2n^2+7n+6}{6}.\n\\]\nכעת\n\\[\n2n^2+7n+6=(n+2)(2n+3),\n\\]\nולכן\n\\[\n\\sum_{k=0}^{n+1} k^2\n=\\frac{(n+1)(n+2)(2n+3)}{6}.\n\\]\nזה בדיוק הנוסחה עבור \\(n+1\\), כי\n\\[\n\\frac{(n+1)((n+1)+1)(2(n+1)+1)}{6}\n=\\frac{(n+1)(n+2)(2n+3)}{6}.\n\\]\nלכן הטענה נכונה לכל \\(n\\in\\N\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ב",
+          "part_key": "b",
+          "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.",
+          "required_action": "",
+          "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\) מתקיים\n\\[\n(1+a)^0=1=1+0\\cdot a.\n\\]\nנניח שהטענה נכונה עבור \\(n\\), כלומר\n\\[\n(1+a)^n\\ge 1+na.\n\\]\nמאחר ש-\\(a>-1\\), מתקיים \\(1+a>0\\), ולכן אפשר להכפיל את שני האגפים ב-\\(1+a\\) בלי להפוך את סימן האי-שוויון:\n\\[\n(1+a)^{n+1}\\ge (1+na)(1+a).\n\\]\nנפתח:\n\\[\n(1+na)(1+a)=1+(n+1)a+na^2.\n\\]\nמאחר ש-\\(na^2\\ge0\\), נקבל\n\\[\n(1+a)^{n+1}\\ge 1+(n+1)a.\n\\]\nלכן הטענה נכונה לכל \\(n\\in\\N\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ג",
+          "part_key": "c",
+          "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n{2}a^2\\)}",
+          "required_action": "",
+          "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\):\n\\[\n(1+a)^0=1=1+0\\cdot a+\\frac{0\\cdot(-1)}{2}a^2.\n\\]\nנניח שהטענה נכונה עבור \\(n\\):\n\\[\n(1+a)^n\\ge 1+na+\\frac{n(n-1)}{2}a^2.\n\\]\nמאחר ש-\\(a>0\\), מתקיים \\(1+a>0\\). לכן\n\\[\n(1+a)^{n+1}\n\\ge \\left(1+na+\\frac{n(n-1)}{2}a^2\\right)(1+a).\n\\]\nנפתח את האגף הימני:\n\\[\n\\left(1+na+\\frac{n(n-1)}{2}a^2\\right)(1+a)\n=1+(n+1)a+\\left(n+\\frac{n(n-1)}{2}\\right)a^2+\\frac{n(n-1)}{2}a^3.\n\\]\nכיוון ש\n\\[\nn+\\frac{n(n-1)}{2}=\\frac{n(n+1)}{2}\n\\]\nוכיוון ש-\\(\\frac{n(n-1)}{2}a^3\\ge0\\), נקבל\n\\[\n(1+a)^{n+1}\\ge 1+(n+1)a+\\frac{n(n+1)}{2}a^2.\n\\]\nזו בדיוק הטענה עבור \\(n+1\\). לכן הטענה נכונה לכל \\(n\\in\\N\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ד",
+          "part_key": "d",
+          "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n^n \\binom{n}{k}a^k b^{n-k}\\)}\nכאשר\n\\[\n\\binom{n}{k}=\\frac{n!}{k!(n-k)!}.\n\\]",
+          "required_action": "",
+          "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\):\n\\[\n(a+b)^0=1,\n\\qquad\n\\sum_{k=0}^0\\binom{0}{k}a^k b^{0-k}=\\binom00=1.\n\\]\nנניח שהנוסחה נכונה עבור \\(n\\):\n\\[\n(a+b)^n=\\sum_{k=0}^n \\binom{n}{k}a^k b^{n-k}.\n\\]\nאז\n\\[\n\\begin{aligned}\n(a+b)^{n+1}\n&=(a+b)(a+b)^n \\\\\n&=(a+b)\\sum_{k=0}^n \\binom{n}{k}a^k b^{n-k} \\\\\n&=\\sum_{k=0}^n \\binom{n}{k}a^{k+1}b^{n-k}\n+\\sum_{k=0}^n \\binom{n}{k}a^k b^{n+1-k}.\n\\end{aligned}\n\\]\nבסכום הראשון נציב \\(j=k+1\\), ולכן הוא נע בין \\(j=1\\) לבין \\(j=n+1\\). נקבל\n\\[\n(a+b)^{n+1}\n=\\sum_{j=1}^{n+1}\\binom{n}{j-1}a^j b^{n+1-j}\n+\\sum_{j=0}^{n}\\binom{n}{j}a^j b^{n+1-j}.\n\\]\nהאיברים בקצוות הם \\(b^{n+1}\\) ו-\\(a^{n+1}\\). עבור \\(1\\le j\\le n\\) מקדם האיבר \\(a^j b^{n+1-j}\\) הוא\n\\[\n\\binom{n}{j-1}+\\binom{n}{j}=\\binom{n+1}{j}\n\\]\nלפי זהות פסקל. לכן\n\\[\n(a+b)^{n+1}=\\sum_{j=0}^{n+1}\\binom{n+1}{j}a^j b^{n+1-j}.\n\\]\nכלומר הנוסחה נכונה עבור \\(n+1\\), ולכן לכל \\(n\\in\\N\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ה",
+          "part_key": "e",
+          "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n^n\\left(1-\\frac1{k^2}\\right)=\\frac{n+1}{2n}\\)}",
+          "required_action": "",
+          "official_solution": "נפרק כל גורם במכפלה:\n\\[\n1-\\frac1{k^2}=\\frac{k^2-1}{k^2}=\\frac{(k-1)(k+1)}{k^2}=\\frac{k-1}{k}\\cdot\\frac{k+1}{k}.\n\\]\nלכן\n\\[\n\\prod_{k=2}^n\\left(1-\\frac1{k^2}\\right)\n=\\prod_{k=2}^n\\frac{k-1}{k}\\cdot\\prod_{k=2}^n\\frac{k+1}{k}.\n\\]\nהמכפלה הראשונה היא טלסקופית:\n\\[\n\\prod_{k=2}^n\\frac{k-1}{k}=\\frac12\\cdot\\frac23\\cdot\\frac34\\cdots\\frac{n-1}{n}=\\frac1n.\n\\]\nהמכפלה השנייה היא\n\\[\n\\prod_{k=2}^n\\frac{k+1}{k}=\\frac32\\cdot\\frac43\\cdot\\frac54\\cdots\\frac{n+1}{n}=\\frac{n+1}{2}.\n\\]\nלכן\n\\[\n\\prod_{k=2}^n\\left(1-\\frac1{k^2}\\right)\n=\\frac1n\\cdot\\frac{n+1}{2}=\\frac{n+1}{2n}.\n\\]",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        },
+        {
+          "part": "ו",
+          "part_key": "f",
+          "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n+\\frac1{n+2}+\\cdots+\\frac1{2n}>\\frac{13}{24}\\)}",
+          "required_action": "",
+          "official_solution": "נסמן\n\\[\nS_n=\\sum_{k=n+1}^{2n}\\frac1k.\n\\]\nעבור \\(n=2\\) נקבל\n\\[\nS_2=\\frac13+\\frac14=\\frac7{12}=\\frac{14}{24}>\\frac{13}{24}.\n\\]\nנראה שהסדרה \\(S_n\\) עולה עבור \\(n\\ge2\\). אכן,\n\\[\n\\begin{aligned}\nS_{n+1}-S_n\n&=\\left(\\frac1{n+2}+\\cdots+\\frac1{2n}+\\frac1{2n+1}+\\frac1{2n+2}\\right)\n-\\left(\\frac1{n+1}+\\frac1{n+2}+\\cdots+\\frac1{2n}\\right)\\\\\n&=\\frac1{2n+1}+\\frac1{2n+2}-\\frac1{n+1}.\n\\end{aligned}\n\\]\nמאחר ש-\\(2n+2=2(n+1)\\), נקבל\n\\[\nS_{n+1}-S_n=\\frac1{2n+1}-\\frac1{2(n+1)}\n=\\frac{1}{2(n+1)(2n+1)}>0.\n\\]\nלכן \\(S_n\\ge S_2>\\frac{13}{24}\\) לכל \\(n\\ge2\\).\n\n\\section*{שאלות שאינן להגשה}",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 7,
+      "parts": [
+        {
+          "part": "a",
+          "part_key": "a",
+          "question_text": "הוכיחו כי לכל \\(2\\le n\\in\\N\\), המספר \\(3\\) מחלק את\n\\[\n5^{3n-4}+8\\cdot 11^{n-2}\n\\]\nללא שארית.",
+          "required_action": "",
+          "official_solution": "נחשב מודולו \\(3\\). מתקיים\n\\[\n5\\equiv -1 \\pmod{3},\\qquad 11\\equiv -1 \\pmod{3},\\qquad 8\\equiv -1 \\pmod{3}.\n\\]\nלכן\n\\[\n5^{3n-4}\\equiv (-1)^{3n-4}\\pmod{3}.\n\\]\nמכיוון של-\\(3n-4\\) ול-\\(n\\) יש אותה זוגיות, נקבל\n\\[\n(-1)^{3n-4}=(-1)^n.\n\\]\nבנוסף,\n\\[\n8\\cdot 11^{n-2}\\equiv (-1)\\cdot(-1)^{n-2}\\pmod{3}.\n\\]\nל-\\(n-2\\) ול-\\(n\\) יש אותה זוגיות, ולכן\n\\[\n(-1)\\cdot(-1)^{n-2}=-(-1)^n.\n\\]\nלכן\n\\[\n5^{3n-4}+8\\cdot 11^{n-2}\n\\equiv (-1)^n-(-1)^n=0\\pmod{3}.\n\\]\nכלומר \\(3\\) מחלק את הביטוי ללא שארית.",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 8,
+      "parts": [
+        {
+          "part": "a",
+          "part_key": "a",
+          "question_text": "יהי \\(a\\in\\R\\), \\(a\\ne0\\). הוכיחו כי אם \\(a+\\frac1a\\) שלם, אז \\(a^n+\\frac1{a^n}\\) שלם לכל \\(n\\in\\N\\).",
+          "required_action": "",
+          "official_solution": "נסמן\n\\[\nc=a+\\frac1a.\n\\]\nלפי הנתון \\(c\\in\\mathbb{Z}\\). נגדיר\n\\[\nu_n=a^n+\\frac1{a^n}.\n\\]\nאז\n\\[\nu_0=2\\in\\mathbb{Z},\\qquad u_1=c\\in\\mathbb{Z}.\n\\]\nנראה שמתקיימת נוסחת הנסיגה\n\\[\nu_{n+1}=cu_n-u_{n-1}.\n\\]\nאכן,\n\\[\n\\left(a+\\frac1a\\right)\\left(a^n+\\frac1{a^n}\\right)\n=a^{n+1}+a^{n-1}+\\frac1{a^{n-1}}+\\frac1{a^{n+1}}\n=u_{n+1}+u_{n-1}.\n\\]\nכלומר\n\\[\nu_{n+1}=cu_n-u_{n-1}.\n\\]\nמאחר ש-\\(c\\) שלם, ואם \\(u_n,u_{n-1}\\) שלמים אז גם \\(u_{n+1}\\) שלם. לפי אינדוקציה נקבל שכל \\(u_n\\) שלמים, כלומר\n\\[\na^n+\\frac1{a^n}\\in\\mathbb{Z}\n\\]\nלכל \\(n\\in\\N\\).",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 9,
+      "parts": [
+        {
+          "part": "a",
+          "part_key": "a",
+          "question_text": "הוכיחו כי הסדרה\n\\[\n\\left\\{\\left(1+\\frac1n\\right)^n\\right\\}_{n=1}^{\\infty}\n\\]\nמונוטונית עולה.",
+          "required_action": "",
+          "official_solution": "נשתמש בבינום של ניוטון:\n\\[\n\\left(1+\\frac1n\\right)^n\n=\\sum_{k=0}^n \\binom{n}{k}\\frac1{n^k}.\n\\]\nעבור \\(k\\ge2\\), האיבר הכללי הוא\n\\[\n\\binom{n}{k}\\frac1{n^k}\n=\\frac{n(n-1)\\cdots(n-k+1)}{k!\\,n^k}\n=\\frac1{k!}\\left(1-\\frac1n\\right)\\left(1-\\frac2n\\right)\\cdots\\left(1-\\frac{k-1}{n}\\right).\n\\]\nלכן\n\\[\n\\left(1+\\frac1n\\right)^n\n=2+\\sum_{k=2}^n \\frac1{k!}\\prod_{j=1}^{k-1}\\left(1-\\frac{j}{n}\\right).\n\\]\nאם עוברים מ-\\(n\\) ל-\\(n+1\\), אז לכל \\(j\\ge1\\):\n\\[\n1-\\frac{j}{n+1}>1-\\frac{j}{n}.\n\\]\nלכן כל אחד מן האיברים המתאימים בסכום עבור \\(n+1\\) גדול מן האיבר המתאים בסכום עבור \\(n\\), ובנוסף בסכום עבור \\(n+1\\) מופיע איבר חיובי נוסף עבור \\(k=n+1\\). מכאן\n\\[\n\\left(1+\\frac1{n+1}\\right)^{n+1}>\n\\left(1+\\frac1n\\right)^n.\n\\]\nלכן הסדרה מונוטונית עולה.",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    },
+    {
+      "question_id": 10,
+      "parts": [
+        {
+          "part": "a",
+          "part_key": "a",
+          "question_text": "הוכיחו כי לכל \\(m,n\\in\\N\\) מתקיים\n\\[\n\\frac{(m+n)!}{m!n!}\\in\\N.\n\\]",
+          "required_action": "",
+          "official_solution": "נוכיח טענת עזר באינדוקציה על \\(s=m+n\\): לכל \\(m,n\\in\\N\\) שעבורם \\(m+n=s\\), מתקיים\n\\[\n\\frac{(m+n)!}{m!n!}\\in\\N.\n\\]\nעבור \\(s=0\\) בהכרח \\(m=n=0\\), ולכן\n\\[\n\\frac{(m+n)!}{m!n!}=\\frac{0!}{0!0!}=1\\in\\N.\n\\]\nנניח שהטענה נכונה עבור סכום \\(s\\), ונוכיח עבור סכום \\(s+1\\). יהיו \\(m,n\\in\\N\\) כך ש-\\(m+n=s+1\\).\nאם \\(m=0\\) או \\(n=0\\), אז הביטוי שווה \\(1\\), ולכן הוא טבעי.\n\nנותר לטפל במקרה \\(m,n\\ge1\\). אז לפי הנחת האינדוקציה,\n\\[\n\\frac{(m+n-1)!}{(m-1)!n!}\\in\\N,\n\\qquad\n\\frac{(m+n-1)!}{m!(n-1)!}\\in\\N,\n\\]\nכי בשני הביטויים סכום האינדקסים הוא \\(m+n-1=s\\). כעת נשתמש בזהות\n\\[\n\\frac{(m+n)!}{m!n!}\n=\\frac{(m+n-1)!}{(m-1)!n!}\n+\\frac{(m+n-1)!}{m!(n-1)!}.\n\\]\nאכן, אגף ימין שווה\n\\[\n\\frac{(m+n-1)!}{m!n!}\\,m+\\frac{(m+n-1)!}{m!n!}\\,n\n=\\frac{(m+n-1)!(m+n)}{m!n!}\n=\\frac{(m+n)!}{m!n!}.\n\\]\nקיבלנו שהביטוי הוא סכום של שני מספרים טבעיים, ולכן הוא טבעי. לפי עקרון האינדוקציה, הטענה נכונה לכל \\(m,n\\in\\N\\).\n\n\\end{document}",
+          "expected_answer": "",
+          "grading_instructions": "",
+          "max_points": null,
+          "review_status": "ok",
+          "confidence": null,
+          "warnings": [],
+          "source_question_file": "full_solution_reference.tex",
+          "source_answer_file": "full_solution_reference.tex"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Structure detected deterministically from the uploaded document (question/part segmentation), not by the language model."
+  ],
+  "structure_corrections": [],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 9,
+  "parts": [
+    {
+      "part": "a",
+      "part_key": "a",
+      "question_text": "הוכיחו כי הסדרה\n\\[\n\\left\\{\\left(1+\\frac1n\\right)^n\\right\\}_{n=1}^{\\infty}\n\\]\nמונוטונית עולה.",
+      "required_action": "",
+      "official_solution": "נשתמש בבינום של ניוטון:\n\\[\n\\left(1+\\frac1n\\right)^n\n=\\sum_{k=0}^n \\binom{n}{k}\\frac1{n^k}.\n\\]\nעבור \\(k\\ge2\\), האיבר הכללי הוא\n\\[\n\\binom{n}{k}\\frac1{n^k}\n=\\frac{n(n-1)\\cdots(n-k+1)}{k!\\,n^k}\n=\\frac1{k!}\\left(1-\\frac1n\\right)\\left(1-\\frac2n\\right)\\cdots\\left(1-\\frac{k-1}{n}\\right).\n\\]\nלכן\n\\[\n\\left(1+\\frac1n\\right)^n\n=2+\\sum_{k=2}^n \\frac1{k!}\\prod_{j=1}^{k-1}\\left(1-\\frac{j}{n}\\right).\n\\]\nאם עוברים מ-\\(n\\) ל-\\(n+1\\), אז לכל \\(j\\ge1\\):\n\\[\n1-\\frac{j}{n+1}>1-\\frac{j}{n}.\n\\]\nלכן כל אחד מן האיברים המתאימים בסכום עבור \\(n+1\\) גדול מן האיבר המתאים בסכום עבור \\(n\\), ובנוסף בסכום עבור \\(n+1\\) מופיע איבר חיובי נוסף עבור \\(k=n+1\\). מכאן\n\\[\n\\left(1+\\frac1{n+1}\\right)^{n+1}>\n\\left(1+\\frac1n\\right)^n.\n\\]\nלכן הסדרה מונוטונית עולה.",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

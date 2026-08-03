@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{{ app_name }} — הגשות</title>
+  <link rel="stylesheet" href="/static/styles-simple.css" />
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+      options: { skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js" async></script>
+</head>
+<body data-role="{{ role }}">
+
+<div class="sui-wrap">
+
+  <div class="sui-demo-banner" id="demoBanner" hidden>
+    מצב הדגמה — רשימת התרגילים, התאריכים ומספר ההגשות הם נתונים לדוגמה ואינם אמיתיים.
+  </div>
+
+  <header class="sui-header">
+    <div>
+      <h1 class="sui-course-title" id="courseTitle">טוען…</h1>
+      <p class="sui-course-meta" id="courseMeta"></p>
+    </div>
+    <span class="sui-quota" id="quotaBadge" hidden></span>
+  </header>
+
+  <div class="sui-list" id="exerciseList"></div>
+
+  <div class="sui-footer">
+    <span>מסך פשוט</span>
+    <span>
+      <a href="/feedback">מעבר למסך המתקדם</a>
+      &nbsp;·&nbsp;
+      <a href="#" id="logoutLink">התנתקות</a>
+    </span>
+  </div>
+
+</div>
+
+{% raw %}
+<script>
+/* ------------------------------------------------------------------
+   1. Demo switch. Flip to true to work without a server.
+------------------------------------------------------------------ */
+const DEMO = false;
+
+const DEMO_DATA = {
+  course: { label: "חשבון אינפיניטסימלי 1", teacher_name: 'ד"ר כהן', subject: "math" },
+  student: { code_display: "••••42" },
+  ocr_quota: { used: 1, limit: 3 },
+  exercises: [
+    { exercise_id: "hw1", title: "תרגיל 1 — גבולות ורציפות", due_at: "2026-03-12",
+      max_attempts: 2, attempts: [] }
+  ]
+};
+
+/* ------------------------------------------------------------------
+   2. State
+------------------------------------------------------------------ */
+const $ = (id) => document.getElementById(id);
+let state = null;
+let openExerciseId = null;
+let openAttemptIndex = 0;
+let busy = false;
+
+/* The viewer opens clean: no part selected, all markers are quiet dots.
+   showAllMarks turns every region box on at once — an option, not the
+   default. */
+let activePart = null;
+let showAllMarks = false;
+
+/* work_id -> { manifest, feedback, tex } */
+const attemptCache = new Map();
+
+/* ------------------------------------------------------------------
+   3. Data loading
+------------------------------------------------------------------ */
+async function loadData() {
+  if (DEMO) return structuredClone(DEMO_DATA);
+  return loadRealData();
+}
+
+async function loadRealData() {
+  const res = await fetch("/routes/student/dashboard", {
+    credentials: "same-origin",
+    cache: "no-store"
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  const data = await res.json();
+
+  const results = Array.isArray(data.previous_results) ? data.previous_results : [];
+
+  // Grouping by exam_id — the known weak spot: unmatched submissions fall
+  // into their own bucket until the server stores an explicit link.
+  const groups = new Map();
+  for (const item of results) {
+    const key = item.exam_id || "ללא שיוך";
+    if (!groups.has(key)) groups.set(key, []);
+    const files = Array.isArray(item.files) ? item.files : [];
+    groups.get(key).push({
+      work_id: item.work_id,
+      submitted_at: (item.saved_at || "").slice(0, 10),
+      status: item.status,
+      original_filename: (files.find(f => f.kind === "original") || {}).filename || "",
+      ocr_tex_url: (files.find(f => f.kind === "ocr_tex") || {}).download_url || "",
+      feedback_json_url: item.graded_result_json_download_url || "",
+      feedback_pdf_url: item.feedback_download_url || "",
+      is_official: false                    // MOCK until the server stores it
+    });
+  }
+
+  return {
+    course: data.course || {},
+    student: data.student || {},
+    ocr_quota: data.ocr_quota || null,
+    exercises: [...groups.entries()].map(([title, attempts]) => ({
+      exercise_id: title,
+      title,
+      due_at: "",                           // MOCK until deadlines exist
+      max_attempts: 2,                      // MOCK until a limit exists
+      attempts
+    }))
+  };
+}
+
+async function readError(res) {
+  try {
+    const body = await res.json();
+    return body.detail || body.error || ("שגיאה " + res.status);
+  } catch (_) {
+    return "שגיאה " + res.status;
+  }
+}
+
+async function fetchJSON(url) {
+  const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+/* ------------------------------------------------------------------
+   4. Helpers
+------------------------------------------------------------------ */
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const parts = String(iso).split("-");
+  return parts.length === 3 ? parts[2] + "." + parts[1] : iso;
+}
+
+function statusLine(ex) {
+  const count = ex.attempts.length;
+  if (!count) return "טרם הוגש";
+  const left = Math.max(0, ex.max_attempts - count);
+  const base = "הגשה " + count + " מתוך " + ex.max_attempts;
+  return left ? base + " · נותרה עוד הגשה אחת" : base + " · נוצלו כל ההגשות";
+}
+
+function dotClass(ex) {
+  if (!ex.attempts.length) return "";
+  return ex.attempts.length >= ex.max_attempts ? "is-graded" : "is-partial";
+}
+
+const LEVELS = {
+  correct:           { label: "נכון",       cls: "lv-correct", weak: false },
+  mostly_correct:    { label: "כמעט נכון",  cls: "lv-mostly",  weak: false },
+  partially_correct: { label: "נכון חלקית", cls: "lv-partial", weak: true },
+  needs_work:        { label: "דורש תיקון", cls: "lv-needs",   weak: true },
+  not_answered:      { label: "לא נענה",    cls: "lv-none",    weak: true }
+};
+const levelOf = (part) =>
+  LEVELS[(part && part.correctness && part.correctness.level) || ""] || LEVELS.not_answered;
+
+/* ------------------------------------------------------------------
+   5. Rendering — list and tabs
+------------------------------------------------------------------ */
+function render() {
+  $("courseTitle").textContent = state.course.label || state.course.course_label || "הקורס שלי";
+
+  const metaParts = [];
+  if (state.course.teacher_name) metaParts.push(state.course.teacher_name);
+  const code = state.student.code_display || state.student.student_code_display;
+  if (code) metaParts.push("קוד סטודנט " + code);
+  $("courseMeta").textContent = metaParts.join(" · ");
+
+  if (state.ocr_quota) {
+    $("quotaBadge").hidden = false;
+    $("quotaBadge").textContent =
+      "העלאות היום " + state.ocr_quota.used + "/" + state.ocr_quota.limit;
+  }
+
+  $("exerciseList").innerHTML = state.exercises.map(renderExercise).join("");
+  bindRows();
+
+  const ex = state.exercises.find(e => e.exercise_id === openExerciseId);
+  const att = ex && ex.attempts[openAttemptIndex];
+  if (att) hydrateAttempt(att);
+}
+
+function renderExercise(ex) {
+  const isOpen = ex.exercise_id === openExerciseId;
+  const row =
+    '<button type="button" class="sui-row' + (isOpen ? " is-open" : "") +
+      '" data-exercise="' + escapeHtml(ex.exercise_id) + '" aria-expanded="' + isOpen + '">' +
+      '<span class="sui-row-dot ' + dotClass(ex) + '"></span>' +
+      '<span class="sui-row-main">' +
+        '<span class="sui-row-title">' + escapeHtml(ex.title) + '</span>' +
+        '<span class="sui-row-sub">' + escapeHtml(statusLine(ex)) + '</span>' +
+      '</span>' +
+      (ex.due_at ? '<span class="sui-row-due">עד ' + escapeHtml(formatDate(ex.due_at)) + '</span>' : "") +
+      '<span class="sui-row-chevron">' + (isOpen ? "▲" : "▼") + '</span>' +
+    '</button>';
+
+  return row + (isOpen ? renderPanel(ex) : "");
+}
+
+function renderPanel(ex) {
+  const canSubmit = ex.attempts.length < ex.max_attempts;
+  const tabs = ex.attempts.map((att, index) =>
+    '<button type="button" class="sui-tab' + (index === openAttemptIndex ? " is-active" : "") +
+      '" data-attempt="' + index + '">הגשה ' + (index + 1) +
+      (att.submitted_at ? " · " + escapeHtml(formatDate(att.submitted_at)) : "") +
+      (att.is_official ? " ★" : "") +
+    '</button>'
+  );
+
+  if (canSubmit) {
+    tabs.push('<span class="sui-tab is-empty">הגשה ' + (ex.attempts.length + 1) + ' — טרם הוגשה</span>');
+  }
+
+  const current = ex.attempts[openAttemptIndex];
+
+  return '<div class="sui-panel">' +
+    (tabs.length ? '<div class="sui-tabs">' + tabs.join("") + '</div>' : "") +
+    (current ? renderAttempt(current) : "") +
+    (canSubmit ? renderSubmitBox(ex) : "") +
+    '<div class="sui-status" id="statusBox" hidden></div>' +
+  '</div>';
+}
+
+/* The viewer.
+   Three columns. RTL document, so the FIRST grid column sits on the RIGHT:
+     1. the line-anchored note of the open part   (right)
+     2. the submitted pages, with quiet markers   (centre)
+     3. the general note of the open part         (left)
+   Only the open part shows notes. Everything else is a dot. */
+function renderAttempt(att) {
+  return '' +
+    '<div class="sui-viewer-bar">' +
+      '<p class="sui-viewer-hint" id="viewerHint">טוען את המשוב…</p>' +
+      '<div class="sui-viewer-actions">' +
+        '<label class="sui-overlay-toggle">' +
+          '<input type="checkbox" id="marksToggle"' + (showAllMarks ? " checked" : "") + ' />' +
+          '<span>סימון כל הסעיפים</span>' +
+        '</label>' +
+        (att.feedback_pdf_url
+          ? '<a class="sui-quiet-link" href="' + escapeHtml(att.feedback_pdf_url) +
+            '" target="_blank" rel="noopener">טופס הבדיקה המלא</a>'
+          : "") +
+      '</div>' +
+    '</div>' +
+    '<div class="sui-overlay-grid" id="viewerGrid">' +
+      '<aside class="sui-notes-col" id="lineNotes"></aside>' +
+      '<div class="sui-pages" id="pagesCol">' +
+        '<div class="sui-pane-placeholder">טוען את העבודה שהגשת…</div>' +
+      '</div>' +
+      '<aside class="sui-notes-col" id="generalNotes"></aside>' +
+    '</div>' +
+    '<button type="button" class="sui-fix-link" id="fixToggle">✎ אם יש בעיה בתרגום, אפשר לעדכן כאן</button>' +
+    '<div class="sui-fix-box" id="fixBox" hidden>' +
+      '<p class="sui-fix-note">תיקון הטקסט מחייב בדיקה חוזרת, ולכן נספר כהגשה נוספת.</p>' +
+      '<textarea class="sui-textarea sui-bidi" id="fixText"></textarea>' +
+      '<button type="button" class="sui-btn sui-btn-quiet" id="resubmitBtn" style="margin-top:10px;">תקן והגש שוב</button>' +
+    '</div>';
+}
+
+function renderSubmitBox(ex) {
+  return '<div class="sui-submit-box" style="margin-top:14px;">' +
+      '<input type="file" class="sui-file" id="uploadInput"' +
+        ' accept=".tex,.txt,.png,.jpg,.jpeg,.webp,.pdf" />' +
+      '<button type="button" class="sui-btn" id="uploadBtn">העלאה ובדיקה</button>' +
+      '<span class="sui-fix-note" style="margin:0">' +
+        'קובץ מוקלד נבדק ישירות; סריקה או צילום עוברים קודם קריאה אוטומטית.' +
+      '</span>' +
+    '</div>';
+}
+
+/* ------------------------------------------------------------------
+   6. Hydrating the open attempt
+------------------------------------------------------------------ */
+async function getAttemptDetails(att) {
+  if (attemptCache.has(att.work_id)) return attemptCache.get(att.work_id);
+
+  const details = { manifest: null, feedback: null, tex: "" };
+
+  if (att.original_filename) {
+    try {
+      details.manifest = await fetchJSON("/routes/student/work_manifest?" +
+        new URLSearchParams({ work_id: att.work_id, filename: att.original_filename }));
+    } catch (_) { /* a missing manifest only disables the page view */ }
+  }
+  if (att.feedback_json_url) {
+    try { details.feedback = await fetchJSON(att.feedback_json_url); }
+    catch (_) { /* not graded yet */ }
+  }
+  if (att.ocr_tex_url) {
+    try {
+      const res = await fetch(att.ocr_tex_url, { credentials: "same-origin" });
+      if (res.ok) details.tex = await res.text();
+    } catch (_) { /* the fix box will just start empty */ }
+  }
+
+  attemptCache.set(att.work_id, details);
+  return details;
+}
+
+let currentParts = [];
+
+async function hydrateAttempt(att) {
+  if (!$("viewerGrid")) return;
+
+  const details = await getAttemptDetails(att);
+  if (!$("viewerGrid")) return;      // the user moved on while we fetched
+
+  currentParts = (details.feedback && details.feedback.parts) || [];
+
+  renderHint();
+  renderPagesColumn(details.manifest, currentParts);
+  renderNotes();
+
+  const fixText = $("fixText");
+  if (fixText && !fixText.value) fixText.value = details.tex || "";
+
+  bindMarkers();
+}
+
+/* The written cue: what is on the page and how to open it. */
+function renderHint() {
+  const hint = $("viewerHint");
+  if (!hint) return;
+
+  if (!currentParts.length) {
+    hint.textContent = "ההגשה עדיין לא נבדקה.";
+    return;
+  }
+
+  const weak = currentParts.filter(p => levelOf(p).weak).length;
+  const counts = currentParts.length + " סעיפים נבדקו";
+  const attention = weak ? " · " + weak + " דורשים תיקון" : " · אין סעיפים שדורשים תיקון";
+
+  hint.innerHTML =
+    '<span class="sui-hint-strong">' + counts + attention + '</span>' +
+    '<span class="sui-hint-soft">המשוב מסומן בנקודות על העבודה — לחיצה על נקודה פותחת את ההערות לאותו סעיף.</span>';
+}
+
+function renderPagesColumn(manifest, parts) {
+  const col = $("pagesCol");
+  if (!col) return;
+
+  if (!manifest || !Array.isArray(manifest.pages) || !manifest.pages.length) {
+    col.innerHTML = '<div class="sui-pane-placeholder">אין דפים להצגה עבור ההגשה הזו.</div>';
+    return;
+  }
+
+  // page_number -> [{ idx, part, region }]
+  const byPage = new Map();
+  parts.forEach((part, idx) => {
+    (part.regions || []).forEach((region) => {
+      if (!byPage.has(region.page_number)) byPage.set(region.page_number, []);
+      byPage.get(region.page_number).push({ idx, part, region });
+    });
+  });
+
+  col.innerHTML = manifest.pages.map((page) => {
+    const marks = (byPage.get(page.page_number) || []).map(({ idx, part, region }) => {
+      const lv = levelOf(part);
+      // The dot sits at the corner of the region; the box is the same
+      // element expanded, so opening a part never moves anything.
+      return '<button type="button" class="sui-mark ' + lv.cls + '"' +
+        ' data-part="' + idx + '"' +
+        ' style="left:' + (region.x * 100) + '%;top:' + (region.y * 100) + '%;' +
+        'width:' + (region.width * 100) + '%;height:' + (region.height * 100) + '%"' +
+        ' aria-label="פתיחת ההערות לסעיף ' + escapeHtml(part.qid) + '">' +
+        '<span class="sui-mark-dot" aria-hidden="true"></span>' +
+        '<span class="sui-mark-tag">' + escapeHtml(part.qid) + '</span>' +
+      '</button>';
+    }).join("");
+
+    return '<div class="sui-page-card">' +
+      '<div class="sui-pane-label">עמוד ' + page.page_number + '</div>' +
+      '<div class="sui-page-stage">' +
+        '<img src="' + escapeHtml(page.image_url) + '" alt="עמוד ' + page.page_number + ' מההגשה" loading="lazy" />' +
+        marks +
+      '</div>' +
+    '</div>';
+  }).join("");
+}
+
+/* Both side columns hold one card at most: the open part. */
+function renderNotes() {
+  const lineCol = $("lineNotes");
+  const genCol = $("generalNotes");
+  if (!lineCol || !genCol) return;
+
+  if (activePart === null || !currentParts[activePart]) {
+    lineCol.innerHTML = '<div class="sui-notes-empty">הערות על שורות בעבודה</div>';
+    genCol.innerHTML = '<div class="sui-notes-empty">הערות כלליות לסעיף</div>';
+    return;
+  }
+
+  const part = currentParts[activePart];
+  const lv = levelOf(part);
+  const fb = part.feedback || {};
+
+  const mistakes = fb.main_mistakes || [];
+  const firstPage = (part.regions && part.regions[0] && part.regions[0].page_number) || "";
+
+  lineCol.innerHTML =
+    '<div class="sui-notes-label">הערות על שורות בעבודה</div>' +
+    '<article class="sui-note ' + lv.cls + '">' +
+      '<header class="sui-note-head">' +
+        '<span class="sui-note-qid">' + escapeHtml(part.qid) + '</span>' +
+        (firstPage ? '<span class="sui-note-page">עמוד ' + firstPage + '</span>' : "") +
+      '</header>' +
+      (mistakes.length
+        ? '<ul class="sui-note-list sui-bidi">' +
+            mistakes.map(t => '<li>' + escapeHtml(t) + '</li>').join("") +
+          '</ul>'
+        : '<p class="sui-note-summary sui-bidi">אין הערות שמשויכות לשורה מסוימת בסעיף הזה.</p>') +
+    '</article>';
+
+  const goods = fb.what_was_correct || [];
+  const tips = fb.how_to_improve || [];
+
+  genCol.innerHTML =
+    '<div class="sui-notes-label">הערות כלליות לסעיף</div>' +
+    '<article class="sui-note ' + lv.cls + '">' +
+      '<header class="sui-note-head">' +
+        '<span class="sui-note-qid">' + escapeHtml(part.qid) + '</span>' +
+        '<span class="sui-note-level">' + lv.label + '</span>' +
+      '</header>' +
+      (fb.summary ? '<p class="sui-note-summary sui-bidi">' + escapeHtml(fb.summary) + '</p>' : "") +
+      ((goods.length || tips.length)
+        ? '<details class="sui-note-more">' +
+            '<summary>מה עשית נכון ואיך להשתפר</summary>' +
+            (goods.length
+              ? '<div class="sui-note-sec is-good"><h4>מה עשית נכון</h4><ul class="sui-bidi">' +
+                  goods.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul></div>'
+              : "") +
+            (tips.length
+              ? '<div class="sui-note-sec is-tip"><h4>איך להשתפר</h4><ul class="sui-bidi">' +
+                  tips.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul></div>'
+              : "") +
+          '</details>'
+        : "") +
+      (fb.suggested_next_step
+        ? '<p class="sui-note-next sui-bidi">הצעד הבא: ' + escapeHtml(fb.suggested_next_step) + '</p>'
+        : "") +
+      '<button type="button" class="sui-note-close" id="closeNote">סגירה</button>' +
+    '</article>';
+
+  const closeBtn = $("closeNote");
+  if (closeBtn) closeBtn.addEventListener("click", () => selectPart(null));
+
+  if (window.MathJax && MathJax.typesetPromise) {
+    MathJax.typesetPromise([lineCol, genCol]).catch(() => {});
+  }
+}
+
+function bindMarkers() {
+  document.querySelectorAll(".sui-mark").forEach((mark) => {
+    mark.addEventListener("click", () => {
+      const idx = Number(mark.dataset.part);
+      selectPart(activePart === idx ? null : idx);
+    });
+  });
+  applyMarkState();
+}
+
+function selectPart(idx) {
+  activePart = idx;
+  renderNotes();
+  applyMarkState();
+}
+
+function applyMarkState() {
+  const grid = $("viewerGrid");
+  if (grid) grid.classList.toggle("show-all-marks", showAllMarks);
+
+  document.querySelectorAll(".sui-mark").forEach((mark) => {
+    mark.classList.toggle("is-open", Number(mark.dataset.part) === activePart);
+  });
+}
+
+/* ------------------------------------------------------------------
+   7. Interaction
+------------------------------------------------------------------ */
+function bindRows() {
+  document.querySelectorAll(".sui-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const id = row.dataset.exercise;
+      openExerciseId = (openExerciseId === id) ? null : id;
+      openAttemptIndex = 0;
+      activePart = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll(".sui-tab[data-attempt]").forEach((tab) => {
+    tab.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAttemptIndex = Number(tab.dataset.attempt);
+      activePart = null;
+      render();
+    });
+  });
+
+  const marksToggle = $("marksToggle");
+  if (marksToggle) {
+    marksToggle.addEventListener("change", () => {
+      showAllMarks = marksToggle.checked;
+      applyMarkState();
+    });
+  }
+
+  const fixToggle = $("fixToggle");
+  if (fixToggle) {
+    fixToggle.addEventListener("click", () => {
+      const box = $("fixBox");
+      box.hidden = !box.hidden;
+    });
+  }
+
+  const uploadBtn = $("uploadBtn");
+  if (uploadBtn) uploadBtn.addEventListener("click", () => startSubmission());
+
+  const resubmitBtn = $("resubmitBtn");
+  if (resubmitBtn) {
+    resubmitBtn.addEventListener("click", () => {
+      const text = ($("fixText").value || "").trim();
+      if (text) submitTexText(text, "");
+    });
+  }
+}
+
+function setStatus(message, isError) {
+  const box = $("statusBox");
+  if (!box) return;
+  box.hidden = false;
+  box.textContent = message;
+  box.classList.toggle("is-error", Boolean(isError));
+}
+
+function appendStatus(message) {
+  const box = $("statusBox");
+  if (!box) return;
+  box.hidden = false;
+  box.textContent += (box.textContent ? "\n" : "") + message;
+}
+
+/* ------------------------------------------------------------------
+   8. The submission flow — no choices for the student:
+        typed .tex/.txt         -> straight to grading (ChatGPT)
+        scan / photo / any PDF  -> OCR (Gemini, auto mode) -> grading
+      ocr_document_mode=auto means a typed PDF with a real text layer is
+      read directly and costs no OCR quota.
+------------------------------------------------------------------ */
+async function startSubmission() {
+  if (busy) return;
+  const input = $("uploadInput");
+  const file = input && input.files && input.files[0];
+  if (!file) { setStatus("צריך לבחור קובץ להגשה.", true); return; }
+
+  busy = true;
+  if ($("uploadBtn")) $("uploadBtn").disabled = true;
+
+  try {
+    const name = (file.name || "").toLowerCase();
+    if (name.endsWith(".tex") || name.endsWith(".txt")) {
+      setStatus("קובץ מוקלד — נשלח ישירות לבדיקה…");
+      await submitTexText(await file.text(), "");
+    } else {
+      setStatus("קורא את הקובץ…");
+      const ocr = await runOcr(file);
+      appendStatus("הקריאה הסתיימה. שולח לבדיקה…");
+      await submitTexText(ocr.tex, ocr.workId);
+    }
+  } catch (error) {
+    setStatus(String(error.message || error), true);
+  } finally {
+    busy = false;
+    if ($("uploadBtn")) $("uploadBtn").disabled = false;
+  }
+}
+
+async function runOcr(file) {
+  const form = new FormData();               // never set Content-Type by hand
+  form.append("file", file);
+  form.append("ocr_provider", "google");     // fixed to Gemini by design
+  form.append("ocr_document_mode", "auto");  // typed PDFs skip OCR for free
+
+  const res = await fetch("/routes/ocr_handwritten", {
+    method: "POST",
+    credentials: "same-origin",
+    body: form
+  });
+  if (!res.ok) throw new Error(await readError(res));
+
+  const data = await res.json();
+  if (data.ocr_quota) {
+    appendStatus("העלאות היום: " + data.ocr_quota.used + "/" + data.ocr_quota.limit + ".");
+  }
+  (data.student_ocr_warnings || []).forEach((warning) => appendStatus("שים לב: " + warning));
+
+  return {
+    tex: data.student_tex || data.text || "",
+    workId: (data.stored_work && data.stored_work.work_id) || ""
+  };
+}
+
+async function submitTexText(tex, workId) {
+  const jobId = "simple-" + Date.now();
+  const form = new FormData();
+  form.append("student_tex", new Blob([tex], { type: "text/plain" }), "student_answer.tex");
+  form.append("job_id", jobId);
+  if (workId) form.append("source_work_id", workId);
+
+  const timer = startProgress(jobId);
+
+  try {
+    // Grading is fixed to ChatGPT by design — not Ollama, not Gemini.
+    const res = await fetch("/routes/grade_tex_chatgpt", {
+      method: "POST",
+      credentials: "same-origin",
+      body: form
+    });
+    if (!res.ok) throw new Error(await readError(res));
+
+    // The body is the graded PDF (or a .tex fallback). We don't open it —
+    // the marked-up work is the main display, and the PDF stays available
+    // through the "טופס הבדיקה המלא" link.
+    await res.blob();
+    appendStatus("הבדיקה הסתיימה. טוען את המשוב…");
+
+    const gradedWorkId = res.headers.get("X-MathGrade-Work-Id") || workId || "";
+    if (gradedWorkId) attemptCache.delete(gradedWorkId);
+
+    activePart = null;
+    await refreshAndOpen(gradedWorkId);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+async function refreshAndOpen(workId) {
+  state = await loadData();
+
+  outer:
+  for (const ex of state.exercises) {
+    for (let i = 0; i < ex.attempts.length; i++) {
+      if (ex.attempts[i].work_id === workId) {
+        openExerciseId = ex.exercise_id;
+        openAttemptIndex = i;
+        break outer;
+      }
+    }
+  }
+  render();
+}
+
+let lastSeq = 0;
+
+function startProgress(jobId) {
+  lastSeq = 0;
+  return setInterval(async () => {
+    try {
+      const res = await fetch("/routes/progress/" + encodeURIComponent(jobId), {
+        credentials: "same-origin",
+        cache: "no-store"
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      (data.steps || []).forEach((step) => {
+        if (step.seq > lastSeq) { lastSeq = step.seq; appendStatus(step.msg); }
+      });
+    } catch (_) { /* polling is best effort */ }
+  }, 1500);
+}
+
+/* ------------------------------------------------------------------
+   9. Start
+------------------------------------------------------------------ */
+async function checkHealth() {
+  try {
+    const res = await fetch("/health", { credentials: "same-origin" });
+    if (!res.ok) return;
+    const health = await res.json();
+    if (!health.gpt_configured) {
+      setStatus("שים לב: OPENAI_API_KEY אינו מוגדר בשרת, ולכן הבדיקה תיכשל.", true);
+    }
+  } catch (_) { /* health is advisory only */ }
+}
+
+$("logoutLink").addEventListener("click", async (event) => {
+  event.preventDefault();
+  await fetch("/routes/logout", { method: "POST", credentials: "same-origin" });
+  window.location.href = "/";
+});
+
+(async function start() {
+  $("demoBanner").hidden = !DEMO;
+  await checkHealth();
+  try {
+    state = await loadData();
+    render();
+  } catch (error) {
+    $("courseTitle").textContent = "לא ניתן לטעון את הנתונים";
+    $("courseMeta").textContent = String(error.message || error);
+  }
+})();
+</script>
+{% endraw %}
+
+</body>
+</html>

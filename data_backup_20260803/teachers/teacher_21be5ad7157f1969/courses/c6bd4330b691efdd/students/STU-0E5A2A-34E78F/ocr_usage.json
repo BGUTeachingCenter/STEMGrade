@@ -1,0 +1,31 @@
+{
+  "schema_version": "student_ocr_usage_v1",
+  "student_code": "STU-0E5A2A-34E78F",
+  "teacher_id": "teacher_21be5ad7157f1969",
+  "voucher_id": "c6bd4330b691efdd",
+  "timezone": "Asia/Jerusalem",
+  "days": {
+    "2026-08-03": {
+      "limit": 3,
+      "used": 2,
+      "runs": [
+        {
+          "reservation_id": "ocr_res_1f86d1048c846a80e4d00163",
+          "work_id": "ocr_2026-08-03_15-55-49_587be6c9",
+          "provider": "mathpix",
+          "source_filename": "אופק סגל_13030568_assignsubmission_file_תרגיל 1 חדוא.pdf",
+          "completed_at": "2026-08-03T15:55:49+03:00"
+        },
+        {
+          "reservation_id": "ocr_res_cdf9f0f16fdf5c45085cfb3a",
+          "work_id": "ocr_2026-08-03_16-16-13_e3177fb7",
+          "provider": "mathpix",
+          "source_filename": "אופק סגל_13030568_assignsubmission_file_תרגיל 1 חדוא.pdf",
+          "completed_at": "2026-08-03T16:16:13+03:00"
+        }
+      ],
+      "reservations": []
+    }
+  },
+  "updated_at": "2026-08-03T16:21:14+03:00"
+}

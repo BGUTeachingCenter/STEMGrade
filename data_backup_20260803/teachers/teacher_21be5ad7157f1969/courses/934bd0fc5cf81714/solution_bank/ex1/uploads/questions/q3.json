@@ -1,0 +1,41 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 3,
+  "parts": [
+    {
+      "part": "א",
+      "part_key": "a",
+      "question_text": "הוכיחו את האי-שוויונות הבאים.\n\n^n x_i\\right|\\le \\sum_{i=1}^n |x_i|\\)}",
+      "required_action": "",
+      "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=1\\) מתקיים\n\\[\n|x_1|\\le |x_1|,\n\\]\nולכן הטענה נכונה.\n\nנניח שהטענה נכונה עבור \\(n=k\\), כלומר\n\\[\n\\left|\\sum_{i=1}^k x_i\\right|\\le \\sum_{i=1}^k |x_i|.\n\\]\nנוכיח עבור \\(n=k+1\\). לפי אי-שוויון המשולש עבור שני איברים ולפי הנחת האינדוקציה,\n\\[\n\\left|\\sum_{i=1}^{k+1} x_i\\right|\n=\\left|\\left(\\sum_{i=1}^k x_i\\right)+x_{k+1}\\right|\n\\le \\left|\\sum_{i=1}^k x_i\\right|+|x_{k+1}|\n\\le \\sum_{i=1}^k |x_i|+|x_{k+1}|\n=\\sum_{i=1}^{k+1}|x_i|.\n\\]\nלכן הטענה נכונה לכל \\(n\\in\\N\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ב",
+      "part_key": "b",
+      "question_text": "הוכיחו את האי-שוויונות הבאים.",
+      "required_action": "",
+      "official_solution": "נשתמש באי-שוויון המשולש. מצד אחד,\n\\[\n|a|=|(a-b)+b|\\le |a-b|+|b|,\n\\]\nולכן\n\\[\n|a|-|b|\\le |a-b|.\n\\]\nמצד שני,\n\\[\n|b|=|(b-a)+a|\\le |b-a|+|a|=|a-b|+|a|,\n\\]\nולכן\n\\[\n|b|-|a|\\le |a-b|.\n\\]\nשני האי-שוויונות יחד אומרים בדיוק ש-\n\\[\n\\bigl||a|-|b|\\bigr|\\le |a-b|.\n\\]",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

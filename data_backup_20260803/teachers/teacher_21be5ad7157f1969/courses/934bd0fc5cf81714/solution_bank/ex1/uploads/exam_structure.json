@@ -1,0 +1,79 @@
+{
+  "questions": [
+    {
+      "question_id": "1",
+      "parts": [
+        "א",
+        "ב",
+        "ג",
+        "ד",
+        "ה"
+      ]
+    },
+    {
+      "question_id": "2",
+      "parts": [
+        "א",
+        "ב",
+        "ג",
+        "ד"
+      ]
+    },
+    {
+      "question_id": "3",
+      "parts": [
+        "א",
+        "ב"
+      ]
+    },
+    {
+      "question_id": "4",
+      "parts": [
+        "a"
+      ]
+    },
+    {
+      "question_id": "5",
+      "parts": [
+        "a"
+      ]
+    },
+    {
+      "question_id": "6",
+      "parts": [
+        "א",
+        "ב",
+        "ג",
+        "ד",
+        "ה",
+        "ו"
+      ]
+    },
+    {
+      "question_id": "7",
+      "parts": [
+        "a"
+      ]
+    },
+    {
+      "question_id": "8",
+      "parts": [
+        "a"
+      ]
+    },
+    {
+      "question_id": "9",
+      "parts": [
+        "a"
+      ]
+    },
+    {
+      "question_id": "10",
+      "parts": [
+        "a"
+      ]
+    }
+  ],
+  "question_count": 10,
+  "part_count": 23
+}

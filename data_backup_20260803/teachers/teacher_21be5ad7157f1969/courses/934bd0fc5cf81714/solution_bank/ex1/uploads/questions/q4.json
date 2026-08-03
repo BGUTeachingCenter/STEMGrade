@@ -1,0 +1,26 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 4,
+  "parts": [
+    {
+      "part": "a",
+      "part_key": "a",
+      "question_text": "יהיו \\(a,a_0,b,b_0\\in\\R\\). הוכיחו כי\n\\[\n|ab-a_0b_0|\\le |a|\\,|b-b_0|+|b_0|\\,|a-a_0|.\n\\]",
+      "required_action": "",
+      "official_solution": "נשתמש ברמז ונוסיף ונחסר את \\(ab_0\\):\n\\[\nab-a_0b_0=ab-ab_0+ab_0-a_0b_0.\n\\]\nנוציא גורמים משותפים:\n\\[\nab-a_0b_0=a(b-b_0)+b_0(a-a_0).\n\\]\nלכן, לפי אי-שוויון המשולש,\n\\[\n|ab-a_0b_0|\n=|a(b-b_0)+b_0(a-a_0)|\n\\le |a|\\,|b-b_0|+|b_0|\\,|a-a_0|.\n\\]",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

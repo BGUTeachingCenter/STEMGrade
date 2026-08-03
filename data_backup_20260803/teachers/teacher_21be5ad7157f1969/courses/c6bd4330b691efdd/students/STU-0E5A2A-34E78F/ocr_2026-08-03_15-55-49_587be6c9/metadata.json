@@ -1,0 +1,65 @@
+{
+  "schema_version": "student_work_v1",
+  "work_scope": "student",
+  "student_code": "STU-0E5A2A-34E78F",
+  "teacher_id": "teacher_21be5ad7157f1969",
+  "voucher_id": "c6bd4330b691efdd",
+  "storage_schema": "teacher_course_voucher_students_v2",
+  "storage_path_parts": {
+    "teacher": "teacher_21be5ad7157f1969",
+    "courses": "courses",
+    "voucher": "c6bd4330b691efdd",
+    "students": "students",
+    "student": "STU-0E5A2A-34E78F"
+  },
+  "kind": "ocr",
+  "status": "ocr_ready",
+  "work_id": "ocr_2026-08-03_15-55-49_587be6c9",
+  "source_filename": "אופק סגל_13030568_assignsubmission_file_תרגיל 1 חדוא.pdf",
+  "saved_at": "2026-08-03T15:55:49",
+  "ocr_provider": "mathpix",
+  "ocr_model": "mathpix",
+  "document_type": "handwritten_scan",
+  "ocr_path": "handwritten_scan_ocr",
+  "route_reason": "Manual handwritten mode selected.",
+  "debug_trace_id": "20260803_155536_student_ocr_no_exam_04875567",
+  "debug_trace_dir": "C:\\Users\\inbaltsa\\projects\\STEMGrade\\runs\\debug_traces\\20260803_155536_student_ocr_no_exam_04875567",
+  "primary_filename": "ocr_student_answer.tex",
+  "files": [
+    {
+      "kind": "original",
+      "filename": "original_13030568_assignsubmission_file__1_.pdf",
+      "label": "Original upload"
+    },
+    {
+      "kind": "ocr_response",
+      "filename": "ocr_response.json",
+      "label": "OCR response JSON"
+    },
+    {
+      "kind": "student_work_ocr_result",
+      "filename": "student_work_ocr_result.json",
+      "label": "Student OCR result JSON"
+    },
+    {
+      "kind": "ocr_tex",
+      "filename": "ocr_student_answer.tex",
+      "label": "OCR LaTeX"
+    },
+    {
+      "kind": "student_answer_bundle",
+      "filename": "student_answer_bundle.json",
+      "label": "Structured answer JSON"
+    },
+    {
+      "kind": "ocr_text",
+      "filename": "ocr_text.txt",
+      "label": "OCR plain text"
+    },
+    {
+      "kind": "student_summary",
+      "filename": "student_summary.json",
+      "label": "Student summary JSON"
+    }
+  ]
+}

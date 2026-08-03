@@ -1,0 +1,31 @@
+{
+  "schema_version": "student_answer_bundle_v1",
+  "created_at": "2026-08-03T15:55:49",
+  "exam_id": "",
+  "student_name": "",
+  "student_id": "",
+  "source_name": "אופק סגל_13030568_assignsubmission_file_תרגיל 1 חדוא.pdf",
+  "document_type": "handwritten_scan",
+  "ocr_provider": "",
+  "ocr_model": null,
+  "answers": [
+    {
+      "question_id": 1,
+      "part_key": "q",
+      "answer_text": "N\n\\[\n\\begin{aligned}\n& \\prod_{k=2}^{n}\\left(1-\\frac{1}{k^{2}}\\right)=\\frac{n+1}{2 n} \\\\\n& \\quad \\because 3,12, \\cdots \\infty\n\\end{aligned}\n\\]\n\\(n=2\\) oo life\n\\[\n\\begin{array}{rlr}\n\\prod_{k=2}^{2}\\left(1-\\frac{1}{k^{2}}\\right)=1-\\frac{1}{2^{2}}=1-\\frac{1}{4} & =\\frac{3}{4} & \\text { :Due Tek } \\\\\n& \\frac{2+1}{2 \\cdot 2}=\\frac{3}{4} \\quad \\text { ivi Tck }\n\\end{array}\n\\]\n- evas lille rpro\n\nミ3,12J.k. 263\n\\(2 \\leq m\\). Ixfs حد \\(m\\), Nore \\(m\\), Jose\n\\[\n\\prod^{m}\\left(1-\\frac{1}{k^{2}}\\right)=\\frac{m+1}{2 m}\n\\]\n\n2-2\n\\(m+1\\) inivi\n\\[\n\\begin{aligned}\n\\prod_{k=2}^{m+1} & \\left(1-\\frac{1}{k^{2}}\\right)=\\left[\\prod_{k=2}^{m}\\left(1-\\frac{1}{k^{2}}\\right)\\right] \\cdot\\left(1-\\frac{1}{(m+1} .\\right. \\\\\n& \\frac{m+1}{2 m} \\cdot\\left(1-\\frac{1}{(m+1)^{2}}\\right)= \\\\\n& \\frac{m+1}{2 m} \\cdot\\left(\\frac{(m+1)^{2}-1}{(m+1)^{2}}\\right)= \\\\\n& \\frac{m+1}{2 m} \\cdot \\frac{m^{2}+2 m}{(m+1)^{2}}= \\\\\n& \\frac{m+1}{2 m} \\cdot \\frac{m \\cdot(m+2)}{(m+1)^{2}}=\\frac{m+2}{2 \\cdot(m+1)}= \\\\\n& \\frac{(m+1)+1}{2 \\cdot(m+1)}\n\\end{aligned}\n\\]\n\n\\[\n\\begin{aligned}\n& 2 \\leq n \\in N \\text { r.r :r.3 } \\quad \\begin{array}{r}\n1 \\\\\n\\frac{1}{n+1}+\\frac{1}{n+2}+\\ldots+\\frac{1}{2 n}>\\frac{13}{24}\n\\end{array}\n\\end{aligned}\n\\]\n\nPinivies -es non \\(n=2 \\quad 0.00\\) injer\n\\[\n\\frac{1}{2}+\\frac{1}{2}=\\frac{4+3}{2}=7 \\cdot \\frac{14}{1} \\text { : Rove Terc }\n\\]\n\\[\n\\frac{14}{24}>\\frac{13}{24}\n\\]\n:\n\\(n=k\\) is\n\\[\nS_{k}=\\frac{1}{k+1}+\\frac{1}{k+2}+\\ldots+\\frac{1}{2 k}>\\frac{13}{24}\n\\]\n: [. 3 ws. \\(h=k+1\\) wor we now iss]\n\\[\nS_{k \\rightarrow 1}=\\frac{1}{k \\rightarrow 2}+\\ldots+\\frac{1}{2 k}+\\frac{1}{2 k \\rightarrow 1}+\\frac{1}{2 k+2}>\\frac{13}{24}\n\\]\n\\[\nS_{k+1}=S_{k}-\\frac{1}{k+1}+\\frac{1}{2 k+1}+\\frac{1}{2 k+2}\n\\]\nof lexk ibou wer fille kile night ro\n\\[\n\\begin{aligned}\n& \\frac{1}{2 k+1}+\\frac{1}{2 k+2}-\\frac{1}{k+1} \\geq 0 \\\\\n& \\frac{1}{k+1}+\\frac{1}{2 \\cdot(k+1)}-\\frac{1}{k+1}= \\\\\n& \\text { 1) }-\\frac{1}{k+1}=\\frac{1}{2 \\cdot(k+1)}-\\frac{2}{2 \\cdot(k+1)}=-\\frac{1}{2 \\cdot(k+1)}\n\\end{aligned}\n\\]\n\\(r_{\\text {appl }}\\) יוֹא\n\\[\n\\frac{1}{2 k+1}-\\frac{1}{2 \\cdot(k+1)}\n\\]\n\nGpl Eien von ron\n\\[\n\\begin{aligned}\n& \\frac{1 \\cdot[2 \\cdot(k+1)]-1 \\cdot[2 k+1]}{(2 k+1) \\cdot 2 \\cdot(k+1)}= \\\\\n& \\frac{2 k+2-2 k-1}{(2 k+1) \\cdot(2 k+2)}=\\frac{1}{(2 k+1)(2 k+2)}>0 \\\\\n& (2-1 \\text { or } 2 \\text { in } k+0)\n\\end{aligned}\n\\]",
+      "visual_elements": [],
+      "visual_capture_status": "uncertain",
+      "page_numbers": [],
+      "regions": [],
+      "confidence": null,
+      "needs_review": true,
+      "warnings": []
+    }
+  ],
+  "unmatched_blocks": [],
+  "warnings": [
+    "Skipped Q1a: parser comment/debris.",
+    "Skipped Q1b: parser comment/debris."
+  ],
+  "needs_teacher_review": true
+}

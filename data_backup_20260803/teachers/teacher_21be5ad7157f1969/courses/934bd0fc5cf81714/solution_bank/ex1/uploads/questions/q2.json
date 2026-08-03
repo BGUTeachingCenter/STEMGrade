@@ -1,0 +1,71 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 2,
+  "parts": [
+    {
+      "part": "א",
+      "part_key": "a",
+      "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.",
+      "required_action": "",
+      "official_solution": "הטענה נכונה. אם \\(a\\ge b\\), אז \\(|a-b|=a-b\\). מכיוון ש-\\(a<d\\) ו-\\(b>c\\), נקבל\n\\[\na-b<d-c.\n\\]\nאם \\(b>a\\), אז \\(|a-b|=b-a\\), ובאותו אופן, מכיוון ש-\\(b<d\\) ו-\\(a>c\\), נקבל\n\\[\nb-a<d-c.\n\\]\nלכן בכל מקרה \\(|a-b|<d-c\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ב",
+      "part_key": "b",
+      "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.",
+      "required_action": "",
+      "official_solution": "הטענה אינה נכונה. ניקח למשל\n\\[\na=0.8,\\qquad b=0.9.\n\\]\nאז \\(0<a<b<1\\), אבל\n\\[\n|a+b|=|1.7|=1.7>1.\n\\]\nזו דוגמה נגדית.",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ג",
+      "part_key": "c",
+      "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.\n\n{b}<\\frac{c}{d}\\)}",
+      "required_action": "",
+      "official_solution": "הטענה אינה נכונה. ניקח למשל\n\\[\na=5,\\qquad c=6,\\qquad b=1,\\qquad d=2.\n\\]\nאז \\(0<a<c\\) וגם \\(0<b<d\\), אבל\n\\[\n\\frac{a}{b}=5,\\qquad \\frac{c}{d}=3,\n\\]\nולכן לא מתקיים \\(\\frac{a}{b}<\\frac{c}{d}\\). זו דוגמה נגדית.",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ד",
+      "part_key": "d",
+      "question_text": "הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.\n\n{b}<\\frac{c}{d}\\)}",
+      "required_action": "",
+      "official_solution": "הטענה נכונה. מאחר ש-\\(0<a<c\\) ו-\\(b>0\\), נקבל\n\\[\n\\frac{a}{b}<\\frac{c}{b}.\n\\]\nמאחר ש-\\(0<d<b\\), נקבל \\(\\frac1b<\\frac1d\\), ולכן\n\\[\n\\frac{c}{b}<\\frac{c}{d}.\n\\]\nבסך הכול,\n\\[\n\\frac{a}{b}<\\frac{c}{b}<\\frac{c}{d},\n\\]\nולכן \\(\\frac{a}{b}<\\frac{c}{d}\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": "course_upload_log_v1",
+  "teacher_id": "teacher_21be5ad7157f1969",
+  "voucher_id": "934bd0fc5cf81714",
+  "updated_at": "2026-08-03T15:50:00",
+  "uploads": [
+    {
+      "work_id": "ocr_2026-08-03_15-50-00_2e7de253",
+      "student_code": "STU-220EAA-120904",
+      "teacher_id": "teacher_21be5ad7157f1969",
+      "voucher_id": "934bd0fc5cf81714",
+      "exam_id": "",
+      "kind": "ocr",
+      "status": "ocr_ready",
+      "source_filename": "פתרון מועד ג דניאלה.pdf",
+      "saved_at": "2026-08-03T15:50:00",
+      "updated_at": "",
+      "graded_at": "",
+      "ocr_provider": "mathpix",
+      "ocr_model": "mathpix",
+      "grading_provider": ""
+    },
+    {
+      "work_id": "ocr_2026-08-03_15-39-51_3cd2faf9",
+      "student_code": "STU-220EAA-120904",
+      "teacher_id": "teacher_21be5ad7157f1969",
+      "voucher_id": "934bd0fc5cf81714",
+      "exam_id": "",
+      "kind": "ocr",
+      "status": "ocr_ready",
+      "source_filename": "פתרון מועד ג דניאלה.pdf",
+      "saved_at": "2026-08-03T15:39:51",
+      "updated_at": "",
+      "graded_at": "",
+      "ocr_provider": "mathpix",
+      "ocr_model": "mathpix",
+      "grading_provider": ""
+    }
+  ]
+}

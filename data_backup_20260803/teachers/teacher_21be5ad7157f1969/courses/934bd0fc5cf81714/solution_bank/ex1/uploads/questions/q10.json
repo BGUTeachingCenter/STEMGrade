@@ -1,0 +1,26 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 10,
+  "parts": [
+    {
+      "part": "a",
+      "part_key": "a",
+      "question_text": "הוכיחו כי לכל \\(m,n\\in\\N\\) מתקיים\n\\[\n\\frac{(m+n)!}{m!n!}\\in\\N.\n\\]",
+      "required_action": "",
+      "official_solution": "נוכיח טענת עזר באינדוקציה על \\(s=m+n\\): לכל \\(m,n\\in\\N\\) שעבורם \\(m+n=s\\), מתקיים\n\\[\n\\frac{(m+n)!}{m!n!}\\in\\N.\n\\]\nעבור \\(s=0\\) בהכרח \\(m=n=0\\), ולכן\n\\[\n\\frac{(m+n)!}{m!n!}=\\frac{0!}{0!0!}=1\\in\\N.\n\\]\nנניח שהטענה נכונה עבור סכום \\(s\\), ונוכיח עבור סכום \\(s+1\\). יהיו \\(m,n\\in\\N\\) כך ש-\\(m+n=s+1\\).\nאם \\(m=0\\) או \\(n=0\\), אז הביטוי שווה \\(1\\), ולכן הוא טבעי.\n\nנותר לטפל במקרה \\(m,n\\ge1\\). אז לפי הנחת האינדוקציה,\n\\[\n\\frac{(m+n-1)!}{(m-1)!n!}\\in\\N,\n\\qquad\n\\frac{(m+n-1)!}{m!(n-1)!}\\in\\N,\n\\]\nכי בשני הביטויים סכום האינדקסים הוא \\(m+n-1=s\\). כעת נשתמש בזהות\n\\[\n\\frac{(m+n)!}{m!n!}\n=\\frac{(m+n-1)!}{(m-1)!n!}\n+\\frac{(m+n-1)!}{m!(n-1)!}.\n\\]\nאכן, אגף ימין שווה\n\\[\n\\frac{(m+n-1)!}{m!n!}\\,m+\\frac{(m+n-1)!}{m!n!}\\,n\n=\\frac{(m+n-1)!(m+n)}{m!n!}\n=\\frac{(m+n)!}{m!n!}.\n\\]\nקיבלנו שהביטוי הוא סכום של שני מספרים טבעיים, ולכן הוא טבעי. לפי עקרון האינדוקציה, הטענה נכונה לכל \\(m,n\\in\\N\\).\n\n\\end{document}",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 7,
+  "parts": [
+    {
+      "part": "a",
+      "part_key": "a",
+      "question_text": "הוכיחו כי לכל \\(2\\le n\\in\\N\\), המספר \\(3\\) מחלק את\n\\[\n5^{3n-4}+8\\cdot 11^{n-2}\n\\]\nללא שארית.",
+      "required_action": "",
+      "official_solution": "נחשב מודולו \\(3\\). מתקיים\n\\[\n5\\equiv -1 \\pmod{3},\\qquad 11\\equiv -1 \\pmod{3},\\qquad 8\\equiv -1 \\pmod{3}.\n\\]\nלכן\n\\[\n5^{3n-4}\\equiv (-1)^{3n-4}\\pmod{3}.\n\\]\nמכיוון של-\\(3n-4\\) ול-\\(n\\) יש אותה זוגיות, נקבל\n\\[\n(-1)^{3n-4}=(-1)^n.\n\\]\nבנוסף,\n\\[\n8\\cdot 11^{n-2}\\equiv (-1)\\cdot(-1)^{n-2}\\pmod{3}.\n\\]\nל-\\(n-2\\) ול-\\(n\\) יש אותה זוגיות, ולכן\n\\[\n(-1)\\cdot(-1)^{n-2}=-(-1)^n.\n\\]\nלכן\n\\[\n5^{3n-4}+8\\cdot 11^{n-2}\n\\equiv (-1)^n-(-1)^n=0\\pmod{3}.\n\\]\nכלומר \\(3\\) מחלק את הביטוי ללא שארית.",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

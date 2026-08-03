@@ -1,0 +1,40 @@
+{
+  "schema_version": "course_upload_log_v1",
+  "teacher_id": "teacher_21be5ad7157f1969",
+  "voucher_id": "c6bd4330b691efdd",
+  "updated_at": "2026-08-03T16:16:13",
+  "uploads": [
+    {
+      "work_id": "ocr_2026-08-03_16-16-13_e3177fb7",
+      "student_code": "STU-0E5A2A-34E78F",
+      "teacher_id": "teacher_21be5ad7157f1969",
+      "voucher_id": "c6bd4330b691efdd",
+      "exam_id": "",
+      "kind": "ocr",
+      "status": "ocr_ready",
+      "source_filename": "אופק סגל_13030568_assignsubmission_file_תרגיל 1 חדוא.pdf",
+      "saved_at": "2026-08-03T16:16:13",
+      "updated_at": "",
+      "graded_at": "",
+      "ocr_provider": "mathpix",
+      "ocr_model": "mathpix",
+      "grading_provider": ""
+    },
+    {
+      "work_id": "ocr_2026-08-03_15-55-49_587be6c9",
+      "student_code": "STU-0E5A2A-34E78F",
+      "teacher_id": "teacher_21be5ad7157f1969",
+      "voucher_id": "c6bd4330b691efdd",
+      "exam_id": "",
+      "kind": "ocr",
+      "status": "ocr_ready",
+      "source_filename": "אופק סגל_13030568_assignsubmission_file_תרגיל 1 חדוא.pdf",
+      "saved_at": "2026-08-03T15:55:49",
+      "updated_at": "",
+      "graded_at": "",
+      "ocr_provider": "mathpix",
+      "ocr_model": "mathpix",
+      "grading_provider": ""
+    }
+  ]
+}

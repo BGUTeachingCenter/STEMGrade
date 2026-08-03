@@ -1,0 +1,31 @@
+{
+  "schema_version": "student_ocr_usage_v1",
+  "student_code": "STU-220EAA-120904",
+  "teacher_id": "teacher_21be5ad7157f1969",
+  "voucher_id": "934bd0fc5cf81714",
+  "timezone": "Asia/Jerusalem",
+  "days": {
+    "2026-08-03": {
+      "limit": 3,
+      "used": 2,
+      "runs": [
+        {
+          "reservation_id": "ocr_res_02b417fd7068067a78de1066",
+          "work_id": "ocr_2026-08-03_15-39-51_3cd2faf9",
+          "provider": "mathpix",
+          "source_filename": "פתרון מועד ג דניאלה.pdf",
+          "completed_at": "2026-08-03T15:39:51+03:00"
+        },
+        {
+          "reservation_id": "ocr_res_7d1be3eb8b193f8e679b51ca",
+          "work_id": "ocr_2026-08-03_15-50-00_2e7de253",
+          "provider": "mathpix",
+          "source_filename": "פתרון מועד ג דניאלה.pdf",
+          "completed_at": "2026-08-03T15:50:00+03:00"
+        }
+      ],
+      "reservations": []
+    }
+  },
+  "updated_at": "2026-08-03T15:50:00+03:00"
+}

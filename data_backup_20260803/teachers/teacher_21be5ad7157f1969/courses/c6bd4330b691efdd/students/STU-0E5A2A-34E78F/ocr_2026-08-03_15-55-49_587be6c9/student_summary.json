@@ -1,0 +1,13 @@
+{
+  "updated_at": "2026-08-03T15:55:49",
+  "filename": "student_answer_bundle.json",
+  "qnums": [
+    1
+  ],
+  "keys_preview": [
+    "Q1q"
+  ],
+  "preview_text": "Q1q: N \\[ \\begin{aligned} & \\prod_{k=2}^{n}\\left(1-\\frac{1}{k^{2}}\\right)=\\frac{n+1}{2 n} \\\\ & \\quad \\because 3,12, \\cdots \\infty \\end{aligned} \\",
+  "part_count": 1,
+  "parse_ok": true
+}

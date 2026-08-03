@@ -1,0 +1,26 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 8,
+  "parts": [
+    {
+      "part": "a",
+      "part_key": "a",
+      "question_text": "יהי \\(a\\in\\R\\), \\(a\\ne0\\). הוכיחו כי אם \\(a+\\frac1a\\) שלם, אז \\(a^n+\\frac1{a^n}\\) שלם לכל \\(n\\in\\N\\).",
+      "required_action": "",
+      "official_solution": "נסמן\n\\[\nc=a+\\frac1a.\n\\]\nלפי הנתון \\(c\\in\\mathbb{Z}\\). נגדיר\n\\[\nu_n=a^n+\\frac1{a^n}.\n\\]\nאז\n\\[\nu_0=2\\in\\mathbb{Z},\\qquad u_1=c\\in\\mathbb{Z}.\n\\]\nנראה שמתקיימת נוסחת הנסיגה\n\\[\nu_{n+1}=cu_n-u_{n-1}.\n\\]\nאכן,\n\\[\n\\left(a+\\frac1a\\right)\\left(a^n+\\frac1{a^n}\\right)\n=a^{n+1}+a^{n-1}+\\frac1{a^{n-1}}+\\frac1{a^{n+1}}\n=u_{n+1}+u_{n-1}.\n\\]\nכלומר\n\\[\nu_{n+1}=cu_n-u_{n-1}.\n\\]\nמאחר ש-\\(c\\) שלם, ואם \\(u_n,u_{n-1}\\) שלמים אז גם \\(u_{n+1}\\) שלם. לפי אינדוקציה נקבל שכל \\(u_n\\) שלמים, כלומר\n\\[\na^n+\\frac1{a^n}\\in\\mathbb{Z}\n\\]\nלכל \\(n\\in\\N\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

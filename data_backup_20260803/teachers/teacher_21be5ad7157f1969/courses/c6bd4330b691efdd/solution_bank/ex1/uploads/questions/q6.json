@@ -1,0 +1,101 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 6,
+  "parts": [
+    {
+      "part": "א",
+      "part_key": "a",
+      "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n^n k^2=\\frac{n(n+1)(2n+1)}{6}\\)}",
+      "required_action": "",
+      "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\):\n\\[\n\\sum_{k=0}^0 k^2=0,\n\\qquad\n\\frac{0\\cdot1\\cdot1}{6}=0.\n\\]\nלכן הטענה נכונה.\n\nנניח שהטענה נכונה עבור \\(n\\), כלומר\n\\[\n\\sum_{k=0}^n k^2=\\frac{n(n+1)(2n+1)}{6}.\n\\]\nנוכיח עבור \\(n+1\\):\n\\[\n\\sum_{k=0}^{n+1} k^2\n=\\sum_{k=0}^n k^2+(n+1)^2\n=\\frac{n(n+1)(2n+1)}{6}+(n+1)^2.\n\\]\nנוציא \\(n+1\\) כגורם משותף:\n\\[\n\\sum_{k=0}^{n+1} k^2\n=(n+1)\\left(\\frac{n(2n+1)}{6}+n+1\\right)\n=(n+1)\\frac{2n^2+7n+6}{6}.\n\\]\nכעת\n\\[\n2n^2+7n+6=(n+2)(2n+3),\n\\]\nולכן\n\\[\n\\sum_{k=0}^{n+1} k^2\n=\\frac{(n+1)(n+2)(2n+3)}{6}.\n\\]\nזה בדיוק הנוסחה עבור \\(n+1\\), כי\n\\[\n\\frac{(n+1)((n+1)+1)(2(n+1)+1)}{6}\n=\\frac{(n+1)(n+2)(2n+3)}{6}.\n\\]\nלכן הטענה נכונה לכל \\(n\\in\\N\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ב",
+      "part_key": "b",
+      "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.",
+      "required_action": "",
+      "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\) מתקיים\n\\[\n(1+a)^0=1=1+0\\cdot a.\n\\]\nנניח שהטענה נכונה עבור \\(n\\), כלומר\n\\[\n(1+a)^n\\ge 1+na.\n\\]\nמאחר ש-\\(a>-1\\), מתקיים \\(1+a>0\\), ולכן אפשר להכפיל את שני האגפים ב-\\(1+a\\) בלי להפוך את סימן האי-שוויון:\n\\[\n(1+a)^{n+1}\\ge (1+na)(1+a).\n\\]\nנפתח:\n\\[\n(1+na)(1+a)=1+(n+1)a+na^2.\n\\]\nמאחר ש-\\(na^2\\ge0\\), נקבל\n\\[\n(1+a)^{n+1}\\ge 1+(n+1)a.\n\\]\nלכן הטענה נכונה לכל \\(n\\in\\N\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ג",
+      "part_key": "c",
+      "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n{2}a^2\\)}",
+      "required_action": "",
+      "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\):\n\\[\n(1+a)^0=1=1+0\\cdot a+\\frac{0\\cdot(-1)}{2}a^2.\n\\]\nנניח שהטענה נכונה עבור \\(n\\):\n\\[\n(1+a)^n\\ge 1+na+\\frac{n(n-1)}{2}a^2.\n\\]\nמאחר ש-\\(a>0\\), מתקיים \\(1+a>0\\). לכן\n\\[\n(1+a)^{n+1}\n\\ge \\left(1+na+\\frac{n(n-1)}{2}a^2\\right)(1+a).\n\\]\nנפתח את האגף הימני:\n\\[\n\\left(1+na+\\frac{n(n-1)}{2}a^2\\right)(1+a)\n=1+(n+1)a+\\left(n+\\frac{n(n-1)}{2}\\right)a^2+\\frac{n(n-1)}{2}a^3.\n\\]\nכיוון ש\n\\[\nn+\\frac{n(n-1)}{2}=\\frac{n(n+1)}{2}\n\\]\nוכיוון ש-\\(\\frac{n(n-1)}{2}a^3\\ge0\\), נקבל\n\\[\n(1+a)^{n+1}\\ge 1+(n+1)a+\\frac{n(n+1)}{2}a^2.\n\\]\nזו בדיוק הטענה עבור \\(n+1\\). לכן הטענה נכונה לכל \\(n\\in\\N\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ד",
+      "part_key": "d",
+      "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n^n \\binom{n}{k}a^k b^{n-k}\\)}\nכאשר\n\\[\n\\binom{n}{k}=\\frac{n!}{k!(n-k)!}.\n\\]",
+      "required_action": "",
+      "official_solution": "נוכיח באינדוקציה על \\(n\\). עבור \\(n=0\\):\n\\[\n(a+b)^0=1,\n\\qquad\n\\sum_{k=0}^0\\binom{0}{k}a^k b^{0-k}=\\binom00=1.\n\\]\nנניח שהנוסחה נכונה עבור \\(n\\):\n\\[\n(a+b)^n=\\sum_{k=0}^n \\binom{n}{k}a^k b^{n-k}.\n\\]\nאז\n\\[\n\\begin{aligned}\n(a+b)^{n+1}\n&=(a+b)(a+b)^n \\\\\n&=(a+b)\\sum_{k=0}^n \\binom{n}{k}a^k b^{n-k} \\\\\n&=\\sum_{k=0}^n \\binom{n}{k}a^{k+1}b^{n-k}\n+\\sum_{k=0}^n \\binom{n}{k}a^k b^{n+1-k}.\n\\end{aligned}\n\\]\nבסכום הראשון נציב \\(j=k+1\\), ולכן הוא נע בין \\(j=1\\) לבין \\(j=n+1\\). נקבל\n\\[\n(a+b)^{n+1}\n=\\sum_{j=1}^{n+1}\\binom{n}{j-1}a^j b^{n+1-j}\n+\\sum_{j=0}^{n}\\binom{n}{j}a^j b^{n+1-j}.\n\\]\nהאיברים בקצוות הם \\(b^{n+1}\\) ו-\\(a^{n+1}\\). עבור \\(1\\le j\\le n\\) מקדם האיבר \\(a^j b^{n+1-j}\\) הוא\n\\[\n\\binom{n}{j-1}+\\binom{n}{j}=\\binom{n+1}{j}\n\\]\nלפי זהות פסקל. לכן\n\\[\n(a+b)^{n+1}=\\sum_{j=0}^{n+1}\\binom{n+1}{j}a^j b^{n+1-j}.\n\\]\nכלומר הנוסחה נכונה עבור \\(n+1\\), ולכן לכל \\(n\\in\\N\\).",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ה",
+      "part_key": "e",
+      "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n^n\\left(1-\\frac1{k^2}\\right)=\\frac{n+1}{2n}\\)}",
+      "required_action": "",
+      "official_solution": "נפרק כל גורם במכפלה:\n\\[\n1-\\frac1{k^2}=\\frac{k^2-1}{k^2}=\\frac{(k-1)(k+1)}{k^2}=\\frac{k-1}{k}\\cdot\\frac{k+1}{k}.\n\\]\nלכן\n\\[\n\\prod_{k=2}^n\\left(1-\\frac1{k^2}\\right)\n=\\prod_{k=2}^n\\frac{k-1}{k}\\cdot\\prod_{k=2}^n\\frac{k+1}{k}.\n\\]\nהמכפלה הראשונה היא טלסקופית:\n\\[\n\\prod_{k=2}^n\\frac{k-1}{k}=\\frac12\\cdot\\frac23\\cdot\\frac34\\cdots\\frac{n-1}{n}=\\frac1n.\n\\]\nהמכפלה השנייה היא\n\\[\n\\prod_{k=2}^n\\frac{k+1}{k}=\\frac32\\cdot\\frac43\\cdot\\frac54\\cdots\\frac{n+1}{n}=\\frac{n+1}{2}.\n\\]\nלכן\n\\[\n\\prod_{k=2}^n\\left(1-\\frac1{k^2}\\right)\n=\\frac1n\\cdot\\frac{n+1}{2}=\\frac{n+1}{2n}.\n\\]",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ו",
+      "part_key": "f",
+      "question_text": "הוכיחו באינדוקציה או בכל דרך אחרת.\n\n+\\frac1{n+2}+\\cdots+\\frac1{2n}>\\frac{13}{24}\\)}",
+      "required_action": "",
+      "official_solution": "נסמן\n\\[\nS_n=\\sum_{k=n+1}^{2n}\\frac1k.\n\\]\nעבור \\(n=2\\) נקבל\n\\[\nS_2=\\frac13+\\frac14=\\frac7{12}=\\frac{14}{24}>\\frac{13}{24}.\n\\]\nנראה שהסדרה \\(S_n\\) עולה עבור \\(n\\ge2\\). אכן,\n\\[\n\\begin{aligned}\nS_{n+1}-S_n\n&=\\left(\\frac1{n+2}+\\cdots+\\frac1{2n}+\\frac1{2n+1}+\\frac1{2n+2}\\right)\n-\\left(\\frac1{n+1}+\\frac1{n+2}+\\cdots+\\frac1{2n}\\right)\\\\\n&=\\frac1{2n+1}+\\frac1{2n+2}-\\frac1{n+1}.\n\\end{aligned}\n\\]\nמאחר ש-\\(2n+2=2(n+1)\\), נקבל\n\\[\nS_{n+1}-S_n=\\frac1{2n+1}-\\frac1{2(n+1)}\n=\\frac{1}{2(n+1)(2n+1)}>0.\n\\]\nלכן \\(S_n\\ge S_2>\\frac{13}{24}\\) לכל \\(n\\ge2\\).\n\n\\section*{שאלות שאינן להגשה}",
+      "expected_answer": "",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

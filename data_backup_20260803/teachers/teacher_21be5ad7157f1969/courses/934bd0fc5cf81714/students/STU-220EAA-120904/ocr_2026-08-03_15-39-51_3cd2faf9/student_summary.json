@@ -1,0 +1,17 @@
+{
+  "updated_at": "2026-08-03T15:39:51",
+  "filename": "student_answer_bundle.json",
+  "qnums": [
+    1,
+    3
+  ],
+  "keys_preview": [
+    "Q1b",
+    "Q3a",
+    "Q3b",
+    "Q3c"
+  ],
+  "preview_text": "Q1b: \\begin{itemize}\\item[1.] Jc \\[ 2026 \\text { 'c o'ydn- 'r } 26 / n \\text {, } \\] \\item[] \\[ \\begin{aligned} & \\text { אילתית תהות } \\\\ & 7 \\t\nQ3a: & \\dot{n}_{A(2)}=\\dot{\\xi}_{I}-\\dot{\\xi}_{I I}=\\dot{n}_{A(3)} \\\\ \\dot{n}_{A(2)} & =100-25=\\dot{n}_{A(3)} \\end{aligned} \\] \\[ \\begin{aligned}\nQ3b: & 2 \\dot{\\xi}_{I}=200 \\frac{m_{0} \\prime}{h} \\\\ & \\dot{\\xi}_{I}=100 \\frac{m_{0} \\prime}{h} \\\\\nQ3c: & \\dot{n}_{c_{\\text {out }}}=\\dot{\\xi}_{I I}=\\frac{20 \\%}{80 \\%} \\cdot \\dot{\\xi}_{I}=25 \\frac{mol}{h} \\\\ & f_{0, m, min} \\end{array} \\] \\[ \\",
+  "part_count": 4,
+  "parse_ok": true
+}

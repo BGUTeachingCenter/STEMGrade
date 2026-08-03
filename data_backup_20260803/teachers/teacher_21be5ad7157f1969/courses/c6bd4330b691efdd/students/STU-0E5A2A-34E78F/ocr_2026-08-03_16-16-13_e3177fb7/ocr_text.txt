@@ -1,0 +1,447 @@
+\[
+|a| \leq 5
+\]
+\[
+\begin{aligned}
+& |x-2| \leq 5 \quad k \\
+-5 \leq x-2 \leq 5 \quad & 1+2 \\
+-3 \leq x \leq 7 &
+\end{aligned}
+\]
+\[
+\begin{aligned}
+& |x+20| \leq 2 \\
+& -2 \leq x+20 \leq 2 \\
+& -22 \leq x \leq-18
+\end{aligned}
+\]
+\[
+\begin{gathered}
+-1>y-6 \\
+s>y
+\end{gathered}
+\]
+\[
+\begin{array}{ll}
+11 & 1<y-6 \\
+k & 7<y
+\end{array}
+\]
+![](https://cdn.mathpix.com/cropped/a8a7e802-bbe8-4726-a50c-e8bb7509fb37-01.jpg?height=430&width=1084&top_left_y=1605&top_left_x=712)
+\[
+\begin{gathered}
+x<-3: 3 \\
+-(x+2)-(x+3) \leq 2 \\
+-x-2-x-3 \leq 2 \\
+-2 x-5 \leq 2 \\
+-2 x \leq 7 \\
+x \geq-3.5 \\
+-3.5<x<-3
+\end{gathered}
+\]
+\[
+\begin{gathered}
+-3 \leq x \leq-2 \\
+-(x+2)+x+3 \leq 2 \\
+-x-2+x+3 \leq 2 \\
+1 \leq 2 \\
+-3 \leq x \leq-2
+\end{gathered}
+\]
+\[
+\begin{gathered}
+-2<x: 1 \\
+x+2 \rightarrow x+3 \leq 2 \\
+2 x \leq-3 \\
+x \leq-1.5 \\
+-2<x \leq-1.5
+\end{gathered}
+\]
+
+معاد.
+\[
+-3.5 \leq x \leq-1.5
+\]
+\[
+|x+5|+|x+7|>1
+\]
+\[
+x=-7 \quad-1 \quad x=-5 \quad-2 \text { ork }
+\]
+\[
+\begin{aligned}
+& \text { : } 3 \text { ang } \\
+& \left.\begin{array}{l}
+\qquad 3 \\
+\times \quad 2
+\end{array}\right] \text { 分 } \\
+& =2 \pi n \\
+& -7 \leq x \leq-5 \\
+& -s<x \\
+& -(x+5)-(x+7)>1-(x+5)+x+7>1 \quad x+5+x+7>1 \\
+& -x-5-x-7>1 \\
+& -2 x-12>1 \\
+& -2 x>13 \\
+& x<-6.5 \\
+& x<-7 \\
+& \text { × } 6 \text { i no vies }
+\end{aligned}
+\]
+\[
+\begin{aligned}
+& a, b \in(c, \alpha) \text { Gr } c<\alpha \text { Gr }|a-b|<\alpha-c \quad k \\
+& \text { (כינו.) } \\
+& a>b \text { o nij } \\
+& a<\alpha \\
+& -c>-b \quad \text { sk } c<b
+\end{aligned}
+\]
+\[
+\begin{array}{r}
++\left\{\begin{array}{r}
+a<\alpha \\
+-b<-c \\
+a>b: a<\alpha-c \\
+|a-b|<\alpha-c
+\end{array}\right.
+\end{array}
+\]
+\[
+\begin{gathered}
+0<a<b<1 \text { for } \quad|a+b| \leq 1 \\
+a=0.5 \quad b=0.6 \quad \mid \supset) \quad \text { I.r } \\
+(a+b)=1.1 \neq 1
+\end{gathered}
+\]
+\[
+\begin{gathered}
+0<b<\alpha \quad \text { (sir } 0<a<c \quad \text { sr } \quad \frac{a}{b}<\frac{c}{d} \\
+b=2 \quad b=1000 \quad a=1 \quad c=2 \quad \text { po) kr } \\
+\frac{1}{2} \neq \frac{2}{1000}
+\end{gathered}
+\]
+\[
+\begin{array}{ll}
+0<d<b \quad \text { or } 0<a<c \quad \frac{a}{b}<\frac{c}{d} \\
+1>0 \\
+\frac{a}{b}<\frac{c}{a} \\
+a d<b c
+\end{array}
+\]
+lre no nama ptk 5 \&, polla noon of dleens about st, lije abond if Viluma prem New AR
+\(x_{1}, \ldots, x_{n} \in R\) res \(n \in N\) rs ：r．3．Ic
+\[
+\left|x_{1}+x_{2}-\ldots-x_{n}\right| \leq\left|x_{1}\right|+\left|x_{2}\right|+\ldots\left|x_{n}\right|
+\]
+
+נוכיח
+i n
+200 • 20 • \(01 \leq\left|x_{1}\right| \quad h=1\) －Fin lille the ins por \(\left|x_{1}-2 x_{2}\right| \leq\left|x_{1}\right|+\left|x_{2}\right| \quad n=2\)
+－3 ÷ 12552
+pissive hor socia in
+\[
+\left|x_{1}+\ldots+x_{k}\right| \leq\left|x_{1}\right|+\ldots+\left|x_{k}\right|
+\]
+行列 \(k+1\) 人）
+\[
+\begin{gathered}
+\left|x_{1}+\ldots+x_{k}+x_{k+1}\right| \leq\left|x_{1}\right|+\ldots+\left|x_{k}\right|+\left|x_{k+1}\right| \\
+x_{k \rightarrow 1}=B \quad x_{1}+\ldots+x_{k}=A \quad|-\infty| \\
+|A+B| \leq|A|+|B|
+\end{gathered}
+\]
+ank you is o jugy dina jinle kn
+\[
+\begin{aligned}
+& |a-b| \geq||a|-|b||, \quad a, \lambda \in R \quad \text { rs }: r \cdot 3 \cdot a \\
+& \text { |a| -> } \\
+& |a|=|(a-b)+b| \quad: p<2 \quad \forall k \operatorname{sing}\left(r^{i}\right) \\
+& \text { cren \| } \\
+& |(a-b)+b| \leq|a-b|+|b| \\
+& |a|-|b| \leq|a-b| \\
+& \text { رحدرام د-|bi }
+\end{aligned}
+\]
+\(|b|=|(b-a)+a|\) p R w/ ris
+\[
+|b| \leq|a-b|+|a|
+\]
+Slc
+\[
+{ }^{\nabla t}|a| \leadsto \text { iఎr }
+\]
+\[
+\begin{aligned}
+& |b|-|a| \leq|a-b| \\
+& -|a-b| \leq|a|-|b| \\
+& -|a-b| \leq|a|-|b| \leq|a-b| \\
+& ||a|-|b|| \leq|a-b|
+\end{aligned}
+\]
+\[
+\begin{aligned}
+& a, a_{0}, b, b_{0} \in R \quad \cdots{ }^{\prime} \\
+& \left|a b-a_{0} b_{0}\right| \leq|a| \cdot\left|b-b_{0}\right| \pm\left|b_{0}\right| \cdot\left|a-a_{0}\right|:(3 \\
+& \left|a b-a_{0} b \cdot\right|=\left|\left(a b-a b_{0}\right)+\left(a b_{0}-a_{0} b_{0}\right)\right|
+\end{aligned}
+\]
+eliens prec \(k\) or
+\[
+\begin{gathered}
+a b-a b_{0}-0 \times f\left(x_{0}\right) \\
+a b_{0}-a_{0} b_{0}-0 y-1
+\end{gathered}
+\]
+\[
+\begin{aligned}
+& \left|\left(a b-a b_{0}\right)+\left(a b_{0}-a_{0} b_{0}\right)\right| \leq\left|a b-a b_{0}\right|+\left|a b_{0}-a_{0} b_{0}\right| \\
+& |=| \begin{array}{c}
+\left|\left(a b-a b_{0}\right)+\left(a b_{0}-a_{0} b_{0}\right)\right| \leq\left|a \cdot\left(b-b_{0}\right)\right|+\left|b_{0} \cdot\left(a-a_{0}\right)\right| \\
+|x \cdot y|=|x| \cdot|y| \\
+\left|a b-a_{0} b_{0}\right| \leq|a \cdot| b-b_{0}\left|+\left|b_{0}\right| \cdot\right| a-a_{0} \mid
+\end{array}
+\end{aligned}
+\]
+دلاسَ (VIT) P.) Valulu a, b e c'jj anis. le prinkt)
+![](https://cdn.mathpix.com/cropped/a8a7e802-bbe8-4726-a50c-e8bb7509fb37-05.jpg?height=105&width=1681&top_left_y=2732&top_left_x=229)
+bod fun shou neel as in inkly nan jee \(\left|a b-a_{0} b o\right|\) i.20 心. vien s'e
+![](https://cdn.mathpix.com/cropped/a8a7e802-bbe8-4726-a50c-e8bb7509fb37-06.jpg?height=129&width=1939&top_left_y=224&top_left_x=10) - lnk no win tor lea kar illa jo moil \(\left|b-b_{0}\right|,\left|a-a_{0}\right| \leq 0.01 s / c\) બૂગ 4 Iron Ima \(\left|a b-a b_{.}\right| \leq 10 \cdot 0.01+10 \cdot 0.01=0.2\) in 0.2 kn Non
+\[
+\begin{aligned}
+& n \in N \text { os } \sum_{k=0}^{n} k^{2}=\frac{h \cdot(n+1) \cdot(2 n+1)}{6}: \Omega \cdot \varepsilon \\
+& \text { ניכו כאשותצה } \\
+& 0^{2}+1^{2}=1=\frac{1 \cdot(1+1) \cdot(2+1)}{6} \\
+& 1 \stackrel{?}{=} \frac{1 \cdot 2 \cdot 3}{6} \\
+& \text { - } 1=1
+\end{aligned}
+\]
+
+Byrry 375
+\[
+\begin{aligned}
+& \dot{\sum_{k=0}^{m} k^{2}=\frac{m \cdot(m+1) \cdot(2 m+1)}{6}} \\
+& n=m+1 \text { infor argistar are in is } \\
+& =\frac{(m+1) \cdot(m+2) \cdot(2 m+3)}{6} \text { is wirs }
+\end{aligned}
+\]
+
+よこし
+\[
+\begin{aligned}
+& \sum_{k=0}^{m+1} k^{2}=\sum_{k=0}^{n} k^{2}+(m+1)^{2}= \\
+& \frac{m \cdot(m+1) \cdot(2 m+1)}{6}+(m+1)^{2}=\frac{r}{2} \underbrace{m+1}_{\text {are }} \text { (家) } \\
+& \text { ( } \left.\frac{m \cdot(2 m+1)}{6}+(m+1)\right]=\left[\frac{2 m^{2}+m+6 \cdot(m+1)}{6}\right]=m+1 \cdot\left[\frac{2 m^{2}+7 m+6}{6}\right] \\
+& \text { e) } \frac{(m+2) \cdot(2 m+3)}{6}
+\end{aligned}
+\]
+\[
+\begin{aligned}
+& , a>-1 \quad \text { Gा } \quad n \in N \\
+& (1+a)^{n} \geq 1+n a \quad \text {. } n=1 \\
+& (1+a)^{1} \geq 1+1 \cdot a \\
+& 1+a \geq 1+a
+\end{aligned}
+\]
+✓ \(V\)
+
+A3－12JŁD 283
+\[
+(1+a) \geq 1+k a
+\]
+\(n=k+1\) nor visus vaca is \(n>1\) is
+\[
+(1+a)^{k+1} \geq 1+(k+1) \cdot a
+\]
+： 5.3 N1／3
+：Thup Paro Porp
+\[
+\begin{aligned}
+& (1+a)^{k+1}=(1+a)^{k} \cdot(1+a) \\
+& (1+a)^{k} \geq 1+k a \quad \text { Ş}(12) \in(k)^{n .)} \text { or } \\
+& (1+a)^{k} \cdot(1+a) \geq(1+k a) \cdot(1+a)
+\end{aligned}
+\]
+
+マ／10 sinto sol N．
+\[
+(1+a)^{k} \cdot(1+a) \geq 1+(k+1) \cdot a \rightarrow k a^{2}
+\]
+we Hill wer espen of rie k \(a^{2}\)
+\[
+(1+a)^{k+1} \geq 1+(k+1) \cdot a
+\]
+\[
+\begin{gathered}
+a>0 \quad \text { rr } \quad n \in N \quad \text { r } \quad r \quad: \text { r.3 } \\
+(1+a)^{n} \geq 1+n a+\frac{n \cdot(n-1)}{2} \cdot a^{2}
+\end{gathered}
+\]
+
+\section*{: 000 Min}
+\[
+\begin{array}{lll}
+\checkmark & 1+a \geq 1+a+0 & h=1 \\
+& (1+a)^{2} \\
+& \stackrel{?}{\geq} 1+2 a+a^{2} & n=2 \\
+\checkmark & (1-a)^{2}=1+2 a+a^{2} &
+\end{array}
+\]
+
+\section*{: \(3,12,1 k .28\)}
+- iner \(k \geq 2\) nor no in
+\[
+(1+a)^{k} \geq 1+k a+\frac{k \cdot(k-1)}{2} \cdot a^{2}
+\]
+![](https://cdn.mathpix.com/cropped/a8a7e802-bbe8-4726-a50c-e8bb7509fb37-09.jpg?height=105&width=1791&top_left_y=1170&top_left_x=119)
+\[
+\begin{aligned}
+& \cdot(1+a)^{k+1} \geq 1+(k+1) \cdot a+\frac{(k+1) \cdot k}{2} \cdot a^{2} \\
+& \left.(1+a)^{2} \geq 0, \cdots 3,12\right) k \cdot \min \geq 1 \\
+& (1+a)^{k+1}=(1+a)^{k} \cdot(1+a) \geq\left(1+k a+\frac{k \cdot(k-1)}{2} a^{2}\right) \cdot(1+a) \\
+& (1+a)^{k+1} \geq(1-1)+(k a \cdot 1)+\left(\frac{k \cdot(k-1)}{2} \cdot a^{2} \cdot 1\right)+ \\
+& (1 \cdot a)+(k a \cdot a)+\left(\frac{k \cdot(k-1)}{2} \cdot a^{2} \cdot a\right) \\
+& (1+a)^{k+1} \geq 1+k a+\frac{k \cdot(k-1)}{2} \cdot a^{2}+a+k a^{2}+ \\
+& a^{3} \cdot \frac{k \cdot(k-1)}{2} \\
+& (1+a)^{k+1} \geq 1+(k+1) \cdot a+\frac{k \cdot(k+1)}{2} \cdot a^{2}+\frac{k \cdot(k-1)}{2} a^{3}
+\end{aligned}
+\]
+（ii）＇\(k\) fr uner 16 Nعت 3 tw pr \(k \geq 2\) ．or
+\[
+(1+a)^{k+1} \geqslant 1+(k+1) \cdot a+\frac{k \cdot(k+1)}{2} \cdot a^{2}
+\]
+erp
+\[
+\binom{n}{k}=\frac{n!}{k!(n-k)!} \quad x \in \operatorname{n} \in N \text { 万si } a, b \in k \quad G: r \cdot 3: 2
+\]
+\[
+(a+b)^{n}=\sum_{k=0}^{n}\binom{n}{k} \cdot a^{k} \cdot b^{n-k^{p} ; k^{n}}
+\]
+נוכיח
+\(n=1 \quad 0.00\) app
+\[
+\begin{aligned}
+(a+b)^{1} \stackrel{?}{=} \sum_{k=0}^{1}\binom{1}{k} a^{k} b^{1-k}=\binom{1}{0} & -a^{0} \cdot b^{1} \\
+& +\binom{1}{1} a^{1} b^{0}
+\end{aligned}
+\]
+\[
+\begin{gathered}
+(a+b)^{1} \stackrel{?}{=}(1 \cdot 1 \cdot b)+(1 \cdot a \cdot 1) \\
+a+b=b+a
+\end{gathered}
+\]
+－
+33，12生法 263
+lice 5 of \(h=m\) ，
+\[
+(a+b)^{m}=\sum_{k=0}^{m}\binom{m}{k} a^{k} b^{m-k}
+\]
+\(m+1\) nor－
+\[
+(a+b)^{m+1}=(a+b)^{m} \cdot(a+b)=
+\]
+\[
+\begin{aligned}
+& {\left[\sum_{k=0}^{m}\binom{m}{k} a^{k} b^{m-k}\right] \cdot(a+b)={ }_{\left(r^{\prime} m\right)} r^{n}} \\
+& a \cdot \sum_{k=0}^{m}\binom{m}{k} a^{k} b^{m-k}+b \cdot \sum_{k=0}^{m}\binom{m}{k} a^{k} b^{m-k}= \\
+& \sum_{k=0}^{m}\binom{m}{k} \cdot a^{k+1} \cdot b^{m-k}+\sum_{k=0}^{m}\binom{m}{k} \cdot a^{k} \cdot b^{m+1-k} \\
+& \text { REIDO re yesi } j=k+1 \text { yes } \\
+& \sum_{j}^{m+1}\binom{m}{j-1} a^{j} b^{m+1-j}+\sum_{k=0}^{m}\binom{m}{k} \cdot a^{k} \cdot b^{m+1-k}= \\
+& \sum_{k}^{m+1}\binom{m}{k-1} a^{k} b^{m+1-k}+\sum_{k=0}^{m}\binom{m}{k} a^{k} b^{m+1-k}= \\
+& a^{m+1}+b^{m+1} \rightarrow \sum_{k=1}^{m}\left[\binom{m}{k-1}+\binom{m}{k}\right] a^{k} b^{m+1-k} \\
+& \binom{m}{k-1}+\binom{m}{k}=\binom{m+1}{k} \\
+& (a+b)^{m+1}=a^{m+1}+b^{m+1}+\sum_{k=1}^{n}\binom{m+1}{k} a^{k} b^{m+1-k} \\
+& (m+1): L^{m+1-0}=b^{m+1} \quad k=0 \quad x \in D
+\end{aligned}
+\]
+\[
+\binom{m+1}{m+1} a^{m+1} b^{m+1-(m+1)}=a^{m+1} \quad k=m+1 \quad x<0
+\]
+\(\left.\begin{array}{r}\text { Incol } \\ \text { - " }(x) " \\ \text { spl }\end{array} \right\rvert\, x\)
+\[
+=\sum_{k=0}^{m+1}\binom{m+1}{k} a^{k} b^{m+1-k}
+\]
+(Q.N
+\[
+\begin{aligned}
+& \prod_{k=2}^{n}\left(1-\frac{1}{k^{2}}\right)=\frac{n+1}{2 n} \\
+& \quad \because 3,12, \cdots \infty
+\end{aligned}
+\]
+\(n=2\) oo life
+\[
+\begin{array}{rlr}
+\prod_{k=2}^{2}\left(1-\frac{1}{k^{2}}\right)=1-\frac{1}{2^{2}}=1-\frac{1}{4} & =\frac{3}{4} & \text { :Due Tek } \\
+& \frac{2+1}{2 \cdot 2}=\frac{3}{4} \quad \text { ivi Tck }
+\end{array}
+\]
+- evas lille rpro
+
+ミ3,12J.k. 263
+\(2 \leq m\). Ixfs حد \(m\), Nore \(m\), Jose
+\[
+\prod^{m}\left(1-\frac{1}{k^{2}}\right)=\frac{m+1}{2 m}
+\]
+
+2-2
+\(m+1\) inivi
+\[
+\begin{aligned}
+\prod_{k=2}^{m+1} & \left(1-\frac{1}{k^{2}}\right)=\left[\prod_{k=2}^{m}\left(1-\frac{1}{k^{2}}\right)\right] \cdot\left(1-\frac{1}{(m+1} .\right. \\
+& \frac{m+1}{2 m} \cdot\left(1-\frac{1}{(m+1)^{2}}\right)= \\
+& \frac{m+1}{2 m} \cdot\left(\frac{(m+1)^{2}-1}{(m+1)^{2}}\right)= \\
+& \frac{m+1}{2 m} \cdot \frac{m^{2}+2 m}{(m+1)^{2}}= \\
+& \frac{m+1}{2 m} \cdot \frac{m \cdot(m+2)}{(m+1)^{2}}=\frac{m+2}{2 \cdot(m+1)}= \\
+& \frac{(m+1)+1}{2 \cdot(m+1)}
+\end{aligned}
+\]
+![](https://cdn.mathpix.com/cropped/a8a7e802-bbe8-4726-a50c-e8bb7509fb37-13.jpg?height=76&width=81&top_left_y=1949&top_left_x=181)
+\[
+\begin{aligned}
+& 2 \leq n \in N \text { r.r :r.3 } \quad \begin{array}{r}
+1 \\
+\frac{1}{n+1}+\frac{1}{n+2}+\ldots+\frac{1}{2 n}>\frac{13}{24}
+\end{array}
+\end{aligned}
+\]
+
+Pinivies -es non \(n=2 \quad 0.00\) injer
+\[
+\frac{1}{2}+\frac{1}{2}=\frac{4+3}{2}=7 \cdot \frac{14}{1} \text { : Rove Terc }
+\]
+\[
+\frac{14}{24}>\frac{13}{24}
+\]
+:
+\(n=k\) is
+\[
+S_{k}=\frac{1}{k+1}+\frac{1}{k+2}+\ldots+\frac{1}{2 k}>\frac{13}{24}
+\]
+: [. 3 ws. \(h=k+1\) wor we now iss]
+\[
+S_{k \rightarrow 1}=\frac{1}{k \rightarrow 2}+\ldots+\frac{1}{2 k}+\frac{1}{2 k \rightarrow 1}+\frac{1}{2 k+2}>\frac{13}{24}
+\]
+\[
+S_{k+1}=S_{k}-\frac{1}{k+1}+\frac{1}{2 k+1}+\frac{1}{2 k+2}
+\]
+of lexk ibou wer fille kile night ro
+\[
+\begin{aligned}
+& \frac{1}{2 k+1}+\frac{1}{2 k+2}-\frac{1}{k+1} \geq 0 \\
+& \frac{1}{k+1}+\frac{1}{2 \cdot(k+1)}-\frac{1}{k+1}= \\
+& \text { 1) }-\frac{1}{k+1}=\frac{1}{2 \cdot(k+1)}-\frac{2}{2 \cdot(k+1)}=-\frac{1}{2 \cdot(k+1)}
+\end{aligned}
+\]
+\(r_{\text {appl }}\) יוֹא
+\[
+\frac{1}{2 k+1}-\frac{1}{2 \cdot(k+1)}
+\]
+
+Gpl Eien von ron
+\[
+\begin{aligned}
+& \frac{1 \cdot[2 \cdot(k+1)]-1 \cdot[2 k+1]}{(2 k+1) \cdot 2 \cdot(k+1)}= \\
+& \frac{2 k+2-2 k-1}{(2 k+1) \cdot(2 k+2)}=\frac{1}{(2 k+1)(2 k+2)}>0 \\
+& (2-1 \text { or } 2 \text { in } k+0)
+\end{aligned}
+\]

@@ -1,0 +1,104 @@
+{
+  "schema_version": "reservoir_index_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_count": 10,
+  "questions": [
+    {
+      "question_id": 1,
+      "file": "q1.json",
+      "part_count": 5,
+      "part_keys": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ]
+    },
+    {
+      "question_id": 2,
+      "file": "q2.json",
+      "part_count": 4,
+      "part_keys": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ]
+    },
+    {
+      "question_id": 3,
+      "file": "q3.json",
+      "part_count": 2,
+      "part_keys": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "question_id": 4,
+      "file": "q4.json",
+      "part_count": 1,
+      "part_keys": [
+        "a"
+      ]
+    },
+    {
+      "question_id": 5,
+      "file": "q5.json",
+      "part_count": 1,
+      "part_keys": [
+        "a"
+      ]
+    },
+    {
+      "question_id": 6,
+      "file": "q6.json",
+      "part_count": 6,
+      "part_keys": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ]
+    },
+    {
+      "question_id": 7,
+      "file": "q7.json",
+      "part_count": 1,
+      "part_keys": [
+        "a"
+      ]
+    },
+    {
+      "question_id": 8,
+      "file": "q8.json",
+      "part_count": 1,
+      "part_keys": [
+        "a"
+      ]
+    },
+    {
+      "question_id": 9,
+      "file": "q9.json",
+      "part_count": 1,
+      "part_keys": [
+        "a"
+      ]
+    },
+    {
+      "question_id": 10,
+      "file": "q10.json",
+      "part_count": 1,
+      "part_keys": [
+        "a"
+      ]
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}

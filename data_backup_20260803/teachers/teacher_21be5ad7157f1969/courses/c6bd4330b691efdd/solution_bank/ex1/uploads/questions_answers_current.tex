@@ -1,0 +1,705 @@
+\documentclass[12pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{hebrew}
+\setotherlanguage{english}
+\newfontfamily\hebrewfont{Arial}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\begin{document}
+% Canonical MathGrade full solution file generated from structured JSON.
+
+\textbf{פתרון מלא לתרגיל 1}
+
+
+\section*{Question 1}
+
+\subsection*{(א)}
+מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.
+
+\paragraph{Official solution}
+לפי הגדרת ערך מוחלט,
+\[
+|x-2|\le 5 \iff -5\le x-2\le 5.
+\]
+נוסיף 2 לכל אגפי האי-שוויון:
+\[
+-3\le x\le 7.
+\]
+לכן
+\[
+\boxed{x\in[-3,7]}.
+\]
+
+\paragraph{Expected answer}
+x\in[-3,7]
+
+
+\subsection*{(ב)}
+מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.
+
+\paragraph{Official solution}
+\[
+|x+20|\le 2 \iff -2\le x+20\le 2.
+\]
+נחסר 20:
+\[
+-22\le x\le -18.
+\]
+לכן
+\[
+\boxed{x\in[-22,-18]}.
+\]
+
+\paragraph{Expected answer}
+x\in[-22,-18]
+
+
+\subsection*{(ג)}
+מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.
+
+\paragraph{Official solution}
+אי-שוויון מהצורה \(|u|>1\) מתקיים כאשר \(u>1\) או \(u<-1\). לכן
+\[
+y-6>1 \quad \text{או} \quad y-6<-1.
+\]
+נקבל
+\[
+y>7 \quad \text{או} \quad y<5.
+\]
+לכן
+\[
+\boxed{y\in(-\infty,5)\cup(7,\infty)}.
+\]
+
+\paragraph{Expected answer}
+y\in(-\infty,5)\cup(7,\infty)
+
+
+\subsection*{(ד)}
+מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.
+
+\paragraph{Official solution}
+נקודות השבירה הן \(-3\) ו-\(-2\), ולכן נפתור בשלושה תחומים.
+
+אם \(x\le -3\), אז
+\[
+|x+2|+|x+3|=-(x+2)-(x+3)=-2x-5.
+\]
+לכן
+\[
+-2x-5\le 2 \iff x\ge -\frac{7}{2}.
+\]
+ביחד עם \(x\le -3\) נקבל \(x\in[-\frac72,-3]\).
+
+אם \(-3\le x\le -2\), אז
+\[
+|x+2|+|x+3|=-(x+2)+(x+3)=1,
+\]
+ולכן כל התחום \([-3,-2]\) מתאים.
+
+אם \(x\ge -2\), אז
+\[
+|x+2|+|x+3|=(x+2)+(x+3)=2x+5.
+\]
+לכן
+\[
+2x+5\le 2 \iff x\le -\frac32.
+\]
+ביחד עם \(x\ge -2\) נקבל \(x\in[-2,-\frac32]\).
+
+מאיחוד שלושת התחומים נקבל
+\[
+\boxed{x\in\left[-\frac72,-\frac32\right]}.
+\]
+
+\paragraph{Expected answer}
+x\in\left[-\frac72,-\frac32\right]
+
+
+\subsection*{(ה)}
+מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.
+
+\paragraph{Official solution}
+הביטוי \(|x+5|+|x+7|\) הוא סכום המרחקים של \(x\) מן הנקודות \(-5\) ו-\(-7\). לפי אי-שוויון המשולש,
+\[
+|x+5|+|x+7|\ge |(-5)-(-7)|=2.
+\]
+מאחר ש-\(2>1\), האי-שוויון מתקיים לכל \(x\in\R\). לכן
+\[
+\boxed{x\in\R}.
+\]
+
+\paragraph{Expected answer}
+x\in\R
+
+
+\section*{Question 2}
+
+\subsection*{(א)}
+הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.
+
+\paragraph{Official solution}
+הטענה נכונה. אם \(a\ge b\), אז \(|a-b|=a-b\). מכיוון ש-\(a<d\) ו-\(b>c\), נקבל
+\[
+a-b<d-c.
+\]
+אם \(b>a\), אז \(|a-b|=b-a\), ובאותו אופן, מכיוון ש-\(b<d\) ו-\(a>c\), נקבל
+\[
+b-a<d-c.
+\]
+לכן בכל מקרה \(|a-b|<d-c\).
+
+
+\subsection*{(ב)}
+הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.
+
+\paragraph{Official solution}
+הטענה אינה נכונה. ניקח למשל
+\[
+a=0.8,\qquad b=0.9.
+\]
+אז \(0<a<b<1\), אבל
+\[
+|a+b|=|1.7|=1.7>1.
+\]
+זו דוגמה נגדית.
+
+
+\subsection*{(ג)}
+הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.
+
+{b}<\frac{c}{d}\)}
+
+\paragraph{Official solution}
+הטענה אינה נכונה. ניקח למשל
+\[
+a=5,\qquad c=6,\qquad b=1,\qquad d=2.
+\]
+אז \(0<a<c\) וגם \(0<b<d\), אבל
+\[
+\frac{a}{b}=5,\qquad \frac{c}{d}=3,
+\]
+ולכן לא מתקיים \(\frac{a}{b}<\frac{c}{d}\). זו דוגמה נגדית.
+
+
+\subsection*{(ד)}
+הוכיחו או הפריכו על ידי דוגמה נגדית את הטענות הבאות.
+
+{b}<\frac{c}{d}\)}
+
+\paragraph{Official solution}
+הטענה נכונה. מאחר ש-\(0<a<c\) ו-\(b>0\), נקבל
+\[
+\frac{a}{b}<\frac{c}{b}.
+\]
+מאחר ש-\(0<d<b\), נקבל \(\frac1b<\frac1d\), ולכן
+\[
+\frac{c}{b}<\frac{c}{d}.
+\]
+בסך הכול,
+\[
+\frac{a}{b}<\frac{c}{b}<\frac{c}{d},
+\]
+ולכן \(\frac{a}{b}<\frac{c}{d}\).
+
+
+\section*{Question 3}
+
+\subsection*{(א)}
+הוכיחו את האי-שוויונות הבאים.
+
+^n x_i\right|\le \sum_{i=1}^n |x_i|\)}
+
+\paragraph{Official solution}
+נוכיח באינדוקציה על \(n\). עבור \(n=1\) מתקיים
+\[
+|x_1|\le |x_1|,
+\]
+ולכן הטענה נכונה.
+
+נניח שהטענה נכונה עבור \(n=k\), כלומר
+\[
+\left|\sum_{i=1}^k x_i\right|\le \sum_{i=1}^k |x_i|.
+\]
+נוכיח עבור \(n=k+1\). לפי אי-שוויון המשולש עבור שני איברים ולפי הנחת האינדוקציה,
+\[
+\left|\sum_{i=1}^{k+1} x_i\right|
+=\left|\left(\sum_{i=1}^k x_i\right)+x_{k+1}\right|
+\le \left|\sum_{i=1}^k x_i\right|+|x_{k+1}|
+\le \sum_{i=1}^k |x_i|+|x_{k+1}|
+=\sum_{i=1}^{k+1}|x_i|.
+\]
+לכן הטענה נכונה לכל \(n\in\N\).
+
+
+\subsection*{(ב)}
+הוכיחו את האי-שוויונות הבאים.
+
+\paragraph{Official solution}
+נשתמש באי-שוויון המשולש. מצד אחד,
+\[
+|a|=|(a-b)+b|\le |a-b|+|b|,
+\]
+ולכן
+\[
+|a|-|b|\le |a-b|.
+\]
+מצד שני,
+\[
+|b|=|(b-a)+a|\le |b-a|+|a|=|a-b|+|a|,
+\]
+ולכן
+\[
+|b|-|a|\le |a-b|.
+\]
+שני האי-שוויונות יחד אומרים בדיוק ש-
+\[
+\bigl||a|-|b|\bigr|\le |a-b|.
+\]
+
+
+\section*{Question 4}
+
+\subsection*{(a)}
+יהיו \(a,a_0,b,b_0\in\R\). הוכיחו כי
+\[
+|ab-a_0b_0|\le |a|\,|b-b_0|+|b_0|\,|a-a_0|.
+\]
+
+\paragraph{Official solution}
+נשתמש ברמז ונוסיף ונחסר את \(ab_0\):
+\[
+ab-a_0b_0=ab-ab_0+ab_0-a_0b_0.
+\]
+נוציא גורמים משותפים:
+\[
+ab-a_0b_0=a(b-b_0)+b_0(a-a_0).
+\]
+לכן, לפי אי-שוויון המשולש,
+\[
+|ab-a_0b_0|
+=|a(b-b_0)+b_0(a-a_0)|
+\le |a|\,|b-b_0|+|b_0|\,|a-a_0|.
+\]
+
+
+\section*{Question 5}
+
+\subsection*{(a)}
+אתם נמצאים בכיתת לימוד מלבנית. האורך והרוחב של הכיתה לא עולים על 10 מטר. אפשר למדוד את אורך הקירות בדיוק של עד סנטימטר בודד. מהי השגיאה המקסימלית של הערכת שטח הכיתה?
+
+\paragraph{Official solution}
+נסמן את האורך והרוחב האמיתיים של הכיתה ב-\(a,b\), ואת המדידות ב-\(a_0,b_0\). שטח הכיתה האמיתי הוא
+\[
+S=ab,
+\]
+והשטח המחושב לפי המדידות הוא
+\[
+S_0=a_0b_0.
+\]
+דיוק של סנטימטר אחד פירושו, במטרים,
+\[
+|a-a_0|\le 0.01,\qquad |b-b_0|\le 0.01.
+\]
+בנוסף, האורך והרוחב אינם עולים על 10 מטר, ולכן נשתמש בחסם \(|a|\le 10\) ו-\(|b_0|\le 10\) לפי המודל המקובל של התרגיל. לפי שאלה 4,
+\[
+|S-S_0|=|ab-a_0b_0|
+\le |a|\,|b-b_0|+|b_0|\,|a-a_0|.
+\]
+לכן
+\[
+|S-S_0|\le 10\cdot 0.01+10\cdot 0.01=0.2.
+\]
+כלומר השגיאה המקסימלית בהערכת השטח היא לכל היותר
+\[
+\boxed{0.2\text{ מטר רבוע}}.
+\]
+
+\paragraph{Expected answer}
+0.2\text{ מטר רבוע}
+
+
+\section*{Question 6}
+
+\subsection*{(א)}
+הוכיחו באינדוקציה או בכל דרך אחרת.
+
+^n k^2=\frac{n(n+1)(2n+1)}{6}\)}
+
+\paragraph{Official solution}
+נוכיח באינדוקציה על \(n\). עבור \(n=0\):
+\[
+\sum_{k=0}^0 k^2=0,
+\qquad
+\frac{0\cdot1\cdot1}{6}=0.
+\]
+לכן הטענה נכונה.
+
+נניח שהטענה נכונה עבור \(n\), כלומר
+\[
+\sum_{k=0}^n k^2=\frac{n(n+1)(2n+1)}{6}.
+\]
+נוכיח עבור \(n+1\):
+\[
+\sum_{k=0}^{n+1} k^2
+=\sum_{k=0}^n k^2+(n+1)^2
+=\frac{n(n+1)(2n+1)}{6}+(n+1)^2.
+\]
+נוציא \(n+1\) כגורם משותף:
+\[
+\sum_{k=0}^{n+1} k^2
+=(n+1)\left(\frac{n(2n+1)}{6}+n+1\right)
+=(n+1)\frac{2n^2+7n+6}{6}.
+\]
+כעת
+\[
+2n^2+7n+6=(n+2)(2n+3),
+\]
+ולכן
+\[
+\sum_{k=0}^{n+1} k^2
+=\frac{(n+1)(n+2)(2n+3)}{6}.
+\]
+זה בדיוק הנוסחה עבור \(n+1\), כי
+\[
+\frac{(n+1)((n+1)+1)(2(n+1)+1)}{6}
+=\frac{(n+1)(n+2)(2n+3)}{6}.
+\]
+לכן הטענה נכונה לכל \(n\in\N\).
+
+
+\subsection*{(ב)}
+הוכיחו באינדוקציה או בכל דרך אחרת.
+
+\paragraph{Official solution}
+נוכיח באינדוקציה על \(n\). עבור \(n=0\) מתקיים
+\[
+(1+a)^0=1=1+0\cdot a.
+\]
+נניח שהטענה נכונה עבור \(n\), כלומר
+\[
+(1+a)^n\ge 1+na.
+\]
+מאחר ש-\(a>-1\), מתקיים \(1+a>0\), ולכן אפשר להכפיל את שני האגפים ב-\(1+a\) בלי להפוך את סימן האי-שוויון:
+\[
+(1+a)^{n+1}\ge (1+na)(1+a).
+\]
+נפתח:
+\[
+(1+na)(1+a)=1+(n+1)a+na^2.
+\]
+מאחר ש-\(na^2\ge0\), נקבל
+\[
+(1+a)^{n+1}\ge 1+(n+1)a.
+\]
+לכן הטענה נכונה לכל \(n\in\N\).
+
+
+\subsection*{(ג)}
+הוכיחו באינדוקציה או בכל דרך אחרת.
+
+{2}a^2\)}
+
+\paragraph{Official solution}
+נוכיח באינדוקציה על \(n\). עבור \(n=0\):
+\[
+(1+a)^0=1=1+0\cdot a+\frac{0\cdot(-1)}{2}a^2.
+\]
+נניח שהטענה נכונה עבור \(n\):
+\[
+(1+a)^n\ge 1+na+\frac{n(n-1)}{2}a^2.
+\]
+מאחר ש-\(a>0\), מתקיים \(1+a>0\). לכן
+\[
+(1+a)^{n+1}
+\ge \left(1+na+\frac{n(n-1)}{2}a^2\right)(1+a).
+\]
+נפתח את האגף הימני:
+\[
+\left(1+na+\frac{n(n-1)}{2}a^2\right)(1+a)
+=1+(n+1)a+\left(n+\frac{n(n-1)}{2}\right)a^2+\frac{n(n-1)}{2}a^3.
+\]
+כיוון ש
+\[
+n+\frac{n(n-1)}{2}=\frac{n(n+1)}{2}
+\]
+וכיוון ש-\(\frac{n(n-1)}{2}a^3\ge0\), נקבל
+\[
+(1+a)^{n+1}\ge 1+(n+1)a+\frac{n(n+1)}{2}a^2.
+\]
+זו בדיוק הטענה עבור \(n+1\). לכן הטענה נכונה לכל \(n\in\N\).
+
+
+\subsection*{(ד)}
+הוכיחו באינדוקציה או בכל דרך אחרת.
+
+^n \binom{n}{k}a^k b^{n-k}\)}
+כאשר
+\[
+\binom{n}{k}=\frac{n!}{k!(n-k)!}.
+\]
+
+\paragraph{Official solution}
+נוכיח באינדוקציה על \(n\). עבור \(n=0\):
+\[
+(a+b)^0=1,
+\qquad
+\sum_{k=0}^0\binom{0}{k}a^k b^{0-k}=\binom00=1.
+\]
+נניח שהנוסחה נכונה עבור \(n\):
+\[
+(a+b)^n=\sum_{k=0}^n \binom{n}{k}a^k b^{n-k}.
+\]
+אז
+\[
+\begin{aligned}
+(a+b)^{n+1}
+&=(a+b)(a+b)^n \\
+&=(a+b)\sum_{k=0}^n \binom{n}{k}a^k b^{n-k} \\
+&=\sum_{k=0}^n \binom{n}{k}a^{k+1}b^{n-k}
++\sum_{k=0}^n \binom{n}{k}a^k b^{n+1-k}.
+\end{aligned}
+\]
+בסכום הראשון נציב \(j=k+1\), ולכן הוא נע בין \(j=1\) לבין \(j=n+1\). נקבל
+\[
+(a+b)^{n+1}
+=\sum_{j=1}^{n+1}\binom{n}{j-1}a^j b^{n+1-j}
++\sum_{j=0}^{n}\binom{n}{j}a^j b^{n+1-j}.
+\]
+האיברים בקצוות הם \(b^{n+1}\) ו-\(a^{n+1}\). עבור \(1\le j\le n\) מקדם האיבר \(a^j b^{n+1-j}\) הוא
+\[
+\binom{n}{j-1}+\binom{n}{j}=\binom{n+1}{j}
+\]
+לפי זהות פסקל. לכן
+\[
+(a+b)^{n+1}=\sum_{j=0}^{n+1}\binom{n+1}{j}a^j b^{n+1-j}.
+\]
+כלומר הנוסחה נכונה עבור \(n+1\), ולכן לכל \(n\in\N\).
+
+
+\subsection*{(ה)}
+הוכיחו באינדוקציה או בכל דרך אחרת.
+
+^n\left(1-\frac1{k^2}\right)=\frac{n+1}{2n}\)}
+
+\paragraph{Official solution}
+נפרק כל גורם במכפלה:
+\[
+1-\frac1{k^2}=\frac{k^2-1}{k^2}=\frac{(k-1)(k+1)}{k^2}=\frac{k-1}{k}\cdot\frac{k+1}{k}.
+\]
+לכן
+\[
+\prod_{k=2}^n\left(1-\frac1{k^2}\right)
+=\prod_{k=2}^n\frac{k-1}{k}\cdot\prod_{k=2}^n\frac{k+1}{k}.
+\]
+המכפלה הראשונה היא טלסקופית:
+\[
+\prod_{k=2}^n\frac{k-1}{k}=\frac12\cdot\frac23\cdot\frac34\cdots\frac{n-1}{n}=\frac1n.
+\]
+המכפלה השנייה היא
+\[
+\prod_{k=2}^n\frac{k+1}{k}=\frac32\cdot\frac43\cdot\frac54\cdots\frac{n+1}{n}=\frac{n+1}{2}.
+\]
+לכן
+\[
+\prod_{k=2}^n\left(1-\frac1{k^2}\right)
+=\frac1n\cdot\frac{n+1}{2}=\frac{n+1}{2n}.
+\]
+
+
+\subsection*{(ו)}
+הוכיחו באינדוקציה או בכל דרך אחרת.
+
++\frac1{n+2}+\cdots+\frac1{2n}>\frac{13}{24}\)}
+
+\paragraph{Official solution}
+נסמן
+\[
+S_n=\sum_{k=n+1}^{2n}\frac1k.
+\]
+עבור \(n=2\) נקבל
+\[
+S_2=\frac13+\frac14=\frac7{12}=\frac{14}{24}>\frac{13}{24}.
+\]
+נראה שהסדרה \(S_n\) עולה עבור \(n\ge2\). אכן,
+\[
+\begin{aligned}
+S_{n+1}-S_n
+&=\left(\frac1{n+2}+\cdots+\frac1{2n}+\frac1{2n+1}+\frac1{2n+2}\right)
+-\left(\frac1{n+1}+\frac1{n+2}+\cdots+\frac1{2n}\right)\\
+&=\frac1{2n+1}+\frac1{2n+2}-\frac1{n+1}.
+\end{aligned}
+\]
+מאחר ש-\(2n+2=2(n+1)\), נקבל
+\[
+S_{n+1}-S_n=\frac1{2n+1}-\frac1{2(n+1)}
+=\frac{1}{2(n+1)(2n+1)}>0.
+\]
+לכן \(S_n\ge S_2>\frac{13}{24}\) לכל \(n\ge2\).
+
+\section*{שאלות שאינן להגשה}
+
+
+\section*{Question 7}
+
+\subsection*{(a)}
+הוכיחו כי לכל \(2\le n\in\N\), המספר \(3\) מחלק את
+\[
+5^{3n-4}+8\cdot 11^{n-2}
+\]
+ללא שארית.
+
+\paragraph{Official solution}
+נחשב מודולו \(3\). מתקיים
+\[
+5\equiv -1 \pmod{3},\qquad 11\equiv -1 \pmod{3},\qquad 8\equiv -1 \pmod{3}.
+\]
+לכן
+\[
+5^{3n-4}\equiv (-1)^{3n-4}\pmod{3}.
+\]
+מכיוון של-\(3n-4\) ול-\(n\) יש אותה זוגיות, נקבל
+\[
+(-1)^{3n-4}=(-1)^n.
+\]
+בנוסף,
+\[
+8\cdot 11^{n-2}\equiv (-1)\cdot(-1)^{n-2}\pmod{3}.
+\]
+ל-\(n-2\) ול-\(n\) יש אותה זוגיות, ולכן
+\[
+(-1)\cdot(-1)^{n-2}=-(-1)^n.
+\]
+לכן
+\[
+5^{3n-4}+8\cdot 11^{n-2}
+\equiv (-1)^n-(-1)^n=0\pmod{3}.
+\]
+כלומר \(3\) מחלק את הביטוי ללא שארית.
+
+
+\section*{Question 8}
+
+\subsection*{(a)}
+יהי \(a\in\R\), \(a\ne0\). הוכיחו כי אם \(a+\frac1a\) שלם, אז \(a^n+\frac1{a^n}\) שלם לכל \(n\in\N\).
+
+\paragraph{Official solution}
+נסמן
+\[
+c=a+\frac1a.
+\]
+לפי הנתון \(c\in\mathbb{Z}\). נגדיר
+\[
+u_n=a^n+\frac1{a^n}.
+\]
+אז
+\[
+u_0=2\in\mathbb{Z},\qquad u_1=c\in\mathbb{Z}.
+\]
+נראה שמתקיימת נוסחת הנסיגה
+\[
+u_{n+1}=cu_n-u_{n-1}.
+\]
+אכן,
+\[
+\left(a+\frac1a\right)\left(a^n+\frac1{a^n}\right)
+=a^{n+1}+a^{n-1}+\frac1{a^{n-1}}+\frac1{a^{n+1}}
+=u_{n+1}+u_{n-1}.
+\]
+כלומר
+\[
+u_{n+1}=cu_n-u_{n-1}.
+\]
+מאחר ש-\(c\) שלם, ואם \(u_n,u_{n-1}\) שלמים אז גם \(u_{n+1}\) שלם. לפי אינדוקציה נקבל שכל \(u_n\) שלמים, כלומר
+\[
+a^n+\frac1{a^n}\in\mathbb{Z}
+\]
+לכל \(n\in\N\).
+
+
+\section*{Question 9}
+
+\subsection*{(a)}
+הוכיחו כי הסדרה
+\[
+\left\{\left(1+\frac1n\right)^n\right\}_{n=1}^{\infty}
+\]
+מונוטונית עולה.
+
+\paragraph{Official solution}
+נשתמש בבינום של ניוטון:
+\[
+\left(1+\frac1n\right)^n
+=\sum_{k=0}^n \binom{n}{k}\frac1{n^k}.
+\]
+עבור \(k\ge2\), האיבר הכללי הוא
+\[
+\binom{n}{k}\frac1{n^k}
+=\frac{n(n-1)\cdots(n-k+1)}{k!\,n^k}
+=\frac1{k!}\left(1-\frac1n\right)\left(1-\frac2n\right)\cdots\left(1-\frac{k-1}{n}\right).
+\]
+לכן
+\[
+\left(1+\frac1n\right)^n
+=2+\sum_{k=2}^n \frac1{k!}\prod_{j=1}^{k-1}\left(1-\frac{j}{n}\right).
+\]
+אם עוברים מ-\(n\) ל-\(n+1\), אז לכל \(j\ge1\):
+\[
+1-\frac{j}{n+1}>1-\frac{j}{n}.
+\]
+לכן כל אחד מן האיברים המתאימים בסכום עבור \(n+1\) גדול מן האיבר המתאים בסכום עבור \(n\), ובנוסף בסכום עבור \(n+1\) מופיע איבר חיובי נוסף עבור \(k=n+1\). מכאן
+\[
+\left(1+\frac1{n+1}\right)^{n+1}>
+\left(1+\frac1n\right)^n.
+\]
+לכן הסדרה מונוטונית עולה.
+
+
+\section*{Question 10}
+
+\subsection*{(a)}
+הוכיחו כי לכל \(m,n\in\N\) מתקיים
+\[
+\frac{(m+n)!}{m!n!}\in\N.
+\]
+
+\paragraph{Official solution}
+נוכיח טענת עזר באינדוקציה על \(s=m+n\): לכל \(m,n\in\N\) שעבורם \(m+n=s\), מתקיים
+\[
+\frac{(m+n)!}{m!n!}\in\N.
+\]
+עבור \(s=0\) בהכרח \(m=n=0\), ולכן
+\[
+\frac{(m+n)!}{m!n!}=\frac{0!}{0!0!}=1\in\N.
+\]
+נניח שהטענה נכונה עבור סכום \(s\), ונוכיח עבור סכום \(s+1\). יהיו \(m,n\in\N\) כך ש-\(m+n=s+1\).
+אם \(m=0\) או \(n=0\), אז הביטוי שווה \(1\), ולכן הוא טבעי.
+
+נותר לטפל במקרה \(m,n\ge1\). אז לפי הנחת האינדוקציה,
+\[
+\frac{(m+n-1)!}{(m-1)!n!}\in\N,
+\qquad
+\frac{(m+n-1)!}{m!(n-1)!}\in\N,
+\]
+כי בשני הביטויים סכום האינדקסים הוא \(m+n-1=s\). כעת נשתמש בזהות
+\[
+\frac{(m+n)!}{m!n!}
+=\frac{(m+n-1)!}{(m-1)!n!}
++\frac{(m+n-1)!}{m!(n-1)!}.
+\]
+אכן, אגף ימין שווה
+\[
+\frac{(m+n-1)!}{m!n!}\,m+\frac{(m+n-1)!}{m!n!}\,n
+=\frac{(m+n-1)!(m+n)}{m!n!}
+=\frac{(m+n)!}{m!n!}.
+\]
+קיבלנו שהביטוי הוא סכום של שני מספרים טבעיים, ולכן הוא טבעי. לפי עקרון האינדוקציה, הטענה נכונה לכל \(m,n\in\N\).
+
+\end{document}
+
+
+\end{document}

@@ -1,0 +1,1217 @@
+/* static/styles-simple.css
+   Standalone stylesheet for the simple student screen.
+   Does not import or depend on styles.css. Palette copied from it so the
+   two screens look like the same product. */
+
+:root {
+  --sui-bg1: #f5f5f5;
+  --sui-bg2: #ececec;
+  --sui-card: #ffffff;
+  --sui-text: #4f4f52;
+  --sui-muted: #6a6a6d;
+  --sui-line: #d8d8da;
+  --sui-primary: #f39a1e;
+  --sui-primary-2: #d97f08;
+  --sui-primary-soft: #fff3e3;
+  --sui-success: #2f7d32;
+  --sui-success-soft: #edf7ee;
+  --sui-error: #c43d2f;
+  --sui-shadow: 0 18px 50px rgba(79, 79, 82, .12);
+  --sui-radius: 24px;
+  --sui-radius-sm: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  color: var(--sui-text);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(243, 154, 30, .18) 0%, transparent 32%),
+    linear-gradient(135deg, var(--sui-bg1), var(--sui-bg2));
+}
+
+/* Mixed Hebrew/LaTeX content: let each paragraph pick its own direction
+   so maths stays LTR inside right-to-left feedback. */
+.sui-bidi {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.sui-wrap {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+.sui-demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border: 1px solid #f0bd75;
+  border-radius: var(--sui-radius-sm);
+  background: var(--sui-primary-soft);
+  color: var(--sui-primary-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sui-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius);
+  background: var(--sui-card);
+  box-shadow: var(--sui-shadow);
+}
+
+.sui-course-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.sui-course-meta {
+  margin: 4px 0 0;
+  color: var(--sui-muted);
+  font-size: 14px;
+}
+
+.sui-quota {
+  padding: 7px 13px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  color: var(--sui-muted);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sui-list {
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius);
+  background: var(--sui-card);
+  box-shadow: var(--sui-shadow);
+  overflow: hidden;
+}
+
+.sui-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--sui-line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.sui-row:hover { background: #fafafa; }
+.sui-row:focus-visible { outline: 2px solid var(--sui-primary); outline-offset: -3px; }
+.sui-row.is-open { background: var(--sui-primary-soft); }
+
+.sui-row-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--sui-line);
+}
+.sui-row-dot.is-graded { background: var(--sui-success); }
+.sui-row-dot.is-partial { background: var(--sui-primary); }
+
+.sui-row-main { flex: 1 1 auto; min-width: 0; }
+.sui-row-title { font-size: 16px; font-weight: 800; }
+.sui-row-sub { margin-top: 3px; color: var(--sui-muted); font-size: 13px; font-weight: 600; }
+.sui-row-due { flex: 0 0 auto; color: var(--sui-muted); font-size: 13px; font-weight: 700; }
+.sui-row-chevron { flex: 0 0 auto; color: var(--sui-muted); font-size: 13px; }
+
+.sui-panel {
+  padding: 18px 20px 22px;
+  border-bottom: 1px solid var(--sui-line);
+  background: #fbfbfb;
+}
+
+.sui-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.sui-tab {
+  padding: 8px 15px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sui-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-tab.is-active {
+  border-color: var(--sui-primary);
+  background: var(--sui-primary-soft);
+  color: var(--sui-primary-2);
+}
+.sui-tab.is-empty {
+  border-style: dashed;
+  color: var(--sui-muted);
+  cursor: default;
+}
+
+.sui-panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.sui-pane {
+  padding: 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+}
+
+.sui-pane-label {
+  margin-bottom: 8px;
+  color: var(--sui-muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .03em;
+}
+
+.sui-pane-body {
+  height: 320px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--sui-bg1);
+}
+
+.sui-pane-body iframe,
+.sui-pane-body img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.sui-pane-body img { height: auto; }
+
+.sui-pane-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 16px;
+  color: var(--sui-muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sui-fix-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sui-primary-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sui-fix-box { margin-top: 14px; }
+.sui-fix-box[hidden] { display: none; }
+
+.sui-fix-note {
+  margin: 0 0 8px;
+  color: var(--sui-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sui-textarea {
+  width: 100%;
+  min-height: 190px;
+  padding: 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  color: var(--sui-text);
+  font-family: ui-monospace, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.sui-submit-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border: 1px dashed var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+}
+
+.sui-btn {
+  padding: 11px 20px;
+  border: 1px solid var(--sui-primary);
+  border-radius: 999px;
+  background: var(--sui-primary);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-btn:hover { background: var(--sui-primary-2); border-color: var(--sui-primary-2); }
+.sui-btn:disabled { opacity: .55; cursor: default; }
+
+.sui-btn-quiet {
+  background: #fff;
+  color: var(--sui-primary-2);
+}
+.sui-btn-quiet:hover { background: var(--sui-primary-soft); }
+
+.sui-file {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sui-status {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  color: var(--sui-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.sui-status[hidden] { display: none; }
+.sui-status.is-error { border-color: #eab9b3; color: var(--sui-error); }
+
+.sui-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  color: var(--sui-muted);
+  font-size: 13px;
+}
+
+.sui-footer a { color: var(--sui-primary-2); font-weight: 700; }
+
+@media (max-width: 620px) {
+  .sui-row-due { display: none; }
+  .sui-pane-body { height: 240px; }
+}
+
+/* ==================================================================
+   Overlay viewer — added for the feedback-on-the-page view.
+   Everything below is additive; nothing above this line changed.
+   ================================================================== */
+
+:root {
+  --sui-lv-correct: #2f7d32;
+  --sui-lv-mostly:  #5a8a2e;
+  --sui-lv-partial: #d97f08;
+  --sui-lv-needs:   #c43d2f;
+  --sui-lv-none:    #6a6a6d;
+}
+
+.sui-viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.sui-overlay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-overlay-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--sui-primary);
+}
+
+/* Three columns, right to left in an RTL document:
+   line notes | pages | general notes */
+.sui-overlay-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, .8fr) minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .sui-overlay-grid { grid-template-columns: 1fr; }
+}
+
+.sui-notes-col {
+  position: sticky;
+  top: 10px;
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 20px);
+  overflow: auto;
+  padding: 2px;
+}
+@media (max-width: 900px) {
+  .sui-notes-col { position: static; max-height: none; }
+}
+
+.sui-pages { display: grid; gap: 14px; }
+
+.sui-page-card {
+  padding: 10px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+}
+
+.sui-page-stage {
+  position: relative;
+  direction: ltr;                 /* region coordinates run from the left */
+  overflow: hidden;
+  border: 1px solid var(--sui-line);
+  border-radius: 10px;
+  background: #fff;
+}
+.sui-page-stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* A highlight box on the page. Hidden until the student turns the
+   overlay on. */
+.sui-region {
+  position: absolute;
+  padding: 0;
+  border: 2px solid var(--sui-lv, var(--sui-lv-none));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sui-lv, var(--sui-lv-none)) 13%, transparent);
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, opacity .15s ease;
+}
+.sui-region:hover,
+.sui-region:focus-visible,
+.sui-region.is-active {
+  background: color-mix(in srgb, var(--sui-lv, var(--sui-lv-none)) 26%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sui-lv, var(--sui-lv-none)) 35%, transparent);
+  outline: none;
+}
+.sui-region-tag {
+  position: absolute;
+  top: -11px;
+  left: 6px;
+  direction: ltr;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--sui-lv, var(--sui-lv-none));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.sui-overlay-grid.overlay-off .sui-region {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Note cards, both columns. The level colour rides on --sui-lv. */
+.sui-note {
+  padding: 11px 13px;
+  border: 1px solid var(--sui-line);
+  border-inline-start: 4px solid var(--sui-lv, var(--sui-lv-none));
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  cursor: pointer;
+}
+.sui-note.is-active {
+  border-color: var(--sui-lv, var(--sui-lv-none));
+  box-shadow: 0 10px 26px rgba(79, 79, 82, .13);
+}
+
+.lv-correct { --sui-lv: var(--sui-lv-correct); }
+.lv-mostly  { --sui-lv: var(--sui-lv-mostly); }
+.lv-partial { --sui-lv: var(--sui-lv-partial); }
+.lv-needs   { --sui-lv: var(--sui-lv-needs); }
+.lv-none    { --sui-lv: var(--sui-lv-none); }
+
+.sui-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sui-note-qid {
+  direction: ltr;
+  font-size: 13px;
+  font-weight: 900;
+}
+.sui-note-level {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--sui-lv) 35%, #fff);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sui-lv) 10%, #fff);
+  color: var(--sui-lv);
+  font-size: 10.5px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.sui-note-summary {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--sui-muted);
+}
+
+.sui-note-sec { margin-top: 9px; }
+.sui-note-sec h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+.sui-note-sec.is-good h4 { color: var(--sui-lv-correct); }
+.sui-note-sec.is-tip  h4 { color: var(--sui-lv-partial); }
+.sui-note-sec ul {
+  margin: 0;
+  padding-inline-start: 17px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.sui-note-sec li { margin-bottom: 3px; }
+.sui-note-sec.is-bad li { color: var(--sui-text); }
+
+.sui-note-next {
+  margin: 9px 0 0;
+  padding: 7px 10px;
+  border: 1px solid #f0bd75;
+  border-radius: 10px;
+  background: var(--sui-primary-soft);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.sui-note-locate {
+  margin-top: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sui-primary-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-note-locate:hover { background: var(--sui-primary-soft); }
+
+/* Maths inside notes stays LTR even in RTL text. */
+mjx-container { direction: ltr !important; }/* static/styles-simple.css
+   Standalone stylesheet for the simple student screen.
+   Does not import or depend on styles.css. Palette copied from it so the
+   two screens look like the same product. */
+
+:root {
+  --sui-bg1: #f5f5f5;
+  --sui-bg2: #ececec;
+  --sui-card: #ffffff;
+  --sui-text: #4f4f52;
+  --sui-muted: #6a6a6d;
+  --sui-line: #d8d8da;
+  --sui-primary: #f39a1e;
+  --sui-primary-2: #d97f08;
+  --sui-primary-soft: #fff3e3;
+  --sui-success: #2f7d32;
+  --sui-success-soft: #edf7ee;
+  --sui-error: #c43d2f;
+  --sui-shadow: 0 18px 50px rgba(79, 79, 82, .12);
+  --sui-radius: 24px;
+  --sui-radius-sm: 14px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  color: var(--sui-text);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(243, 154, 30, .18) 0%, transparent 32%),
+    linear-gradient(135deg, var(--sui-bg1), var(--sui-bg2));
+}
+
+/* Mixed Hebrew/LaTeX content: let each paragraph pick its own direction
+   so maths stays LTR inside right-to-left feedback. */
+.sui-bidi {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.sui-wrap {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+.sui-demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border: 1px solid #f0bd75;
+  border-radius: var(--sui-radius-sm);
+  background: var(--sui-primary-soft);
+  color: var(--sui-primary-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sui-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius);
+  background: var(--sui-card);
+  box-shadow: var(--sui-shadow);
+}
+
+.sui-course-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.sui-course-meta {
+  margin: 4px 0 0;
+  color: var(--sui-muted);
+  font-size: 14px;
+}
+
+.sui-quota {
+  padding: 7px 13px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  color: var(--sui-muted);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sui-list {
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius);
+  background: var(--sui-card);
+  box-shadow: var(--sui-shadow);
+  overflow: hidden;
+}
+
+.sui-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--sui-line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.sui-row:hover { background: #fafafa; }
+.sui-row:focus-visible { outline: 2px solid var(--sui-primary); outline-offset: -3px; }
+.sui-row.is-open { background: var(--sui-primary-soft); }
+
+.sui-row-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--sui-line);
+}
+.sui-row-dot.is-graded { background: var(--sui-success); }
+.sui-row-dot.is-partial { background: var(--sui-primary); }
+
+.sui-row-main { flex: 1 1 auto; min-width: 0; }
+.sui-row-title { font-size: 16px; font-weight: 800; }
+.sui-row-sub { margin-top: 3px; color: var(--sui-muted); font-size: 13px; font-weight: 600; }
+.sui-row-due { flex: 0 0 auto; color: var(--sui-muted); font-size: 13px; font-weight: 700; }
+.sui-row-chevron { flex: 0 0 auto; color: var(--sui-muted); font-size: 13px; }
+
+.sui-panel {
+  padding: 18px 20px 22px;
+  border-bottom: 1px solid var(--sui-line);
+  background: #fbfbfb;
+}
+
+.sui-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.sui-tab {
+  padding: 8px 15px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sui-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-tab.is-active {
+  border-color: var(--sui-primary);
+  background: var(--sui-primary-soft);
+  color: var(--sui-primary-2);
+}
+.sui-tab.is-empty {
+  border-style: dashed;
+  color: var(--sui-muted);
+  cursor: default;
+}
+
+.sui-panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.sui-pane {
+  padding: 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+}
+
+.sui-pane-label {
+  margin-bottom: 8px;
+  color: var(--sui-muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .03em;
+}
+
+.sui-pane-body {
+  height: 320px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--sui-bg1);
+}
+
+.sui-pane-body iframe,
+.sui-pane-body img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.sui-pane-body img { height: auto; }
+
+.sui-pane-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 16px;
+  color: var(--sui-muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sui-fix-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sui-primary-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sui-fix-box { margin-top: 14px; }
+.sui-fix-box[hidden] { display: none; }
+
+.sui-fix-note {
+  margin: 0 0 8px;
+  color: var(--sui-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sui-textarea {
+  width: 100%;
+  min-height: 190px;
+  padding: 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  color: var(--sui-text);
+  font-family: ui-monospace, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.sui-submit-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border: 1px dashed var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+}
+
+.sui-btn {
+  padding: 11px 20px;
+  border: 1px solid var(--sui-primary);
+  border-radius: 999px;
+  background: var(--sui-primary);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-btn:hover { background: var(--sui-primary-2); border-color: var(--sui-primary-2); }
+.sui-btn:disabled { opacity: .55; cursor: default; }
+
+.sui-btn-quiet {
+  background: #fff;
+  color: var(--sui-primary-2);
+}
+.sui-btn-quiet:hover { background: var(--sui-primary-soft); }
+
+.sui-file {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sui-status {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  color: var(--sui-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.sui-status[hidden] { display: none; }
+.sui-status.is-error { border-color: #eab9b3; color: var(--sui-error); }
+
+.sui-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  color: var(--sui-muted);
+  font-size: 13px;
+}
+
+.sui-footer a { color: var(--sui-primary-2); font-weight: 700; }
+
+@media (max-width: 620px) {
+  .sui-row-due { display: none; }
+  .sui-pane-body { height: 240px; }
+}
+
+/* ==================================================================
+   Feedback viewer. Everything below is additive — nothing above changed.
+
+   The quiet rule: by default every graded part is a small dot on the
+   work. Opening one part turns its dot into a framed region and fills
+   the two side columns. Nothing else moves.
+   ================================================================== */
+
+:root {
+  --sui-lv-correct: #2f7d32;
+  --sui-lv-mostly:  #5a8a2e;
+  --sui-lv-partial: #d97f08;
+  --sui-lv-needs:   #c43d2f;
+  --sui-lv-none:    #6a6a6d;
+}
+
+.lv-correct { --sui-lv: var(--sui-lv-correct); }
+.lv-mostly  { --sui-lv: var(--sui-lv-mostly); }
+.lv-partial { --sui-lv: var(--sui-lv-partial); }
+.lv-needs   { --sui-lv: var(--sui-lv-needs); }
+.lv-none    { --sui-lv: var(--sui-lv-none); }
+
+/* ---- the bar above the work: the written cue lives here ---- */
+
+.sui-viewer-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.sui-viewer-hint {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sui-hint-strong { font-weight: 800; }
+.sui-hint-soft { color: var(--sui-muted); font-size: 12.5px; font-weight: 600; }
+
+.sui-viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sui-overlay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-overlay-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--sui-primary);
+}
+
+.sui-quiet-link {
+  color: var(--sui-primary-2);
+  font-size: 12.5px;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+/* ---- three columns: line notes | work | general notes ---- */
+
+.sui-overlay-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, .75fr) minmax(0, 2.2fr) minmax(180px, .75fr);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .sui-overlay-grid { grid-template-columns: 1fr; }
+}
+
+.sui-notes-col {
+  position: sticky;
+  top: 10px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+@media (max-width: 900px) {
+  .sui-notes-col { position: static; }
+}
+
+.sui-notes-label {
+  color: var(--sui-muted);
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+/* The resting state of a side column: a label, nothing more. */
+.sui-notes-empty {
+  padding: 12px;
+  border: 1px dashed var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  color: var(--sui-muted);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.sui-pages { display: grid; gap: 14px; }
+
+.sui-page-card {
+  padding: 10px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+}
+
+.sui-page-stage {
+  position: relative;
+  direction: ltr;                 /* region coordinates run from the left */
+  overflow: hidden;
+  border: 1px solid var(--sui-line);
+  border-radius: 10px;
+  background: #fff;
+}
+.sui-page-stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ---- markers ----
+   One element per part. Resting: transparent box with a dot in the
+   corner. Open (or "mark everything" on): a tinted, framed region. */
+
+.sui-mark {
+  position: absolute;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.sui-mark-dot {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--sui-lv, var(--sui-lv-none));
+  box-shadow: 0 1px 3px rgba(79, 79, 82, .35);
+  transition: transform .15s ease;
+}
+
+.sui-mark-tag {
+  position: absolute;
+  top: -11px;
+  left: 6px;
+  direction: ltr;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--sui-lv, var(--sui-lv-none));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.sui-mark:hover .sui-mark-dot,
+.sui-mark:focus-visible .sui-mark-dot { transform: scale(1.35); }
+.sui-mark:hover,
+.sui-mark:focus-visible {
+  border-color: color-mix(in srgb, var(--sui-lv) 55%, transparent);
+  background: color-mix(in srgb, var(--sui-lv) 9%, transparent);
+  outline: none;
+}
+.sui-mark:hover .sui-mark-tag,
+.sui-mark:focus-visible .sui-mark-tag { opacity: 1; }
+
+.sui-mark.is-open {
+  border-color: var(--sui-lv, var(--sui-lv-none));
+  background: color-mix(in srgb, var(--sui-lv, var(--sui-lv-none)) 15%, transparent);
+}
+.sui-mark.is-open .sui-mark-tag { opacity: 1; }
+.sui-mark.is-open .sui-mark-dot { opacity: 0; }
+
+/* "Mark every part" — the opt-in dense view. */
+.sui-overlay-grid.show-all-marks .sui-mark {
+  border-color: color-mix(in srgb, var(--sui-lv, var(--sui-lv-none)) 60%, transparent);
+  background: color-mix(in srgb, var(--sui-lv, var(--sui-lv-none)) 9%, transparent);
+}
+
+/* ---- the open part's two note cards ---- */
+
+.sui-note {
+  padding: 12px 13px;
+  border: 1px solid var(--sui-line);
+  border-inline-start: 4px solid var(--sui-lv, var(--sui-lv-none));
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(79, 79, 82, .09);
+}
+
+.sui-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sui-note-qid {
+  direction: ltr;
+  font-size: 13px;
+  font-weight: 900;
+}
+.sui-note-level,
+.sui-note-page {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.sui-note-level {
+  border: 1px solid color-mix(in srgb, var(--sui-lv) 35%, #fff);
+  background: color-mix(in srgb, var(--sui-lv) 10%, #fff);
+  color: var(--sui-lv);
+}
+.sui-note-page {
+  border: 1px solid var(--sui-line);
+  background: var(--sui-bg1);
+  color: var(--sui-muted);
+}
+
+.sui-note-summary {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.sui-note-list {
+  margin: 9px 0 0;
+  padding-inline-start: 17px;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.sui-note-list li { margin-bottom: 5px; }
+
+/* The second layer, folded away until asked for. */
+.sui-note-more { margin-top: 10px; }
+.sui-note-more > summary {
+  color: var(--sui-primary-2);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+.sui-note-more > summary::-webkit-details-marker { display: none; }
+.sui-note-more > summary::before { content: "▾ "; }
+.sui-note-more[open] > summary::before { content: "▴ "; }
+
+.sui-note-sec { margin-top: 9px; }
+.sui-note-sec h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 900;
+}
+.sui-note-sec.is-good h4 { color: var(--sui-lv-correct); }
+.sui-note-sec.is-tip  h4 { color: var(--sui-lv-partial); }
+.sui-note-sec ul {
+  margin: 0;
+  padding-inline-start: 17px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.sui-note-sec li { margin-bottom: 3px; }
+
+.sui-note-next {
+  margin: 10px 0 0;
+  padding: 7px 10px;
+  border: 1px solid #f0bd75;
+  border-radius: 10px;
+  background: var(--sui-primary-soft);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.sui-note-close {
+  margin-top: 10px;
+  padding: 4px 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sui-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sui-note-close:hover { background: var(--sui-bg1); }
+
+/* Maths stays LTR inside right-to-left feedback. */
+mjx-container { direction: ltr !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sui-mark, .sui-mark-dot, .sui-mark-tag { transition: none; }
+}

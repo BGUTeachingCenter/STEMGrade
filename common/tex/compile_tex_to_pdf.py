@@ -121,7 +121,7 @@ def compile_tex_to_pdf(
     report_path: Optional[Path] = None
     if clean:
 
-        cleaned, report = clean_tex(src, font_name=font_name, ollama_proofread=True)
+        cleaned, report = clean_tex(src, font_name=font_name, ollama_proofread=False)
         report_path = out_dir / f"{input_tex.stem}_clean_report.txt"
         report_path.write_text(report, encoding="utf-8")
 

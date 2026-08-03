@@ -1,0 +1,86 @@
+{
+  "schema_version": "reservoir_question_v1",
+  "exam_id": "ex1",
+  "exam_title": "פתרון מלא לתרגיל 1",
+  "question_id": 1,
+  "parts": [
+    {
+      "part": "א",
+      "part_key": "a",
+      "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+      "required_action": "",
+      "official_solution": "לפי הגדרת ערך מוחלט,\n\\[\n|x-2|\\le 5 \\iff -5\\le x-2\\le 5.\n\\]\nנוסיף 2 לכל אגפי האי-שוויון:\n\\[\n-3\\le x\\le 7.\n\\]\nלכן\n\\[\n\\boxed{x\\in[-3,7]}.\n\\]",
+      "expected_answer": "x\\in[-3,7]",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ב",
+      "part_key": "b",
+      "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+      "required_action": "",
+      "official_solution": "\\[\n|x+20|\\le 2 \\iff -2\\le x+20\\le 2.\n\\]\nנחסר 20:\n\\[\n-22\\le x\\le -18.\n\\]\nלכן\n\\[\n\\boxed{x\\in[-22,-18]}.\n\\]",
+      "expected_answer": "x\\in[-22,-18]",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ג",
+      "part_key": "c",
+      "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+      "required_action": "",
+      "official_solution": "אי-שוויון מהצורה \\(|u|>1\\) מתקיים כאשר \\(u>1\\) או \\(u<-1\\). לכן\n\\[\ny-6>1 \\quad \\text{או} \\quad y-6<-1.\n\\]\nנקבל\n\\[\ny>7 \\quad \\text{או} \\quad y<5.\n\\]\nלכן\n\\[\n\\boxed{y\\in(-\\infty,5)\\cup(7,\\infty)}.\n\\]",
+      "expected_answer": "y\\in(-\\infty,5)\\cup(7,\\infty)",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ד",
+      "part_key": "d",
+      "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+      "required_action": "",
+      "official_solution": "נקודות השבירה הן \\(-3\\) ו-\\(-2\\), ולכן נפתור בשלושה תחומים.\n\nאם \\(x\\le -3\\), אז\n\\[\n|x+2|+|x+3|=-(x+2)-(x+3)=-2x-5.\n\\]\nלכן\n\\[\n-2x-5\\le 2 \\iff x\\ge -\\frac{7}{2}.\n\\]\nביחד עם \\(x\\le -3\\) נקבל \\(x\\in[-\\frac72,-3]\\).\n\nאם \\(-3\\le x\\le -2\\), אז\n\\[\n|x+2|+|x+3|=-(x+2)+(x+3)=1,\n\\]\nולכן כל התחום \\([-3,-2]\\) מתאים.\n\nאם \\(x\\ge -2\\), אז\n\\[\n|x+2|+|x+3|=(x+2)+(x+3)=2x+5.\n\\]\nלכן\n\\[\n2x+5\\le 2 \\iff x\\le -\\frac32.\n\\]\nביחד עם \\(x\\ge -2\\) נקבל \\(x\\in[-2,-\\frac32]\\).\n\nמאיחוד שלושת התחומים נקבל\n\\[\n\\boxed{x\\in\\left[-\\frac72,-\\frac32\\right]}.\n\\]",
+      "expected_answer": "x\\in\\left[-\\frac72,-\\frac32\\right]",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    },
+    {
+      "part": "ה",
+      "part_key": "e",
+      "question_text": "מצאו את קבוצת המספרים המקיימים את כל אחד מהאי-שוויונות הבאים וסרטטו את התשובה על ציר המספרים.",
+      "required_action": "",
+      "official_solution": "הביטוי \\(|x+5|+|x+7|\\) הוא סכום המרחקים של \\(x\\) מן הנקודות \\(-5\\) ו-\\(-7\\). לפי אי-שוויון המשולש,\n\\[\n|x+5|+|x+7|\\ge |(-5)-(-7)|=2.\n\\]\nמאחר ש-\\(2>1\\), האי-שוויון מתקיים לכל \\(x\\in\\R\\). לכן\n\\[\n\\boxed{x\\in\\R}.\n\\]",
+      "expected_answer": "x\\in\\R",
+      "grading_instructions": "",
+      "max_points": null,
+      "review_status": "ok",
+      "confidence": null,
+      "warnings": [],
+      "source_question_file": "full_solution_reference.tex",
+      "source_answer_file": "full_solution_reference.tex"
+    }
+  ],
+  "source_names": [
+    "full_solution_reference.tex"
+  ]
+}
