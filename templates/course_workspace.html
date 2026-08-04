@@ -40,19 +40,14 @@
     <span class="pill mg-workspace-course-pill" id="workspaceCoursePill">
       Active course
     </span>
-
-    <span class="pill mg-health-pill" id="healthPill">
-      Health: …
-    </span>
   </div>
 </section>
 
     <nav class="mg-teacher-tabs" aria-label="Course workspace sections">
       <a href="#teacherStats">Overview</a>
-      <a href="#courseSettings">Course settings</a>
-      <a href="#studentCodes">Students & codes</a>
       <a href="#teacherBank">{{ reference_bank_label }}</a>
       <a href="#uploadReference">Upload to Bank</a>
+      <a href="#advancedWorkspace">Advanced</a>
     </nav>
 
 
@@ -205,130 +200,180 @@
   </div>
 </section>
 
-  <!-- STATS ROW -->
-  <section class="mg-teacher-section" id="teacherStats">
-  <div class="mg-teacher-section-head">
-    <div>
-      <h2>Overview</h2>
-      <p>Student upload progress by work, daily upload activity, and exportable course logs.</p>
-    </div>
-  </div>
+  <!-- COURSE OVERVIEW -->
+  <section
+    class="mg-teacher-section mg-course-overview-section"
+    id="teacherStats"
+  >
+    <div class="mg-teacher-section-head">
+      <div>
+        <h2>Overview</h2>
 
-  <div class="mg-dashboard-tools">
-    <div class="mg-dashboard-kpis" aria-label="Upload dashboard summary">
-      <div class="mg-kpi-card">
-        <span>Active students</span>
-        <strong id="statsTotalStudents">…</strong>
-      </div>
-      <div class="mg-kpi-card">
-        <span>Recognized works</span>
-        <strong id="statsRecognizedWorks">…</strong>
-      </div>
-      <div class="mg-kpi-card">
-        <span>Total uploads</span>
-        <strong id="statsTotalUploads">…</strong>
+        <p>
+          See submission progress first. Student details and unmatched uploads
+          stay available without crowding the workspace.
+        </p>
       </div>
     </div>
 
-    <div class="mg-upload-log-download">
-      <label for="uploadLogVoucherSelect">Download upload log</label>
-      <div class="mg-upload-log-controls">
-        <select id="uploadLogVoucherSelect"></select>
-        <a id="downloadUploadLogBtn" class="secondary-btn small" href="/routes/stats/teacher_upload_log.xlsx">Download Excel</a>
-      </div>
-      <div class="small">One workbook per voucher/course: summary, upload attempts, and missing students.</div>
-    </div>
-  </div>
+    <div class="mg-dashboard-tools mg-course-overview-tools">
+      <div
+        class="mg-dashboard-kpis"
+        aria-label="Course dashboard summary"
+      >
+        <div class="mg-kpi-card">
+          <span>Active students</span>
+          <strong id="statsTotalStudents">…</strong>
+        </div>
 
-  <div class="card mg-work-progress-card">
-    <div class="cardInner">
-      <div class="mg-card-title-row">
-        <div>
-          <div class="mg-card-title">Submission progress by work</div>
-          <div class="small">Click a work card to see who uploaded, when they uploaded, and who is still missing.</div>
+        <div class="mg-kpi-card">
+          <span>Recognized works</span>
+          <strong id="statsRecognizedWorks">…</strong>
+        </div>
+
+        <div class="mg-kpi-card">
+          <span>Unmatched works</span>
+          <strong id="statsUnmatchedWorks">…</strong>
+        </div>
+
+        <div class="mg-kpi-card">
+          <span>Total uploads</span>
+          <strong id="statsTotalUploads">…</strong>
         </div>
       </div>
-
-      <div id="workProgressGrid" class="mg-work-progress-grid">
-        <div class="emptyState">Loading upload progress…</div>
-      </div>
-
-      <div id="workDetailPanel" class="mg-work-detail-panel" style="display:none;"></div>
     </div>
-  </div>
 
-  <div class="card mg-student-progress-card">
-    <div class="cardInner">
-      <div class="mg-card-title-row">
-        <div>
-          <div class="mg-card-title">Current students</div>
-          <div class="small">For each student, see which work was uploaded and how many attempts were used.</div>
-        </div>
-      </div>
-      <div id="studentProgressList" class="mg-student-progress-list">
-        <div class="emptyState">Loading current students…</div>
-      </div>
-    </div>
-  </div>
-
-
-    <div class="statsLayout mg-stats-two">
-    <div class="card mg-chart-card">
+    <div class="card mg-work-progress-card">
       <div class="cardInner">
-        <div class="mg-chart-heading">
+        <div class="mg-card-title-row">
           <div>
-            <div class="mg-chart-title">Uploads per day</div>
-            <div class="small">Every saved student-work upload attempt, counted by upload day.</div>
-          </div>
+            <div class="mg-card-title">
+              Submission progress by work
+            </div>
 
-          <div class="mg-chart-legend">
-            <span>
-              <i class="mg-chart-legend-dot uploads"></i>
-              Uploads
-            </span>
+            <div class="small">
+              Click a recognized work to see who uploaded, when they uploaded,
+              and who is still missing.
+            </div>
           </div>
         </div>
 
         <div
-          id="chartPerDay"
-          class="mg-responsive-bar-chart"
-          role="img"
-          aria-label="Uploads per day chart"
-        ></div>
-      </div>
-    </div>
-
-    <div class="card mg-chart-card">
-      <div class="cardInner">
-        <div class="mg-chart-heading">
-          <div>
-            <div class="mg-chart-title">AI tokens per student code</div>
-            <div class="small">Total GPT and Gemini tokens attributed to each student code.</div>
-          </div>
-
-          <div class="mg-chart-legend">
-            <span>
-              <i class="mg-chart-legend-dot gpt"></i>
-              GPT
-            </span>
-
-            <span>
-              <i class="mg-chart-legend-dot gemini"></i>
-              Gemini
-            </span>
+          id="workProgressGrid"
+          class="mg-work-progress-grid"
+        >
+          <div class="emptyState">
+            Loading upload progress…
           </div>
         </div>
 
         <div
-          id="chartTokens"
-          class="mg-responsive-bar-chart"
-          role="img"
-          aria-label="GPT and Gemini tokens per student code chart"
+          id="workDetailPanel"
+          class="mg-work-detail-panel"
+          style="display:none;"
         ></div>
       </div>
     </div>
-  </div>
-      </section>
+
+    <details
+      class="mg-workspace-detail-card"
+      id="currentStudentsDetails"
+    >
+      <summary>
+        <span
+          class="mg-workspace-detail-icon"
+          aria-hidden="true"
+        >
+          👥
+        </span>
+
+        <span class="mg-workspace-detail-copy">
+          <strong>Current students</strong>
+
+          <small>
+            Open the roster summary and each student's uploaded work.
+          </small>
+        </span>
+
+        <span
+          class="mg-workspace-detail-count"
+          id="currentStudentsSummaryCount"
+        >
+          …
+        </span>
+
+        <span
+          class="mg-workspace-detail-chevron"
+          aria-hidden="true"
+        >
+          ⌄
+        </span>
+      </summary>
+
+      <div class="mg-workspace-detail-body">
+        <div
+          id="studentProgressList"
+          class="mg-student-progress-list"
+        >
+          <div class="emptyState">
+            Loading current students…
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details
+      class="mg-workspace-detail-card mg-unmatched-work-details"
+      id="unmatchedWorksDetails"
+    >
+      <summary>
+        <span
+          class="mg-workspace-detail-icon is-warning"
+          aria-hidden="true"
+        >
+          !
+        </span>
+
+        <span class="mg-workspace-detail-copy">
+          <strong>Unmatched works</strong>
+
+          <small>
+            Upload names that do not currently match a reference-bank item.
+          </small>
+        </span>
+
+        <span
+          class="mg-workspace-detail-count"
+          id="unmatchedWorksSummaryCount"
+        >
+          …
+        </span>
+
+        <span
+          class="mg-workspace-detail-chevron"
+          aria-hidden="true"
+        >
+          ⌄
+        </span>
+      </summary>
+
+      <div class="mg-workspace-detail-body">
+        <div class="mg-unmatched-work-help">
+          These uploads are saved, but grading may not find the intended
+          reference until the work name and the bank item match.
+        </div>
+
+        <div
+          id="unmatchedWorkGrid"
+          class="mg-unmatched-work-grid"
+        >
+          <div class="emptyState">
+            Loading unmatched works…
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
 
   <section class="mg-teacher-section mg-solution-bank-section" id="teacherBank">
   <div class="mg-teacher-section-head">
@@ -489,6 +534,194 @@
     </div>
   </div>
 </section>
+
+<section
+  class="mg-teacher-section mg-advanced-section"
+  id="advancedWorkspace"
+>
+  <details
+    class="mg-advanced-workspace-details"
+    id="advancedWorkspaceDetails"
+  >
+    <summary>
+      <span
+        class="mg-advanced-summary-icon"
+        aria-hidden="true"
+      >
+        ⚙
+      </span>
+
+      <span class="mg-advanced-summary-copy">
+        <strong>Advanced</strong>
+
+        <small>
+          Course settings, student-code administration, activity reports,
+          system status, and AI token usage.
+        </small>
+      </span>
+
+      <span
+        class="mg-workspace-detail-chevron"
+        aria-hidden="true"
+      >
+        ⌄
+      </span>
+    </summary>
+
+    <div class="mg-advanced-workspace-content">
+      <div class="mg-advanced-system-strip">
+        <div>
+          <span class="mg-advanced-eyebrow">
+            System status
+          </span>
+
+          <strong>
+            Configured grading and OCR services
+          </strong>
+        </div>
+
+        <span
+          class="pill mg-health-pill"
+          id="healthPill"
+        >
+          Health: …
+        </span>
+      </div>
+
+      <div id="advancedCourseSettingsSlot"></div>
+
+      <div id="advancedStudentCodesSlot"></div>
+
+      <section
+        class="mg-advanced-card-block"
+        id="uploadActivity"
+      >
+        <div class="mg-advanced-card-head">
+          <div>
+            <span class="mg-advanced-eyebrow">
+              Course reporting
+            </span>
+
+            <h3>Upload activity</h3>
+
+            <p>
+              Review daily upload volume or download the detailed course log.
+            </p>
+          </div>
+        </div>
+
+        <div class="mg-advanced-activity-grid">
+          <div class="mg-upload-log-download">
+            <label for="uploadLogVoucherSelect">
+              Download upload log
+            </label>
+
+            <div class="mg-upload-log-controls">
+              <select id="uploadLogVoucherSelect"></select>
+
+              <a
+                id="downloadUploadLogBtn"
+                class="secondary-btn small"
+                href="/routes/stats/teacher_upload_log.xlsx"
+              >
+                Download Excel
+              </a>
+            </div>
+
+            <div class="small">
+              One workbook per voucher/course: summary, upload attempts,
+              and missing students.
+            </div>
+          </div>
+
+          <div class="card mg-chart-card mg-advanced-chart-card">
+            <div class="cardInner">
+              <div class="mg-chart-heading">
+                <div>
+                  <div class="mg-chart-title">
+                    Uploads per day
+                  </div>
+
+                  <div class="small">
+                    Every saved student-work upload attempt, counted by day.
+                  </div>
+                </div>
+
+                <div class="mg-chart-legend">
+                  <span>
+                    <i class="mg-chart-legend-dot uploads"></i>
+                    Uploads
+                  </span>
+                </div>
+              </div>
+
+              <div
+                id="chartPerDay"
+                class="mg-responsive-bar-chart"
+                role="img"
+                aria-label="Uploads per day chart"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="mg-advanced-card-block mg-token-usage-card"
+        id="tokenUsage"
+      >
+        <div class="mg-advanced-card-head">
+          <div>
+            <span class="mg-advanced-eyebrow">
+              AI usage
+            </span>
+
+            <h3>Token usage</h3>
+
+            <p>
+              GPT and Gemini tokens attributed to each student code.
+            </p>
+          </div>
+        </div>
+
+        <div class="card mg-chart-card mg-advanced-chart-card">
+          <div class="cardInner">
+            <div class="mg-chart-heading">
+              <div>
+                <div class="mg-chart-title">
+                  AI tokens per student code
+                </div>
+
+                <div class="small">
+                  Compare GPT and Gemini usage for the active course.
+                </div>
+              </div>
+
+              <div class="mg-chart-legend">
+                <span>
+                  <i class="mg-chart-legend-dot gpt"></i>
+                  GPT
+                </span>
+
+                <span>
+                  <i class="mg-chart-legend-dot gemini"></i>
+                  Gemini
+                </span>
+              </div>
+            </div>
+
+            <div
+              id="chartTokens"
+              class="mg-responsive-bar-chart"
+              role="img"
+              aria-label="GPT and Gemini tokens per student code chart"
+            ></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </details>
+</section>
 </div>
 
 <script>
@@ -497,6 +730,40 @@
   const API_BASE = "";
   const APP_NAME = {{ app_name|tojson }};
   const $ = (id)=>document.getElementById(id);
+
+  function prepareWorkspaceAdvancedLayout() {
+    const courseSettings =
+      $("courseSettings");
+
+    const courseSettingsSlot =
+      $("advancedCourseSettingsSlot");
+
+    const studentCodes =
+      $("studentCodes");
+
+    const studentCodesSlot =
+      $("advancedStudentCodesSlot");
+
+    if (
+      courseSettings &&
+      courseSettingsSlot
+    ) {
+      courseSettingsSlot.appendChild(
+        courseSettings
+      );
+    }
+
+    if (
+      studentCodes &&
+      studentCodesSlot
+    ) {
+      studentCodesSlot.appendChild(
+        studentCodes
+      );
+    }
+  }
+
+  prepareWorkspaceAdvancedLayout();
 
   const ENDPOINT_PROGRESS = (jobId) => API_BASE + "/routes/progress/" + encodeURIComponent(jobId);
 
@@ -1455,13 +1722,47 @@ loadWorkspaceContext();
   }
 
   function renderStatsKpis(data) {
-    const totalStudents = Number(data?.roster?.total_students || 0);
-    const matchedWorks = (data?.work_progress || []).filter(x => x.is_matched_exam).length;
-    const totalUploads = (data?.recent_uploads || []).length;
+    const totalStudents = Number(
+      data?.roster?.total_students || 0
+    );
 
-    if ($("statsTotalStudents")) $("statsTotalStudents").textContent = formatInt(totalStudents);
-    if ($("statsRecognizedWorks")) $("statsRecognizedWorks").textContent = formatInt(matchedWorks);
-    if ($("statsTotalUploads")) $("statsTotalUploads").textContent = formatInt(totalUploads);
+    const workProgress = Array.isArray(
+      data?.work_progress
+    )
+      ? data.work_progress
+      : [];
+
+    const matchedWorks = workProgress.filter(
+      (item) => item.is_matched_exam
+    ).length;
+
+    const unmatchedWorks = workProgress.filter(
+      (item) => !item.is_matched_exam
+    ).length;
+
+    const totalUploads = (
+      data?.recent_uploads || []
+    ).length;
+
+    if ($("statsTotalStudents")) {
+      $("statsTotalStudents").textContent =
+        formatInt(totalStudents);
+    }
+
+    if ($("statsRecognizedWorks")) {
+      $("statsRecognizedWorks").textContent =
+        formatInt(matchedWorks);
+    }
+
+    if ($("statsUnmatchedWorks")) {
+      $("statsUnmatchedWorks").textContent =
+        formatInt(unmatchedWorks);
+    }
+
+    if ($("statsTotalUploads")) {
+      $("statsTotalUploads").textContent =
+        formatInt(totalUploads);
+    }
   }
 
   function renderVoucherOptions(data) {
@@ -1530,10 +1831,16 @@ loadWorkspaceContext();
     const panel = $("workDetailPanel");
     if (!grid) return;
 
-    const works = filteredWorkProgress();
+    const works = filteredWorkProgress().filter(
+      (item) => item.is_matched_exam
+    );
 
     if (!works.length) {
-      grid.innerHTML = `<div class="emptyState">No student uploads found for this course yet.</div>`;
+      grid.innerHTML = `
+        <div class="emptyState">
+          No recognized student works found for this course yet.
+        </div>
+      `;
       if (panel) panel.style.display = "none";
       return;
     }
@@ -1559,6 +1866,109 @@ loadWorkspaceContext();
       });
     });
   }
+
+  function renderUnmatchedWorks() {
+    const grid =
+      $("unmatchedWorkGrid");
+
+    const count =
+      $("unmatchedWorksSummaryCount");
+
+    const details =
+      $("unmatchedWorksDetails");
+
+    if (!grid) {
+      return;
+    }
+
+    const works =
+      filteredWorkProgress().filter(
+        (item) => !item.is_matched_exam
+      );
+
+    if (count) {
+      count.textContent =
+        `${formatInt(works.length)} work${
+          works.length === 1
+            ? ""
+            : "s"
+        }`;
+    }
+
+    if (details) {
+      details.classList.toggle(
+        "has-items",
+        works.length > 0
+      );
+    }
+
+    if (!works.length) {
+      grid.innerHTML = `
+        <div class="emptyState mg-unmatched-empty">
+          All uploaded works currently match a reference-bank item.
+        </div>
+      `;
+
+      return;
+    }
+
+    grid.innerHTML = works
+      .map((item) => {
+        const uploaded = Number(
+          item.uploaded_students || 0
+        );
+
+        const total = Number(
+          item.total_students || 0
+        );
+
+        const attempts = Number(
+          item.upload_count || 0
+        );
+
+        return `
+          <article class="mg-unmatched-work-item">
+            <div
+              class="mg-unmatched-work-icon"
+              aria-hidden="true"
+            >
+              !
+            </div>
+
+            <div class="mg-unmatched-work-main">
+              <div class="mg-unmatched-work-title">
+                ${escapeHtml(
+                  item.exam_id ||
+                  "Unknown work"
+                )}
+              </div>
+
+              <div class="mg-unmatched-work-meta">
+                ${formatInt(uploaded)}/${formatInt(total)}
+                students uploaded
+                · ${formatInt(attempts)}
+                attempt${attempts === 1 ? "" : "s"}
+                · Last upload
+                ${formatDateTime(item.last_upload_at)}
+              </div>
+
+              <div class="mg-unmatched-work-note">
+                No matching reference-bank item was found for this work name.
+              </div>
+            </div>
+
+            <a
+              class="secondary-btn small"
+              href="#teacherBank"
+            >
+              Check bank
+            </a>
+          </article>
+        `;
+      })
+      .join("");
+  }
+
 
   function renderWorkDetail(item) {
     const panel =
@@ -1810,6 +2220,18 @@ loadWorkspaceContext();
     const rows =
       filteredStudentProgress();
 
+    const summaryCount =
+      $("currentStudentsSummaryCount");
+
+    if (summaryCount) {
+      summaryCount.textContent =
+        `${formatInt(rows.length)} student${
+          rows.length === 1
+            ? ""
+            : "s"
+        }`;
+    }
+
     if (!rows.length) {
       list.innerHTML = `
         <div class="emptyState">
@@ -2025,7 +2447,19 @@ loadWorkspaceContext();
           $("workProgressGrid").innerHTML = `<div class="emptyState">Could not load upload progress.</div>`;
         }
         if ($("studentProgressList")) {
-          $("studentProgressList").innerHTML = `<div class="emptyState">Could not load current students.</div>`;
+          $("studentProgressList").innerHTML = `
+            <div class="emptyState">
+              Could not load current students.
+            </div>
+          `;
+        }
+
+        if ($("unmatchedWorkGrid")) {
+          $("unmatchedWorkGrid").innerHTML = `
+            <div class="emptyState">
+              Could not load unmatched works.
+            </div>
+          `;
         }
 
         return;
@@ -2037,6 +2471,7 @@ loadWorkspaceContext();
       renderStatsKpis(j);
       renderVoucherOptions(j);
       renderWorkProgress();
+      renderUnmatchedWorks();
       renderStudentProgress();
 
       renderDashboardCharts(j);
@@ -2048,7 +2483,19 @@ loadWorkspaceContext();
         $("workProgressGrid").innerHTML = `<div class="emptyState">Stats failed to load.</div>`;
       }
       if ($("studentProgressList")) {
-        $("studentProgressList").innerHTML = `<div class="emptyState">Current student list failed to load.</div>`;
+        $("studentProgressList").innerHTML = `
+          <div class="emptyState">
+            Current student list failed to load.
+          </div>
+        `;
+      }
+
+      if ($("unmatchedWorkGrid")) {
+        $("unmatchedWorkGrid").innerHTML = `
+          <div class="emptyState">
+            Unmatched work list failed to load.
+          </div>
+        `;
       }
     }
   }
@@ -2057,12 +2504,32 @@ loadWorkspaceContext();
     $("uploadLogVoucherSelect").addEventListener("change", () => {
       updateUploadLogHref();
       renderWorkProgress();
+      renderUnmatchedWorks();
       renderStudentProgress();
 
       if (latestTeacherStats) {
         renderDashboardCharts(latestTeacherStats);
       }
     });
+  }
+
+  const advancedWorkspaceDetails =
+    $("advancedWorkspaceDetails");
+
+  if (advancedWorkspaceDetails) {
+    advancedWorkspaceDetails.addEventListener(
+      "toggle",
+      () => {
+        if (
+          advancedWorkspaceDetails.open &&
+          latestTeacherStats
+        ) {
+          renderDashboardCharts(
+            latestTeacherStats
+          );
+        }
+      }
+    );
   }
 
   // load once when the teacher page opens

@@ -7500,3 +7500,597 @@ mjx-container {
     flex-direction: column;
   }
 }
+
+/* =========================================================
+   Course workspace: simplified teacher layout
+   ========================================================= */
+
+/*
+ * Course settings and student codes initially exist as direct
+ * children in the template. JavaScript moves them into Advanced.
+ */
+.mg-course-workspace-page > #courseSettings,
+.mg-course-workspace-page > #studentCodes {
+  display: none;
+}
+
+.mg-course-overview-tools {
+  display: block;
+}
+
+.mg-course-overview-tools
+.mg-dashboard-kpis {
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+}
+
+.mg-course-overview-section
+.mg-work-progress-card {
+  margin-bottom: 16px;
+}
+
+
+/* Overview collapsed cards */
+
+.mg-workspace-detail-card {
+  margin-top: 14px;
+  overflow: hidden;
+
+  border: 1px solid var(--line);
+  border-radius: 24px;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243, 154, 30, 0.06),
+      transparent 34%
+    ),
+    #ffffff;
+
+  box-shadow:
+    0 12px 30px
+    rgba(79, 79, 82, 0.06);
+}
+
+.mg-workspace-detail-card > summary {
+  display: grid;
+
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto
+    auto;
+
+  align-items: center;
+  gap: 14px;
+
+  min-height: 88px;
+  padding: 17px 20px;
+
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.mg-workspace-detail-card
+> summary::-webkit-details-marker,
+.mg-advanced-workspace-details
+> summary::-webkit-details-marker {
+  display: none;
+}
+
+.mg-workspace-detail-card
+> summary:hover {
+  background: #fffaf4;
+}
+
+.mg-workspace-detail-icon {
+  width: 46px;
+  height: 46px;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid #f1dcc0;
+  border-radius: 16px;
+
+  background: var(--primary-soft);
+  font-size: 21px;
+}
+
+.mg-workspace-detail-icon.is-warning {
+  border-color: #f0c7a2;
+  background: #fff4e5;
+  color: #a65e00;
+
+  font-size: 23px;
+  font-weight: 950;
+}
+
+.mg-workspace-detail-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mg-workspace-detail-copy strong {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.mg-workspace-detail-copy small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.mg-workspace-detail-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 34px;
+  padding: 7px 11px;
+
+  border: 1px solid #e8dfd4;
+  border-radius: 999px;
+
+  background: #faf8f5;
+  color: var(--text);
+
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.mg-unmatched-work-details.has-items
+.mg-workspace-detail-count {
+  border-color: #f0c7a2;
+  background: #fff4e5;
+  color: #9a5a08;
+}
+
+.mg-workspace-detail-chevron {
+  width: 34px;
+  height: 34px;
+
+  display: inline-grid;
+  place-items: center;
+
+  border-radius: 999px;
+  color: var(--muted);
+
+  font-size: 22px;
+  font-weight: 950;
+
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+
+details[open] > summary
+.mg-workspace-detail-chevron {
+  transform: rotate(180deg);
+  background: #f7f3ee;
+}
+
+.mg-workspace-detail-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid #eee8df;
+}
+
+.mg-workspace-detail-body
+.mg-student-progress-list {
+  padding-top: 18px;
+}
+
+
+/* Unmatched work list */
+
+.mg-unmatched-work-help {
+  margin-top: 18px;
+  padding: 12px 14px;
+
+  border: 1px solid #f0c7a2;
+  border-radius: 16px;
+
+  background: #fff8ef;
+  color: #7a5a2c;
+
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.mg-unmatched-work-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mg-unmatched-work-item {
+  display: grid;
+
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto;
+
+  align-items: center;
+  gap: 14px;
+
+  padding: 15px;
+
+  border: 1px solid #eadfd1;
+  border-radius: 19px;
+
+  background: #fffdfa;
+}
+
+.mg-unmatched-work-icon {
+  width: 40px;
+  height: 40px;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid #f0c7a2;
+  border-radius: 14px;
+
+  background: #fff4e5;
+  color: #a65e00;
+
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.mg-unmatched-work-title {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.mg-unmatched-work-meta,
+.mg-unmatched-work-note {
+  margin-top: 4px;
+
+  color: var(--muted);
+
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.mg-unmatched-work-note {
+  color: #8a5a17;
+}
+
+
+/* Advanced workspace */
+
+.mg-advanced-section {
+  padding: 0;
+  overflow: hidden;
+}
+
+.mg-advanced-workspace-details > summary {
+  display: grid;
+
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto;
+
+  align-items: center;
+  gap: 16px;
+
+  min-height: 112px;
+  padding: 24px 28px;
+
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(120, 120, 124, 0.10),
+      transparent 34%
+    ),
+    linear-gradient(
+      180deg,
+      #ffffff,
+      #faf8f5
+    );
+}
+
+.mg-advanced-workspace-details
+> summary:hover {
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(243, 154, 30, 0.10),
+      transparent 34%
+    ),
+    #fffaf4;
+}
+
+.mg-advanced-summary-icon {
+  width: 54px;
+  height: 54px;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid #ddd8d1;
+  border-radius: 18px;
+
+  background: #f4f2ef;
+  color: var(--text);
+
+  font-size: 25px;
+  font-weight: 950;
+}
+
+.mg-advanced-summary-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mg-advanced-summary-copy strong {
+  color: var(--text);
+
+  font-size: 25px;
+  font-weight: 950;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.mg-advanced-summary-copy small {
+  max-width: 850px;
+
+  color: var(--muted);
+
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.mg-advanced-workspace-content {
+  display: grid;
+  gap: 18px;
+
+  padding: 22px;
+
+  border-top: 1px solid var(--line);
+  background: #f7f5f2;
+}
+
+
+/* Sections moved from their old positions */
+
+#advancedCourseSettingsSlot
+.mg-teacher-section,
+#advancedStudentCodesSlot
+.mg-teacher-section {
+  display: block;
+
+  margin: 0;
+  padding: 22px;
+
+  border-radius: 26px;
+
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+#advancedCourseSettingsSlot
+.mg-teacher-section-head h2,
+#advancedStudentCodesSlot
+.mg-teacher-section-head h2 {
+  font-size: 25px;
+}
+
+
+/* System status */
+
+.mg-advanced-system-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+
+  padding: 18px;
+
+  border: 1px solid var(--line);
+  border-radius: 22px;
+
+  background: #ffffff;
+}
+
+.mg-advanced-system-strip > div {
+  display: grid;
+  gap: 4px;
+}
+
+.mg-advanced-system-strip strong {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.mg-advanced-eyebrow {
+  color: var(--muted);
+
+  font-size: 11px;
+  font-weight: 950;
+
+  text-transform: uppercase;
+  letter-spacing: 0.055em;
+}
+
+.mg-advanced-system-strip
+.mg-health-pill {
+  max-width: min(900px, 68%);
+}
+
+
+/* Advanced cards */
+
+.mg-advanced-card-block {
+  padding: 22px;
+
+  border: 1px solid var(--line);
+  border-radius: 26px;
+
+  background: rgba(255, 255, 255, 0.90);
+}
+
+.mg-advanced-card-head {
+  margin-bottom: 16px;
+}
+
+.mg-advanced-card-head h3 {
+  margin: 5px 0;
+
+  color: var(--text);
+
+  font-size: 25px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.mg-advanced-card-head p {
+  margin: 0;
+
+  color: var(--muted);
+
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mg-advanced-activity-grid {
+  display: grid;
+
+  grid-template-columns:
+    minmax(300px, 0.72fr)
+    minmax(0, 1.28fr);
+
+  gap: 16px;
+  align-items: stretch;
+}
+
+.mg-advanced-activity-grid
+.mg-upload-log-download {
+  min-height: 100%;
+  box-shadow: none;
+}
+
+.mg-advanced-chart-card {
+  min-width: 0;
+  box-shadow: none !important;
+}
+
+.mg-advanced-chart-card
+.cardInner {
+  min-height: 100%;
+}
+
+.mg-token-usage-card
+.mg-advanced-chart-card {
+  width: 100%;
+}
+
+
+/* Responsive workspace */
+
+@media (max-width: 1100px) {
+  .mg-course-overview-tools
+  .mg-dashboard-kpis {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .mg-advanced-activity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-advanced-system-strip {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mg-advanced-system-strip
+  .mg-health-pill {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .mg-course-overview-tools
+  .mg-dashboard-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .mg-workspace-detail-card > summary {
+    grid-template-columns:
+      auto
+      minmax(0, 1fr)
+      auto;
+
+    gap: 11px;
+    padding: 15px;
+  }
+
+  .mg-workspace-detail-count {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .mg-workspace-detail-chevron {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .mg-workspace-detail-body {
+    padding: 0 14px 14px;
+  }
+
+  .mg-unmatched-work-item {
+    grid-template-columns:
+      auto
+      minmax(0, 1fr);
+  }
+
+  .mg-unmatched-work-item
+  .secondary-btn {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .mg-advanced-workspace-details > summary {
+    grid-template-columns:
+      auto
+      minmax(0, 1fr)
+      auto;
+
+    padding: 19px;
+  }
+
+  .mg-advanced-workspace-content,
+  .mg-advanced-card-block,
+  #advancedCourseSettingsSlot
+  .mg-teacher-section,
+  #advancedStudentCodesSlot
+  .mg-teacher-section {
+    padding: 16px;
+  }
+}
