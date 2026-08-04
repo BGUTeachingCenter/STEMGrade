@@ -1669,6 +1669,86 @@ function renderStudentFeedbackResult(data) {
     summary
   );
 
+  const overallFeedback =
+    data.overall_feedback &&
+    typeof data.overall_feedback === "object"
+      ? data.overall_feedback
+      : {};
+
+  const overallSummary = String(
+    overallFeedback.summary || ""
+  ).trim();
+
+  const commonPatterns =
+    normalizeGradedArray(
+      overallFeedback.common_patterns
+    );
+
+  const specificSuggestions =
+    normalizeGradedArray(
+      overallFeedback.specific_suggestions
+    );
+
+  if (
+    overallSummary ||
+    commonPatterns.length ||
+    specificSuggestions.length
+  ) {
+    const overallCard =
+      document.createElement("article");
+
+    overallCard.className =
+      "mg-graded-overall-feedback";
+
+    const overallHeading =
+      document.createElement("div");
+
+    overallHeading.className =
+      "mg-graded-overall-feedback-title";
+
+    overallHeading.textContent =
+      "Overall feedback";
+
+    overallCard.appendChild(
+      overallHeading
+    );
+
+    if (overallSummary) {
+      const overallSummaryBody =
+        document.createElement("div");
+
+      overallSummaryBody.className =
+        "mg-graded-overall-feedback-summary";
+
+      appendCanonicalGradedText(
+        overallSummaryBody,
+        overallSummary
+      );
+
+      overallCard.appendChild(
+        overallSummaryBody
+      );
+    }
+
+    appendGradedList(
+      overallCard,
+      "Patterns across the work",
+      commonPatterns,
+      "is-warning"
+    );
+
+    appendGradedList(
+      overallCard,
+      "Specific suggestions",
+      specificSuggestions,
+      "is-good"
+    );
+
+    documentPreview.appendChild(
+      overallCard
+    );
+  }
+
   if (!parts.length) {
     const empty =
       document.createElement("div");

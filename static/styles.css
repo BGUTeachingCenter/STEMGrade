@@ -5811,6 +5811,39 @@ mjx-container {
   color: #9f2f25;
 }
 
+.mg-graded-overall-feedback {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #cfe7d1;
+  border-radius: 20px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(47, 125, 50, 0.08),
+      transparent 38%
+    ),
+    #f6fbf7;
+  box-shadow: 0 10px 26px rgba(47, 125, 50, 0.07);
+}
+
+.mg-graded-overall-feedback-title {
+  color: #287331;
+  font-size: 19px;
+  font-weight: 950;
+}
+
+.mg-graded-overall-feedback-summary {
+  margin-top: 10px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.mg-graded-overall-feedback
+.mg-graded-list {
+  margin-top: 12px;
+}
+
 .mg-graded-general-feedback {
   padding: 20px;
   border: 1px solid #f1dcc0;

@@ -72,7 +72,7 @@ The current entrypoint is `app.py`, so run:
 uvicorn app:app --reload
 ```
 
-Then open:
+Then open in browser:
 
 ```txt
 http://127.0.0.1:8000

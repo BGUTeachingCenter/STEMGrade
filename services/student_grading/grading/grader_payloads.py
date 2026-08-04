@@ -23,7 +23,10 @@ from core.ai_clients.google_client import GoogleClient
 from core.ai_clients.gpt_client import GptClient
 
 from .prompting import load_grading_prompt
-from .schema import grading_response_schema
+from .schema import (
+    grading_response_schema,
+    overall_feedback_response_schema,
+)
 
 
 _WS_RE = re.compile(r"\s+")
@@ -117,6 +120,48 @@ Audit every negative statement before preserving it:
 Remove unsupported criticism. Preserve valid criticism. Mention uncertainty
 when the source is uncertain. Return JSON only and keep all student-facing text
 in Hebrew.
+""".strip()
+
+
+_CONCISE_FEEDBACK_INSTRUCTIONS = """
+CONCISE STUDENT FEEDBACK RULES:
+
+The per-question feedback must be brief and non-repetitive.
+- summary: exactly one short sentence, preferably under 140 characters.
+- what_was_correct: zero or one item only.
+- main_mistakes: zero or one item only; choose the most important issue.
+- how_to_improve: always return an empty array. This legacy field is retained
+  only for schema compatibility.
+- suggested_next_step_he: zero or one concrete action, preferably under
+  120 characters. Do not repeat the summary or main_mistakes.
+- evidence_correct and evidence_mistakes: at most one very short item each.
+
+Do not explain every step of the reference solution. Focus on the single point
+that will help the student improve most.
+""".strip()
+
+
+_OVERALL_FEEDBACK_INSTRUCTIONS = """
+You are preparing concise overall feedback for a student's complete uploaded
+work. You receive compact feedback from all graded question parts.
+
+Return JSON only, using the supplied schema. All student-facing text must be
+in Hebrew.
+
+Rules:
+1. summary: one short sentence about the work as a whole.
+2. common_patterns: zero to three direct, specific observations. Use wording
+   such as "את/ה נוטה ל..." only when the same pattern appears in at least two
+   different question parts. Do not invent a trend from one isolated mistake.
+3. specific_suggestions: one to three concrete habits the student can apply,
+   for example writing one intermediate line before simplifying, marking the
+   requested quantity, checking units, or shortening an overcomplicated
+   explanation.
+4. Do not repeat question-by-question details or quote long formulas.
+5. Do not mention internal error tags, OCR, confidence, schemas, or grading
+   configuration.
+6. Keep every list item to one short sentence and prioritize the most useful
+   advice.
 """.strip()
 
 
@@ -383,6 +428,230 @@ def _clean_feedback_list(
 
     return cleaned
 
+
+def _shorten_feedback_text(
+    value: Any,
+    *,
+    max_chars: int,
+) -> str:
+    """Keep student-facing feedback compact even when a model is verbose."""
+    text = _remove_scoring_configuration_language(
+        value
+    )
+
+    text = _WS_RE.sub(" ", text).strip()
+
+    if (
+        not text
+        or len(text) <= max_chars
+    ):
+        return text
+
+    candidate = text[:max_chars].rstrip()
+
+    sentence_end = max(
+        candidate.rfind("."),
+        candidate.rfind("!"),
+        candidate.rfind("?"),
+        candidate.rfind("।"),
+    )
+
+    if sentence_end >= max_chars // 2:
+        return candidate[
+            : sentence_end + 1
+        ].strip()
+
+    word_end = candidate.rfind(" ")
+
+    if word_end >= max_chars // 2:
+        candidate = candidate[:word_end]
+
+    return candidate.rstrip(" ,;:-") + "…"
+
+
+def _limit_feedback_list(
+    values: Any,
+    *,
+    max_items: int,
+    max_chars: int,
+) -> list[str]:
+    cleaned = _clean_feedback_list(values)
+    result: list[str] = []
+
+    for value in cleaned:
+        text = _shorten_feedback_text(
+            value,
+            max_chars=max_chars,
+        )
+
+        if text and text not in result:
+            result.append(text)
+
+        if len(result) >= max_items:
+            break
+
+    return result
+
+
+def _fallback_overall_feedback(
+    graded: list[QuestionGrade],
+) -> dict[str, Any]:
+    submitted = [
+        grade
+        for grade in graded
+        if grade.correctness_level
+        != "not_answered"
+    ]
+
+    if not submitted:
+        return {
+            "summary": "לא הוגשו תשובות לבדיקה.",
+            "common_patterns": [],
+            "specific_suggestions": [
+                "להגיש פתרון מלא ולכתוב את שלבי העבודה בצורה ברורה."
+            ],
+        }
+
+    correct_count = sum(
+        grade.correctness_level
+        in {"correct", "mostly_correct"}
+        for grade in submitted
+    )
+
+    if correct_count == len(submitted):
+        summary = (
+            "העבודה ברובה נכונה; כדאי להתמקד בבהירות ובשלמות ההצגה."
+        )
+    elif correct_count:
+        summary = (
+            "יש הבנה טובה בחלקים מהעבודה, אך נדרש יותר דיוק ועקביות."
+        )
+    else:
+        summary = (
+            "נדרש חיזוק בשיטה ובבדיקה של כל שלב לפני ההמשך."
+        )
+
+    return {
+        "summary": summary,
+        "common_patterns": [],
+        "specific_suggestions": [
+            "לפני ההגשה, לבדוק שהפתרון עונה בדיוק על כל מה שנשאל."
+        ],
+    }
+
+
+def _build_overall_feedback(
+    *,
+    client: ChatJsonClient,
+    provider: str,
+    graded: list[QuestionGrade],
+) -> dict[str, Any]:
+    fallback = _fallback_overall_feedback(
+        graded
+    )
+
+    compact_questions = []
+
+    for grade in graded:
+        compact_questions.append(
+            {
+                "qid": grade.qid,
+                "correctness_level": (
+                    grade.correctness_level
+                ),
+                "summary": grade.summary,
+                "main_mistakes": (
+                    grade.main_mistakes
+                ),
+                "next_step": (
+                    grade.suggested_next_step_he
+                ),
+                "common_error_tags": (
+                    grade.common_errors_detected
+                ),
+            }
+        )
+
+    if not compact_questions:
+        return fallback
+
+    schema = (
+        overall_feedback_response_schema()
+    )
+
+    normalized_provider = (
+        provider or ""
+    ).strip().lower()
+
+    if normalized_provider in {
+        "google",
+        "gemini",
+        "google_ai_studio",
+        "aistudio",
+    }:
+        schema = _schema_for_google(schema)
+
+    try:
+        response = client.chat_json(
+            system=(
+                _OVERALL_FEEDBACK_INSTRUCTIONS
+            ),
+            user=json.dumps(
+                {
+                    "question_feedback": (
+                        compact_questions
+                    )
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            schema=schema,
+            temperature=0.1,
+        )
+    except Exception:
+        return fallback
+
+    if not isinstance(response, dict):
+        return fallback
+
+    summary = _shorten_feedback_text(
+        response.get("summary"),
+        max_chars=180,
+    )
+
+    common_patterns = _limit_feedback_list(
+        response.get("common_patterns"),
+        max_items=3,
+        max_chars=130,
+    )
+
+    specific_suggestions = (
+        _limit_feedback_list(
+            response.get(
+                "specific_suggestions"
+            ),
+            max_items=3,
+            max_chars=140,
+        )
+    )
+
+    if not summary:
+        summary = fallback["summary"]
+
+    if not specific_suggestions:
+        specific_suggestions = fallback[
+            "specific_suggestions"
+        ]
+
+    return {
+        "summary": summary,
+        "common_patterns": common_patterns,
+        "specific_suggestions": (
+            specific_suggestions
+        ),
+    }
+
+
 def _schema_for_google(schema: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert a normal JSON Schema (draft-ish) into something Gemini AI Studio accepts
@@ -534,6 +803,8 @@ def grade_payload_manifest(
             + _CORRECTNESS_LEVEL_INSTRUCTIONS
             + "\n\n"
             + _EVIDENCE_AND_VISUAL_AUDIT_INSTRUCTIONS
+            + "\n\n"
+            + _CONCISE_FEEDBACK_INSTRUCTIONS
     )
 
     provider = (model or "ollama").strip().lower()
@@ -628,13 +899,12 @@ def grade_payload_manifest(
                     correctness_level=(
                         "not_answered"
                     ),
-                    summary=(
-                        "אין תשובה לבדיקה. "
-                        "לא הוגשה תשובה."
-                    ),
+                    summary="לא הוגשה תשובה לבדיקה.",
                     what_was_correct=[],
-                    main_mistakes=["לא הוגשה תשובה לבדיקה."],
-                    how_to_improve=["להגיש פתרון מלא.", "לכתוב את שלבי הפתרון בצורה ברורה."],
+                    main_mistakes=[
+                        "אין תשובה שאפשר להעריך."
+                    ],
+                    how_to_improve=[],
                     mismatch={"is_mismatch": False, "reference_target": "", "student_target": "", "explanation_he": ""},
                     common_errors_detected=["no_submission"],
                     suggested_next_step_he="להגיש פתרון מלא לשאלה.",
@@ -791,13 +1061,29 @@ def grade_payload_manifest(
 
         score = float(resp.get("score", 0.0))
 
-        summary = str(resp.get("summary", "")).strip()
-        what_was_correct = list(resp.get("what_was_correct") or [])
-        main_mistakes = list(resp.get("main_mistakes") or [])
-        how_to_improve = list(resp.get("how_to_improve") or [])
+        summary = _shorten_feedback_text(
+            resp.get("summary", ""),
+            max_chars=180,
+        )
+        what_was_correct = _limit_feedback_list(
+            resp.get("what_was_correct"),
+            max_items=1,
+            max_chars=130,
+        )
+        main_mistakes = _limit_feedback_list(
+            resp.get("main_mistakes"),
+            max_items=1,
+            max_chars=150,
+        )
+        # Keep this legacy field empty so the student sees one clear action
+        # instead of two overlapping improvement sections.
+        how_to_improve: list[str] = []
         common_errors = list(resp.get("common_errors_detected") or [])
         mismatch = dict(resp.get("mismatch") or {})
-        suggested_next = str(resp.get("suggested_next_step_he") or "").strip()
+        suggested_next = _shorten_feedback_text(
+            resp.get("suggested_next_step_he"),
+            max_chars=130,
+        )
         confidence = max(
             0.0,
             min(
@@ -831,12 +1117,6 @@ def grade_payload_manifest(
             main_mistakes = (
                 _clean_feedback_list(
                     main_mistakes
-                )
-            )
-
-            how_to_improve = (
-                _clean_feedback_list(
-                    how_to_improve
                 )
             )
 
@@ -880,11 +1160,10 @@ def grade_payload_manifest(
             if not main_mistakes:
                 main_mistakes = ["הפתרון מתייחס לביטוי/אינטגרל שונה מזה שבשאלה."]
 
-            if not how_to_improve:
-                how_to_improve = [
-                    "קרא/י שוב את השאלה וודא/י שהאובייקט המתמטי נכון (אינטגרל/תחום/גבולות).",
-                    "השווה/י לשלד הפתרון הרשמי: מה צריך להוכיח/לחשב בדיוק?"
-                ]
+            if not suggested_next:
+                suggested_next = (
+                    "לנסח תחילה מה בדיוק צריך למצוא, ואז לבדוק שכל שלב מתייחס לדרישה הזו."
+                )
 
             if not mismatch:
                 mismatch = {
@@ -957,8 +1236,20 @@ def grade_payload_manifest(
                 common_errors_detected=common_errors,
                 suggested_next_step_he=suggested_next,
                 confidence=confidence,
-                evidence_correct=list(resp.get("evidence_correct") or []),
-                evidence_mistakes=list(resp.get("evidence_mistakes") or []),
+                evidence_correct=(
+                    _limit_feedback_list(
+                        resp.get("evidence_correct"),
+                        max_items=1,
+                        max_chars=80,
+                    )
+                ),
+                evidence_mistakes=(
+                    _limit_feedback_list(
+                        resp.get("evidence_mistakes"),
+                        max_items=1,
+                        max_chars=80,
+                    )
+                ),
             )
         )
 
@@ -1008,6 +1299,19 @@ def grade_payload_manifest(
             "No partial grades.json was written."
         )
 
+    if debug:
+        _log(
+            "[grade_payload_manifest] Building concise overall feedback"
+        )
+
+    overall_feedback = (
+        _build_overall_feedback(
+            client=client,
+            provider=provider,
+            graded=graded,
+        )
+    )
+
     total_score = sum(
         question.score
         for question in graded
@@ -1045,6 +1349,10 @@ def grade_payload_manifest(
         "unexpected_qids": [],
         "complete": True,
     }
+
+    bundle_dict["overall_feedback"] = (
+        overall_feedback
+    )
 
     question_grade_dicts = bundle_dict.get(
         "questions"

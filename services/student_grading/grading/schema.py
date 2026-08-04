@@ -77,3 +77,38 @@ def grading_response_schema() -> Dict[str, Any]:
             "suggested_next_step_he",
         ],
     }
+
+
+def overall_feedback_response_schema() -> Dict[str, Any]:
+    """JSON schema for concise feedback across the complete uploaded work."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": (
+                    "One concise Hebrew sentence summarizing the work as a whole."
+                ),
+            },
+            "common_patterns": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Zero to three specific recurring patterns found across the work."
+                ),
+            },
+            "specific_suggestions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "One to three concrete actions the student can apply next time."
+                ),
+            },
+        },
+        "required": [
+            "summary",
+            "common_patterns",
+            "specific_suggestions",
+        ],
+    }

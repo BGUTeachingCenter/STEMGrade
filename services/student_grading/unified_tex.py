@@ -433,6 +433,30 @@ def _as_string_list(value: Any) -> list[str]:
     return []
 
 
+def _normalize_overall_feedback(
+    value: Any,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        value = {}
+
+    return {
+        "summary": str(
+            value.get("summary")
+            or ""
+        ).strip(),
+        "common_patterns": _as_string_list(
+            value.get("common_patterns")
+        )[:3],
+        "specific_suggestions": (
+            _as_string_list(
+                value.get(
+                    "specific_suggestions"
+                )
+            )[:3]
+        ),
+    }
+
+
 def _positive_number(
     value: Any,
 ) -> float | None:
@@ -1037,6 +1061,13 @@ def build_student_feedback_json(
                 else None
             ),
         },
+        "overall_feedback": (
+            _normalize_overall_feedback(
+                data.get(
+                    "overall_feedback"
+                )
+            )
+        ),
         "parts": student_parts,
     }
 
@@ -1866,6 +1897,13 @@ def build_graded_result_json(
             if score_available
             else None
         ),
+        "overall_feedback": (
+            _normalize_overall_feedback(
+                grades.get(
+                    "overall_feedback"
+                )
+            )
+        ),
         "parts": parts,
     }
 
@@ -2190,6 +2228,69 @@ def build_graded_result_tex(
                 ),
                 r"\end{tcolorbox}",
             ]
+        )
+
+    overall_feedback = (
+        _normalize_overall_feedback(
+            data.get(
+                "overall_feedback"
+            )
+        )
+    )
+
+    if (
+        overall_feedback["summary"]
+        or overall_feedback[
+            "common_patterns"
+        ]
+        or overall_feedback[
+            "specific_suggestions"
+        ]
+    ):
+        lines.extend(
+            [
+                (
+                    r"\begin{tcolorbox}"
+                    r"[enhanced,breakable,"
+                    r"colback=green!3,"
+                    r"colframe=MGGreen!40,"
+                    r"arc=3mm,"
+                    r"boxrule=0.7pt,"
+                    r"title={משוב כללי}]"
+                ),
+            ]
+        )
+
+        if overall_feedback["summary"]:
+            lines.append(
+                _safe_feedback_text(
+                    overall_feedback[
+                        "summary"
+                    ]
+                )
+                + r"\par"
+            )
+
+        _append_feedback_items(
+            lines,
+            "דפוסים שחזרו בעבודה",
+            overall_feedback[
+                "common_patterns"
+            ],
+            "MGOrange",
+        )
+
+        _append_feedback_items(
+            lines,
+            "המלצות ממוקדות",
+            overall_feedback[
+                "specific_suggestions"
+            ],
+            "MGGreen",
+        )
+
+        lines.append(
+            r"\end{tcolorbox}"
         )
 
     if not parts:
