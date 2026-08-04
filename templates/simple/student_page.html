@@ -68,14 +68,16 @@ let openExerciseId = null;
 let openAttemptIndex = 0;
 let busy = false;
 
-/* The viewer opens clean: no part selected, all markers are quiet dots.
-   showAllMarks turns every region box on at once — an option, not the
-   default. */
+/* The viewer opens clean: no part selected, every graded part is a dot.
+   Opening a part anchors its two cards to the page area it belongs to. */
 let activePart = null;
 let showAllMarks = false;
+let currentParts = [];
 
 /* work_id -> { manifest, feedback, tex } */
 const attemptCache = new Map();
+
+const narrow = () => window.matchMedia("(max-width: 900px)").matches;
 
 /* ------------------------------------------------------------------
    3. Data loading
@@ -248,12 +250,12 @@ function renderPanel(ex) {
   '</div>';
 }
 
-/* The viewer.
-   Three columns. RTL document, so the FIRST grid column sits on the RIGHT:
-     1. the line-anchored note of the open part   (right)
-     2. the submitted pages, with quiet markers   (centre)
-     3. the general note of the open part         (left)
-   Only the open part shows notes. Everything else is a dot. */
+/* The viewer. Each page is its own row with two gutters:
+     right gutter — the mistakes, anchored to the marked area
+     centre       — the page, with quiet dots
+     left gutter  — the general note for the same part
+   Cards are positioned at the vertical offset of the marked area, so a
+   part on page 5 opens next to page 5. */
 function renderAttempt(att) {
   return '' +
     '<div class="sui-viewer-bar">' +
@@ -269,12 +271,8 @@ function renderAttempt(att) {
           : "") +
       '</div>' +
     '</div>' +
-    '<div class="sui-overlay-grid" id="viewerGrid">' +
-      '<aside class="sui-notes-col" id="lineNotes"></aside>' +
-      '<div class="sui-pages" id="pagesCol">' +
-        '<div class="sui-pane-placeholder">טוען את העבודה שהגשת…</div>' +
-      '</div>' +
-      '<aside class="sui-notes-col" id="generalNotes"></aside>' +
+    '<div class="sui-pages" id="pagesCol">' +
+      '<div class="sui-pane-placeholder">טוען את העבודה שהגשת…</div>' +
     '</div>' +
     '<button type="button" class="sui-fix-link" id="fixToggle">✎ אם יש בעיה בתרגום, אפשר לעדכן כאן</button>' +
     '<div class="sui-fix-box" id="fixBox" hidden>' +
@@ -324,24 +322,19 @@ async function getAttemptDetails(att) {
   return details;
 }
 
-let currentParts = [];
-
 async function hydrateAttempt(att) {
-  if (!$("viewerGrid")) return;
+  if (!$("pagesCol")) return;
 
   const details = await getAttemptDetails(att);
-  if (!$("viewerGrid")) return;      // the user moved on while we fetched
+  if (!$("pagesCol")) return;      // the user moved on while we fetched
 
   currentParts = (details.feedback && details.feedback.parts) || [];
 
   renderHint();
-  renderPagesColumn(details.manifest, currentParts);
-  renderNotes();
+  renderPages(details.manifest, currentParts);
 
   const fixText = $("fixText");
   if (fixText && !fixText.value) fixText.value = details.tex || "";
-
-  bindMarkers();
 }
 
 /* The written cue: what is on the page and how to open it. */
@@ -355,15 +348,16 @@ function renderHint() {
   }
 
   const weak = currentParts.filter(p => levelOf(p).weak).length;
-  const counts = currentParts.length + " סעיפים נבדקו";
-  const attention = weak ? " · " + weak + " דורשים תיקון" : " · אין סעיפים שדורשים תיקון";
+  const attention = weak
+    ? " · " + weak + " דורשים תיקון"
+    : " · אין סעיפים שדורשים תיקון";
 
   hint.innerHTML =
-    '<span class="sui-hint-strong">' + counts + attention + '</span>' +
-    '<span class="sui-hint-soft">המשוב מסומן בנקודות על העבודה — לחיצה על נקודה פותחת את ההערות לאותו סעיף.</span>';
+    '<span class="sui-hint-strong">' + currentParts.length + " סעיפים נבדקו" + attention + '</span>' +
+    '<span class="sui-hint-soft">המשוב מסומן בנקודות על העבודה — לחיצה על נקודה פותחת את ההערות ליד אותו מקום.</span>';
 }
 
-function renderPagesColumn(manifest, parts) {
+function renderPages(manifest, parts) {
   const col = $("pagesCol");
   if (!col) return;
 
@@ -384,8 +378,6 @@ function renderPagesColumn(manifest, parts) {
   col.innerHTML = manifest.pages.map((page) => {
     const marks = (byPage.get(page.page_number) || []).map(({ idx, part, region }) => {
       const lv = levelOf(part);
-      // The dot sits at the corner of the region; the box is the same
-      // element expanded, so opening a part never moves anything.
       return '<button type="button" class="sui-mark ' + lv.cls + '"' +
         ' data-part="' + idx + '"' +
         ' style="left:' + (region.x * 100) + '%;top:' + (region.y * 100) + '%;' +
@@ -396,114 +388,192 @@ function renderPagesColumn(manifest, parts) {
       '</button>';
     }).join("");
 
-    return '<div class="sui-page-card">' +
-      '<div class="sui-pane-label">עמוד ' + page.page_number + '</div>' +
-      '<div class="sui-page-stage">' +
-        '<img src="' + escapeHtml(page.image_url) + '" alt="עמוד ' + page.page_number + ' מההגשה" loading="lazy" />' +
-        marks +
+    return '<div class="sui-page-row" data-page="' + page.page_number + '">' +
+      '<aside class="sui-gutter sui-gutter-line"></aside>' +
+      '<div class="sui-page-card">' +
+        '<div class="sui-pane-label">עמוד ' + page.page_number + '</div>' +
+        '<div class="sui-page-stage">' +
+          '<img src="' + escapeHtml(page.image_url) + '" alt="עמוד ' + page.page_number + ' מההגשה" />' +
+          marks +
+        '</div>' +
       '</div>' +
+      '<aside class="sui-gutter sui-gutter-gen"></aside>' +
     '</div>';
   }).join("");
-}
 
-/* Both side columns hold one card at most: the open part. */
-function renderNotes() {
-  const lineCol = $("lineNotes");
-  const genCol = $("generalNotes");
-  if (!lineCol || !genCol) return;
-
-  if (activePart === null || !currentParts[activePart]) {
-    lineCol.innerHTML = '<div class="sui-notes-empty">הערות על שורות בעבודה</div>';
-    genCol.innerHTML = '<div class="sui-notes-empty">הערות כלליות לסעיף</div>';
-    return;
-  }
-
-  const part = currentParts[activePart];
-  const lv = levelOf(part);
-  const fb = part.feedback || {};
-
-  const mistakes = fb.main_mistakes || [];
-  const firstPage = (part.regions && part.regions[0] && part.regions[0].page_number) || "";
-
-  lineCol.innerHTML =
-    '<div class="sui-notes-label">הערות על שורות בעבודה</div>' +
-    '<article class="sui-note ' + lv.cls + '">' +
-      '<header class="sui-note-head">' +
-        '<span class="sui-note-qid">' + escapeHtml(part.qid) + '</span>' +
-        (firstPage ? '<span class="sui-note-page">עמוד ' + firstPage + '</span>' : "") +
-      '</header>' +
-      (mistakes.length
-        ? '<ul class="sui-note-list sui-bidi">' +
-            mistakes.map(t => '<li>' + escapeHtml(t) + '</li>').join("") +
-          '</ul>'
-        : '<p class="sui-note-summary sui-bidi">אין הערות שמשויכות לשורה מסוימת בסעיף הזה.</p>') +
-    '</article>';
-
-  const goods = fb.what_was_correct || [];
-  const tips = fb.how_to_improve || [];
-
-  genCol.innerHTML =
-    '<div class="sui-notes-label">הערות כלליות לסעיף</div>' +
-    '<article class="sui-note ' + lv.cls + '">' +
-      '<header class="sui-note-head">' +
-        '<span class="sui-note-qid">' + escapeHtml(part.qid) + '</span>' +
-        '<span class="sui-note-level">' + lv.label + '</span>' +
-      '</header>' +
-      (fb.summary ? '<p class="sui-note-summary sui-bidi">' + escapeHtml(fb.summary) + '</p>' : "") +
-      ((goods.length || tips.length)
-        ? '<details class="sui-note-more">' +
-            '<summary>מה עשית נכון ואיך להשתפר</summary>' +
-            (goods.length
-              ? '<div class="sui-note-sec is-good"><h4>מה עשית נכון</h4><ul class="sui-bidi">' +
-                  goods.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul></div>'
-              : "") +
-            (tips.length
-              ? '<div class="sui-note-sec is-tip"><h4>איך להשתפר</h4><ul class="sui-bidi">' +
-                  tips.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul></div>'
-              : "") +
-          '</details>'
-        : "") +
-      (fb.suggested_next_step
-        ? '<p class="sui-note-next sui-bidi">הצעד הבא: ' + escapeHtml(fb.suggested_next_step) + '</p>'
-        : "") +
-      '<button type="button" class="sui-note-close" id="closeNote">סגירה</button>' +
-    '</article>';
-
-  const closeBtn = $("closeNote");
-  if (closeBtn) closeBtn.addEventListener("click", () => selectPart(null));
-
-  if (window.MathJax && MathJax.typesetPromise) {
-    MathJax.typesetPromise([lineCol, genCol]).catch(() => {});
-  }
-}
-
-function bindMarkers() {
-  document.querySelectorAll(".sui-mark").forEach((mark) => {
+  col.querySelectorAll(".sui-mark").forEach((mark) => {
     mark.addEventListener("click", () => {
       const idx = Number(mark.dataset.part);
       selectPart(activePart === idx ? null : idx);
     });
   });
-  applyMarkState();
-}
 
-function selectPart(idx) {
-  activePart = idx;
-  renderNotes();
-  applyMarkState();
-}
-
-function applyMarkState() {
-  const grid = $("viewerGrid");
-  if (grid) grid.classList.toggle("show-all-marks", showAllMarks);
-
-  document.querySelectorAll(".sui-mark").forEach((mark) => {
-    mark.classList.toggle("is-open", Number(mark.dataset.part) === activePart);
+  // Re-place the open cards whenever a page image finishes loading or
+  // the stage is resized — the anchor is a fraction of the stage height.
+  col.querySelectorAll(".sui-page-stage img").forEach((img) => {
+    img.addEventListener("load", placeCards);
   });
+  if (window.ResizeObserver) {
+    const observer = new ResizeObserver(() => placeCards());
+    col.querySelectorAll(".sui-page-stage").forEach(stage => observer.observe(stage));
+  }
+
+  applyMarkState();
 }
 
 /* ------------------------------------------------------------------
-   7. Interaction
+   7. Opening a part: build the two cards and anchor them
+------------------------------------------------------------------ */
+function selectPart(idx) {
+  activePart = idx;
+  applyMarkState();
+  placeCards();
+}
+
+function applyMarkState() {
+  document.querySelectorAll(".sui-pages").forEach((col) =>
+    col.classList.toggle("show-all-marks", showAllMarks));
+  document.querySelectorAll(".sui-mark").forEach((mark) =>
+    mark.classList.toggle("is-open", Number(mark.dataset.part) === activePart));
+}
+
+function clearCards() {
+  document.querySelectorAll(".sui-anchored-note, .sui-leader").forEach(el => el.remove());
+}
+
+function buildLineCard(part, pageNumber) {
+  const lv = levelOf(part);
+  const fb = part.feedback || {};
+  const mistakes = fb.main_mistakes || [];
+
+  const card = document.createElement("article");
+  card.className = "sui-anchored-note sui-note " + lv.cls;
+  card.innerHTML =
+    '<header class="sui-note-head">' +
+      '<span class="sui-note-qid">' + escapeHtml(part.qid) + '</span>' +
+      '<span class="sui-note-page">כאן בעבודה</span>' +
+    '</header>' +
+    (mistakes.length
+      ? '<ul class="sui-note-list sui-bidi">' +
+          mistakes.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul>'
+      : '<p class="sui-note-summary sui-bidi">אין הערות על המקום הזה — הכול תקין כאן.</p>');
+  return card;
+}
+
+function buildGeneralCard(part) {
+  const lv = levelOf(part);
+  const fb = part.feedback || {};
+  const goods = fb.what_was_correct || [];
+  const tips = fb.how_to_improve || [];
+
+  const card = document.createElement("article");
+  card.className = "sui-anchored-note sui-note " + lv.cls;
+  card.innerHTML =
+    '<header class="sui-note-head">' +
+      '<span class="sui-note-qid">' + escapeHtml(part.qid) + '</span>' +
+      '<span class="sui-note-level">' + lv.label + '</span>' +
+    '</header>' +
+    (fb.summary ? '<p class="sui-note-summary sui-bidi">' + escapeHtml(fb.summary) + '</p>' : "") +
+    ((goods.length || tips.length)
+      ? '<details class="sui-note-more">' +
+          '<summary>מה עשית נכון ואיך להשתפר</summary>' +
+          (goods.length
+            ? '<div class="sui-note-sec is-good"><h4>מה עשית נכון</h4><ul class="sui-bidi">' +
+                goods.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul></div>'
+            : "") +
+          (tips.length
+            ? '<div class="sui-note-sec is-tip"><h4>איך להשתפר</h4><ul class="sui-bidi">' +
+                tips.map(t => '<li>' + escapeHtml(t) + '</li>').join("") + '</ul></div>'
+            : "") +
+        '</details>'
+      : "") +
+    (fb.suggested_next_step
+      ? '<p class="sui-note-next sui-bidi">הצעד הבא: ' + escapeHtml(fb.suggested_next_step) + '</p>'
+      : "") +
+    '<button type="button" class="sui-note-close">סגירה</button>';
+
+  card.querySelector(".sui-note-close")
+    .addEventListener("click", () => selectPart(null));
+  return card;
+}
+
+/* A leader line inside the stage, from the marked area out to the gutter
+   edge, at the vertical middle of the area. side: "line" (right) or
+   "gen" (left). The stage is LTR, so "right" means towards 100%. */
+function addLeader(stage, region, side, levelClass) {
+  const leader = document.createElement("span");
+  leader.className = "sui-leader " + levelClass;
+  const midY = (region.y + region.height / 2) * 100;
+  leader.style.top = midY + "%";
+  if (side === "line") {
+    const rightEdge = (region.x + region.width) * 100;
+    leader.style.left = rightEdge + "%";
+    leader.style.width = Math.max(0, 100 - rightEdge) + "%";
+  } else {
+    leader.style.left = "0%";
+    leader.style.width = Math.max(0, region.x * 100) + "%";
+  }
+  stage.appendChild(leader);
+}
+
+function placeCards() {
+  clearCards();
+  if (activePart === null) return;
+
+  const part = currentParts[activePart];
+  if (!part) return;
+
+  const regions = Array.isArray(part.regions) ? part.regions : [];
+  const pagesCol = $("pagesCol");
+  if (!pagesCol) return;
+
+  // Anchor to the first marked area; if the part has none, fall back to
+  // the first page so the cards still have a home.
+  const anchor = regions[0] || null;
+  const pageNumber = anchor ? anchor.page_number : 1;
+  const row = pagesCol.querySelector('.sui-page-row[data-page="' + pageNumber + '"]')
+    || pagesCol.querySelector(".sui-page-row");
+  if (!row) return;
+
+  const stage = row.querySelector(".sui-page-stage");
+  const lineGutter = row.querySelector(".sui-gutter-line");
+  const genGutter = row.querySelector(".sui-gutter-gen");
+  if (!stage || !lineGutter || !genGutter) return;
+
+  const lineCard = buildLineCard(part, pageNumber);
+  const genCard = buildGeneralCard(part);
+  lineGutter.appendChild(lineCard);
+  genGutter.appendChild(genCard);
+
+  if (window.MathJax && MathJax.typesetPromise) {
+    MathJax.typesetPromise([lineCard, genCard]).then(() => position()).catch(() => position());
+  } else {
+    position();
+  }
+
+  function position() {
+    if (narrow() || !anchor) return;   // stacked layout keeps cards in flow
+
+    const lv = levelOf(part);
+    addLeader(stage, anchor, "line", lv.cls);
+    addLeader(stage, anchor, "gen", lv.cls);
+
+    const stageBox = stage.getBoundingClientRect();
+    const rowBox = row.getBoundingClientRect();
+    const offsetInRow = stageBox.top - rowBox.top;   // the "עמוד N" label
+    const anchorTop = offsetInRow + anchor.y * stageBox.height;
+
+    [lineCard, genCard].forEach((card) => {
+      const maxTop = Math.max(0, rowBox.height - card.offsetHeight);
+      card.style.top = Math.round(Math.min(Math.max(anchorTop, 0), maxTop)) + "px";
+    });
+
+    row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+/* ------------------------------------------------------------------
+   8. Interaction
 ------------------------------------------------------------------ */
 function bindRows() {
   document.querySelectorAll(".sui-row").forEach((row) => {
@@ -553,6 +623,8 @@ function bindRows() {
   }
 }
 
+window.addEventListener("resize", () => placeCards());
+
 function setStatus(message, isError) {
   const box = $("statusBox");
   if (!box) return;
@@ -569,7 +641,7 @@ function appendStatus(message) {
 }
 
 /* ------------------------------------------------------------------
-   8. The submission flow — no choices for the student:
+   9. The submission flow — no choices for the student:
         typed .tex/.txt         -> straight to grading (ChatGPT)
         scan / photo / any PDF  -> OCR (Gemini, auto mode) -> grading
       ocr_document_mode=auto means a typed PDF with a real text layer is
@@ -698,7 +770,7 @@ function startProgress(jobId) {
 }
 
 /* ------------------------------------------------------------------
-   9. Start
+   10. Start
 ------------------------------------------------------------------ */
 async function checkHealth() {
   try {
