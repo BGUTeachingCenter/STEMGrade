@@ -267,6 +267,19 @@
   </button>
 
   <button
+    id="overallFeedbackTab"
+    type="button"
+    class="mg-ocr-review-tab secondary"
+    data-ocr-review-tab="overall"
+    role="tab"
+    aria-selected="false"
+    aria-controls="ocrReviewOverallPanel"
+    disabled
+  >
+    Overall feedback
+  </button>
+
+  <button
     id="feedbackOverlayTab"
     type="button"
     class="mg-ocr-review-tab secondary"
@@ -429,6 +442,45 @@
 
         <span>
           Choose a grading model after reviewing the OCR.
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section
+    id="ocrReviewOverallPanel"
+    class="mg-ocr-review-tab-panel"
+    data-ocr-review-panel="overall"
+    role="tabpanel"
+    hidden
+  >
+    <div class="mg-ocr-tab-toolbar">
+      <div>
+        <div class="mg-ocr-review-column-label">
+          Overall feedback and performance
+        </div>
+
+        <div
+          id="overallFeedbackStatus"
+          class="small mg-ocr-preview-status"
+        >
+          Grade the reviewed answer to display the overall analysis.
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="overallFeedbackPreview"
+      class="mg-overall-feedback-preview"
+      aria-live="polite"
+    >
+      <div class="mg-overall-feedback-empty">
+        <div class="mg-overall-feedback-empty-icon">◔</div>
+
+        <strong>No overall feedback yet</strong>
+
+        <span>
+          The correctness chart and common patterns will appear after grading.
         </span>
       </div>
     </div>
@@ -685,6 +737,15 @@
     const gradedResultPreview =
       document.getElementById("gradedResultPreview");
 
+    const overallFeedbackTab =
+      document.getElementById("overallFeedbackTab");
+
+    const overallFeedbackStatus =
+      document.getElementById("overallFeedbackStatus");
+
+    const overallFeedbackPreview =
+      document.getElementById("overallFeedbackPreview");
+
     const originalSubmissionStatus =
       document.getElementById("originalSubmissionStatus");
 
@@ -801,7 +862,10 @@
           ocrTexReview &&
           ocrTexReview.value.trim()
         );
-      } else if (activeOcrReviewTab === "graded") {
+      } else if (
+        activeOcrReviewTab === "graded" ||
+        activeOcrReviewTab === "overall"
+      ) {
         label = "Download graded result";
         available = !!(
           reviewGradedDownload &&
@@ -880,7 +944,10 @@
       }
 
       if (
-        activeOcrReviewTab === "graded" &&
+        (
+          activeOcrReviewTab === "graded" ||
+          activeOcrReviewTab === "overall"
+        ) &&
         reviewGradedDownload
       ) {
         downloadReviewBlob(
@@ -923,6 +990,33 @@
 
     if (normalizedTab === "overlay") {
       renderFeedbackOverlay();
+    }
+
+    if (
+      normalizedTab === "overall" &&
+      overallFeedbackPreview
+    ) {
+      ensureMathJaxForOcrPreview()
+        .then((mathJax) => {
+          if (
+            typeof mathJax.typesetClear ===
+            "function"
+          ) {
+            mathJax.typesetClear([
+              overallFeedbackPreview
+            ]);
+          }
+
+          return mathJax.typesetPromise([
+            overallFeedbackPreview
+          ]);
+        })
+        .catch((error) => {
+          console.warn(
+            "Could not render overall feedback equations:",
+            error
+          );
+        });
     }
 
     updateReviewDownloadButton();
@@ -1203,9 +1297,70 @@
       gradedResultObjectUrl = "";
     }
 
+    function resetOverallFeedbackPreview() {
+      if (activeOcrReviewTab === "overall") {
+        activateOcrReviewTab("graded");
+      }
+
+      if (overallFeedbackTab) {
+        overallFeedbackTab.disabled = true;
+
+        overallFeedbackTab.title =
+          "Load structured grading feedback first";
+      }
+
+      if (overallFeedbackStatus) {
+        overallFeedbackStatus.textContent =
+          "Grade the reviewed answer to display the overall analysis.";
+      }
+
+      if (!overallFeedbackPreview) {
+        return;
+      }
+
+      overallFeedbackPreview.replaceChildren();
+
+      const empty =
+        document.createElement("div");
+
+      empty.className =
+        "mg-overall-feedback-empty";
+
+      const icon =
+        document.createElement("div");
+
+      icon.className =
+        "mg-overall-feedback-empty-icon";
+
+      icon.textContent = "◔";
+
+      const title =
+        document.createElement("strong");
+
+      title.textContent =
+        "No overall feedback yet";
+
+      const text =
+        document.createElement("span");
+
+      text.textContent =
+        "The correctness chart and common patterns will appear after grading.";
+
+      empty.append(
+        icon,
+        title,
+        text
+      );
+
+      overallFeedbackPreview.appendChild(
+        empty
+      );
+    }
+
     function resetGradedResultPreview() {
       clearGradedResultObjectUrl();
       setFeedbackOverlayData(null);
+      resetOverallFeedbackPreview();
 
     reviewGradedDownload = null;
     updateReviewDownloadButton();
@@ -1438,6 +1593,454 @@ function studentFeedbackCorrectnessMeta(
   );
 }
 
+function normalizeStudentPerformanceSummary(
+  data
+) {
+  const levels = [
+    "correct",
+    "mostly_correct",
+    "partially_correct",
+    "needs_work",
+    "not_answered"
+  ];
+
+  const parts = Array.isArray(data?.parts)
+    ? data.parts.filter(
+        (part) =>
+          part &&
+          typeof part === "object"
+      )
+    : [];
+
+  const providedCounts =
+    data?.performance_summary &&
+    typeof data.performance_summary === "object" &&
+    data.performance_summary.counts &&
+    typeof data.performance_summary.counts === "object"
+      ? data.performance_summary.counts
+      : null;
+
+  let counts = Object.fromEntries(
+    levels.map((level) => [
+      level,
+      Math.max(
+        0,
+        Number.parseInt(
+          providedCounts?.[level] ?? 0,
+          10
+        ) || 0
+      )
+    ])
+  );
+
+  let totalParts = levels.reduce(
+    (total, level) =>
+      total + counts[level],
+    0
+  );
+
+  /*
+   * New grading files contain performance_summary.
+   * Older saved files are supported by rebuilding
+   * the same counts from their parts.
+   */
+  if (
+    !providedCounts ||
+    (
+      parts.length &&
+      totalParts !== parts.length
+    )
+  ) {
+    counts = Object.fromEntries(
+      levels.map((level) => [
+        level,
+        0
+      ])
+    );
+
+    parts.forEach((part) => {
+      const level =
+        inferStudentFeedbackCorrectness(
+          part
+        );
+
+      counts[level] += 1;
+    });
+
+    totalParts = parts.length;
+  }
+
+  const percentages =
+    Object.fromEntries(
+      levels.map((level) => [
+        level,
+        totalParts
+          ? (
+              counts[level] *
+              100 /
+              totalParts
+            )
+          : 0
+      ])
+    );
+
+  return {
+    levels,
+    counts,
+    percentages,
+    totalParts,
+    answeredParts:
+      totalParts -
+      counts.not_answered
+  };
+}
+
+
+function renderOverallFeedbackResult(
+  data
+) {
+  if (
+    !overallFeedbackPreview ||
+    !data ||
+    typeof data !== "object" ||
+    data.schema_version !==
+      "student_feedback_v1"
+  ) {
+    resetOverallFeedbackPreview();
+    return false;
+  }
+
+  const performance =
+    normalizeStudentPerformanceSummary(
+      data
+    );
+
+  const overallFeedback =
+    data.overall_feedback &&
+    typeof data.overall_feedback === "object"
+      ? data.overall_feedback
+      : {};
+
+  const overallSummary = String(
+    overallFeedback.summary || ""
+  ).trim();
+
+  const commonPatterns =
+    normalizeGradedArray(
+      overallFeedback.common_patterns
+    );
+
+  const specificSuggestions =
+    normalizeGradedArray(
+      overallFeedback.specific_suggestions
+    );
+
+  const hasContent = !!(
+    performance.totalParts ||
+    overallSummary ||
+    commonPatterns.length ||
+    specificSuggestions.length
+  );
+
+  if (!hasContent) {
+    resetOverallFeedbackPreview();
+    return false;
+  }
+
+  overallFeedbackPreview.replaceChildren();
+
+  if (overallFeedbackTab) {
+    overallFeedbackTab.disabled = false;
+
+    overallFeedbackTab.title =
+      "Show overall feedback and performance";
+  }
+
+  if (overallFeedbackStatus) {
+    overallFeedbackStatus.textContent =
+      `${performance.totalParts} question part${
+        performance.totalParts === 1
+          ? ""
+          : "s"
+      } analyzed.`;
+  }
+
+  const dashboard =
+    document.createElement("div");
+
+  dashboard.className =
+    "mg-overall-feedback-dashboard";
+
+  if (performance.totalParts) {
+    const performanceCard =
+      document.createElement("section");
+
+    performanceCard.className =
+      "mg-performance-card";
+
+    const performanceHeading =
+      document.createElement("div");
+
+    performanceHeading.className =
+      "mg-performance-heading";
+
+    const performanceHeadingCopy =
+      document.createElement("div");
+
+    const performanceTitle =
+      document.createElement("strong");
+
+    performanceTitle.textContent =
+      "Answer correctness";
+
+    const performanceSubtitle =
+      document.createElement("span");
+
+    performanceSubtitle.textContent =
+      `${performance.answeredParts} of ${performance.totalParts} parts answered`;
+
+    performanceHeadingCopy.append(
+      performanceTitle,
+      performanceSubtitle
+    );
+
+    performanceHeading.appendChild(
+      performanceHeadingCopy
+    );
+
+    const performanceBody =
+      document.createElement("div");
+
+    performanceBody.className =
+      "mg-performance-body";
+
+    const pieWrap =
+      document.createElement("div");
+
+    pieWrap.className =
+      "mg-performance-pie-wrap";
+
+    const pie =
+      document.createElement("div");
+
+    pie.className =
+      "mg-performance-pie";
+
+    const sliceVariables = {
+      correct:
+        "--slice-correct",
+
+      mostly_correct:
+        "--slice-mostly",
+
+      partially_correct:
+        "--slice-partial",
+
+      needs_work:
+        "--slice-needs-work",
+
+      not_answered:
+        "--slice-not-answered"
+    };
+
+    let cumulativePercentage = 0;
+
+    performance.levels.forEach(
+      (level) => {
+        cumulativePercentage +=
+          performance.percentages[
+            level
+          ];
+
+        pie.style.setProperty(
+          sliceVariables[level],
+
+          `${Math.min(
+            100,
+            cumulativePercentage
+          )}%`
+        );
+      }
+    );
+
+    const pieCenter =
+      document.createElement("div");
+
+    pieCenter.className =
+      "mg-performance-pie-center";
+
+    const pieTotal =
+      document.createElement("strong");
+
+    pieTotal.textContent =
+      String(
+        performance.totalParts
+      );
+
+    const pieLabel =
+      document.createElement("span");
+
+    pieLabel.textContent = "parts";
+
+    pieCenter.append(
+      pieTotal,
+      pieLabel
+    );
+
+    pie.appendChild(
+      pieCenter
+    );
+
+    pieWrap.appendChild(
+      pie
+    );
+
+    const legend =
+      document.createElement("div");
+
+    legend.className =
+      "mg-performance-legend";
+
+    performance.levels.forEach(
+      (level) => {
+        const meta =
+          studentFeedbackCorrectnessMeta(
+            level
+          );
+
+        const item =
+          document.createElement("div");
+
+        item.className =
+          `mg-performance-legend-item ${meta.className}`;
+
+        const labelGroup =
+          document.createElement("div");
+
+        labelGroup.className =
+          "mg-performance-legend-label";
+
+        const dot =
+          document.createElement("span");
+
+        dot.className =
+          "mg-performance-legend-dot";
+
+        const label =
+          document.createElement("span");
+
+        label.textContent =
+          meta.label;
+
+        labelGroup.append(
+          dot,
+          label
+        );
+
+        const value =
+          document.createElement("strong");
+
+        value.textContent =
+          `${performance.counts[level]} · ${Math.round(
+            performance.percentages[
+              level
+            ]
+          )}%`;
+
+        item.append(
+          labelGroup,
+          value
+        );
+
+        legend.appendChild(
+          item
+        );
+      }
+    );
+
+    performanceBody.append(
+      pieWrap,
+      legend
+    );
+
+    performanceCard.append(
+      performanceHeading,
+      performanceBody
+    );
+
+    dashboard.appendChild(
+      performanceCard
+    );
+  }
+
+  if (
+    overallSummary ||
+    commonPatterns.length ||
+    specificSuggestions.length
+  ) {
+    const overallCard =
+      document.createElement("article");
+
+    overallCard.className =
+      "mg-graded-overall-feedback";
+
+    const overallHeading =
+      document.createElement("div");
+
+    overallHeading.className =
+      "mg-graded-overall-feedback-title";
+
+    overallHeading.textContent =
+      "Overall feedback";
+
+    overallCard.appendChild(
+      overallHeading
+    );
+
+    if (overallSummary) {
+      const overallSummaryBody =
+        document.createElement("div");
+
+      overallSummaryBody.className =
+        "mg-graded-overall-feedback-summary";
+
+      appendCanonicalGradedText(
+        overallSummaryBody,
+        overallSummary
+      );
+
+      overallCard.appendChild(
+        overallSummaryBody
+      );
+    }
+
+    appendGradedList(
+      overallCard,
+      "Patterns across the work",
+      commonPatterns,
+      "is-warning"
+    );
+
+    appendGradedList(
+      overallCard,
+      "Specific suggestions",
+      specificSuggestions,
+      "is-good"
+    );
+
+    dashboard.appendChild(
+      overallCard
+    );
+  }
+
+  overallFeedbackPreview.appendChild(
+    dashboard
+  );
+
+  return true;
+}
+
+
 function appendCanonicalGradedText(
   container,
   value,
@@ -1668,86 +2271,6 @@ function renderStudentFeedbackResult(data) {
   documentPreview.appendChild(
     summary
   );
-
-  const overallFeedback =
-    data.overall_feedback &&
-    typeof data.overall_feedback === "object"
-      ? data.overall_feedback
-      : {};
-
-  const overallSummary = String(
-    overallFeedback.summary || ""
-  ).trim();
-
-  const commonPatterns =
-    normalizeGradedArray(
-      overallFeedback.common_patterns
-    );
-
-  const specificSuggestions =
-    normalizeGradedArray(
-      overallFeedback.specific_suggestions
-    );
-
-  if (
-    overallSummary ||
-    commonPatterns.length ||
-    specificSuggestions.length
-  ) {
-    const overallCard =
-      document.createElement("article");
-
-    overallCard.className =
-      "mg-graded-overall-feedback";
-
-    const overallHeading =
-      document.createElement("div");
-
-    overallHeading.className =
-      "mg-graded-overall-feedback-title";
-
-    overallHeading.textContent =
-      "Overall feedback";
-
-    overallCard.appendChild(
-      overallHeading
-    );
-
-    if (overallSummary) {
-      const overallSummaryBody =
-        document.createElement("div");
-
-      overallSummaryBody.className =
-        "mg-graded-overall-feedback-summary";
-
-      appendCanonicalGradedText(
-        overallSummaryBody,
-        overallSummary
-      );
-
-      overallCard.appendChild(
-        overallSummaryBody
-      );
-    }
-
-    appendGradedList(
-      overallCard,
-      "Patterns across the work",
-      commonPatterns,
-      "is-warning"
-    );
-
-    appendGradedList(
-      overallCard,
-      "Specific suggestions",
-      specificSuggestions,
-      "is-good"
-    );
-
-    documentPreview.appendChild(
-      overallCard
-    );
-  }
 
   if (!parts.length) {
     const empty =
@@ -3224,6 +3747,7 @@ async function showGradedResultBlob(
   }
 
   clearGradedResultObjectUrl();
+  resetOverallFeedbackPreview();
 
   gradedResultObjectUrl =
     URL.createObjectURL(blob);
@@ -3260,6 +3784,7 @@ async function showGradedResultBlob(
     }
 
     setFeedbackOverlayData(data);
+    renderOverallFeedbackResult(data);
 
     const structuredRendered =
       renderStudentFeedbackResult(data);
@@ -3298,14 +3823,20 @@ async function showGradedResultBlob(
         typeof mathJax.typesetClear ===
         "function"
       ) {
-        mathJax.typesetClear([
-          gradedResultPreview
-        ]);
+        mathJax.typesetClear(
+          [
+            gradedResultPreview,
+            overallFeedbackPreview
+          ].filter(Boolean)
+        );
       }
 
-      await mathJax.typesetPromise([
-        gradedResultPreview
-      ]);
+      await mathJax.typesetPromise(
+        [
+          gradedResultPreview,
+          overallFeedbackPreview
+        ].filter(Boolean)
+      );
 
       if (gradedResultStatus) {
         gradedResultStatus.textContent =
@@ -4920,13 +5451,21 @@ if (resultType === "tex") {
           ""
         );
 
-      return [
+      const markerLabel = String(
+        annotation?.marker || ""
+      ).trim();
+
+      const questionTitle = [
         `Q${questionLabel || "?"}`,
 
         partLabel
           ? `(${partLabel})`
           : ""
       ].join("");
+
+      return markerLabel
+        ? `${markerLabel}.${questionTitle}`
+        : questionTitle;
     }
 
     function overlaySvgElement(name, attributes = {}) {

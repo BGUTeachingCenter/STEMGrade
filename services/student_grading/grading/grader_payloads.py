@@ -41,6 +41,15 @@ _CORRECTNESS_LEVELS = {
 }
 
 
+_CORRECTNESS_LEVEL_ORDER = (
+    "correct",
+    "mostly_correct",
+    "partially_correct",
+    "needs_work",
+    "not_answered",
+)
+
+
 _CORRECTNESS_LEVEL_INSTRUCTIONS = """
 In addition to the pedagogical feedback, classify the student's
 answer using exactly one correctness_level:
@@ -537,6 +546,53 @@ def _fallback_overall_feedback(
         "specific_suggestions": [
             "לפני ההגשה, לבדוק שהפתרון עונה בדיוק על כל מה שנשאל."
         ],
+    }
+
+
+def _build_performance_summary(
+    graded: list[QuestionGrade],
+) -> dict[str, Any]:
+    """Collect deterministic correctness counts for charts and summaries."""
+    counts = {
+        level: 0
+        for level in _CORRECTNESS_LEVEL_ORDER
+    }
+
+    for grade in graded:
+        level = str(
+            grade.correctness_level
+            or "needs_work"
+        ).strip().lower()
+
+        if level not in counts:
+            level = "needs_work"
+
+        counts[level] += 1
+
+    total_parts = len(graded)
+
+    answered_parts = (
+        total_parts
+        - counts["not_answered"]
+    )
+
+    percentages = {
+        level: (
+            round(
+                count * 100 / total_parts,
+                1,
+            )
+            if total_parts
+            else 0.0
+        )
+        for level, count in counts.items()
+    }
+
+    return {
+        "total_parts": total_parts,
+        "answered_parts": answered_parts,
+        "counts": counts,
+        "percentages": percentages,
     }
 
 
@@ -1352,6 +1408,12 @@ def grade_payload_manifest(
 
     bundle_dict["overall_feedback"] = (
         overall_feedback
+    )
+
+    bundle_dict["performance_summary"] = (
+        _build_performance_summary(
+            graded
+        )
     )
 
     question_grade_dicts = bundle_dict.get(

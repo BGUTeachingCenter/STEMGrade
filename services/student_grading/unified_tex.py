@@ -1068,6 +1068,18 @@ def build_student_feedback_json(
                 )
             )
         ),
+        "performance_summary": (
+            data.get(
+                "performance_summary"
+            )
+            if isinstance(
+                data.get(
+                    "performance_summary"
+                ),
+                dict,
+            )
+            else {}
+        ),
         "parts": student_parts,
     }
 
@@ -1903,6 +1915,18 @@ def build_graded_result_json(
                     "overall_feedback"
                 )
             )
+        ),
+        "performance_summary": (
+            grades.get(
+                "performance_summary"
+            )
+            if isinstance(
+                grades.get(
+                    "performance_summary"
+                ),
+                dict,
+            )
+            else {}
         ),
         "parts": parts,
     }
