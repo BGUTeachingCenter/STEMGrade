@@ -722,6 +722,159 @@
     </div>
   </details>
 </section>
+
+<div
+  id="submissionWindowModal"
+  class="mg-submission-window-modal"
+  hidden
+>
+  <div
+    class="mg-submission-window-modal-backdrop"
+    data-action="close-submission-window-modal"
+  ></div>
+
+  <section
+    class="mg-submission-window-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="submissionWindowModalTitle"
+  >
+    <div class="mg-submission-window-dialog-head">
+      <div>
+        <div class="mg-submission-window-eyebrow">
+          Student submissions
+        </div>
+
+        <h2 id="submissionWindowModalTitle">
+          Submission window
+        </h2>
+
+        <p>
+          Set when students may submit this work.
+          Times use the course timezone.
+        </p>
+      </div>
+
+      <button
+        id="submissionWindowModalCloseBtn"
+        class="secondary mg-submission-window-modal-close"
+        type="button"
+        aria-label="Close submission window editor"
+        title="Close"
+      >
+        ×
+      </button>
+    </div>
+
+    <section
+      id="submissionWindowModalCard"
+      class="mg-submission-window-card is-not-scheduled"
+      data-role="submission-window-card"
+    >
+      <div class="mg-submission-window-head">
+        <div class="mg-submission-window-heading">
+          <span
+            class="mg-submission-window-icon"
+            aria-hidden="true"
+          >
+            📅
+          </span>
+
+          <div>
+            <div class="mg-submission-window-eyebrow">
+              Selected work
+            </div>
+
+            <div
+              id="submissionWindowModalExam"
+              class="mg-submission-window-title"
+            >
+              —
+            </div>
+          </div>
+        </div>
+
+        <span
+          class="mg-submission-window-status is-not-scheduled"
+          data-role="submission-window-status"
+        >
+          Not scheduled
+        </span>
+      </div>
+
+      <div
+        class="mg-submission-window-summary"
+        data-role="submission-window-summary"
+      >
+        No submission dates are currently set.
+      </div>
+
+      <div class="mg-submission-window-fields">
+        <label>
+          <span>Opens</span>
+
+          <input
+            id="submissionWindowModalOpens"
+            type="datetime-local"
+            data-role="submission-opens"
+          />
+        </label>
+
+        <label>
+          <span>Closes</span>
+
+          <input
+            id="submissionWindowModalCloses"
+            type="datetime-local"
+            data-role="submission-closes"
+          />
+        </label>
+
+        <div class="mg-submission-window-timezone">
+          <span>Timezone</span>
+
+          <strong id="submissionWindowModalTimezone">
+            Asia/Jerusalem
+          </strong>
+        </div>
+      </div>
+
+      <div class="mg-submission-window-footer">
+        <div class="mg-submission-window-actions">
+          <button
+            id="submissionWindowModalSaveBtn"
+            type="button"
+          >
+            Save window
+          </button>
+
+          <button
+            id="submissionWindowModalClearBtn"
+            type="button"
+            class="secondary"
+            disabled
+          >
+            Clear window
+          </button>
+
+          <button
+            type="button"
+            class="secondary"
+            data-action="close-submission-window-modal"
+          >
+            Cancel
+          </button>
+        </div>
+
+        <div
+          class="mg-submission-window-message"
+          data-role="submission-window-message"
+          aria-live="polite"
+        ></div>
+      </div>
+    </section>
+  </section>
+</div>
 </div>
 
 <script>
@@ -1637,6 +1790,20 @@ loadWorkspaceContext();
 
   let latestTeacherStats = null;
 
+  /*
+   * Upload counts come from the dashboard API.
+   * Submission windows come from the solution bank.
+   * This map joins both sources by exam_id.
+   */
+  let solutionBankWorkMap =
+    new Map();
+
+  let activeSubmissionWindowExamId =
+    "";
+
+  let activeWorkExamId =
+    "";
+
   function formatInt(n) {
     return Number(n || 0).toLocaleString();
   }
@@ -1788,83 +1955,527 @@ loadWorkspaceContext();
     updateUploadLogHref();
   }
 
-  function filteredWorkProgress() {
-    const all = latestTeacherStats?.work_progress || [];
-    const voucher = currentVoucherFilter();
-
-    if (!voucher || voucher === "__all__") return all;
-    return all.filter(x => x.voucher_id === voucher);
+  function activeCourseVoucherId() {
+    return String(
+      ACTIVE_COURSE?.voucher_id ||
+      ACTIVE_COURSE?.voucher_code ||
+      ACTIVE_COURSE?.voucher_hash ||
+      CURRENT_TEACHER_PROFILE?.voucher_id ||
+      ""
+    ).trim();
   }
 
-  function workProgressCard(item, index) {
-    const pct = Math.max(0, Math.min(100, Number(item.completion_pct || 0)));
-    const uploaded = Number(item.uploaded_students || 0);
-    const total = Number(item.total_students || 0);
-    const attempts = Number(item.upload_count || 0);
-    const missing = Math.max(0, total - uploaded);
-    const unmatched = item.is_matched_exam ? "" : `<span class="mg-work-tag muted">Needs grading match</span>`;
+
+  function totalStudentsForVoucher(
+    voucherId
+  ) {
+    const voucher = (
+      latestTeacherStats?.vouchers || []
+    ).find(
+      (item) =>
+        String(
+          item?.voucher_id || ""
+        ) ===
+        String(
+          voucherId || ""
+        )
+    );
+
+    if (voucher) {
+      return Number(
+        voucher.total_students || 0
+      );
+    }
+
+    return Number(
+      latestTeacherStats?.roster
+        ?.total_students || 0
+    );
+  }
+
+
+  function studentCodesForVoucher(
+    voucherId
+  ) {
+    const rows =
+      latestTeacherStats
+        ?.student_progress || [];
+
+    const matchingCodes = rows
+      .filter(
+        (row) =>
+          !voucherId ||
+          row.voucher_id === voucherId
+      )
+      .map(
+        (row) =>
+          String(
+            row.code || ""
+          ).trim()
+      )
+      .filter(Boolean);
+
+    if (matchingCodes.length) {
+      return matchingCodes;
+    }
+
+    return (
+      latestTeacherStats?.roster
+        ?.active_codes || []
+    );
+  }
+
+
+  function filteredWorkProgress() {
+    const voucher =
+      currentVoucherFilter();
+
+    const activeVoucher =
+      activeCourseVoucherId();
+
+    let works = (
+      latestTeacherStats
+        ?.work_progress || []
+    ).map((item) => {
+      const examId = String(
+        item?.exam_id || ""
+      );
+
+      const bankWork =
+        solutionBankWorkMap.get(
+          examId
+        );
+
+      return {
+        ...item,
+
+        submission_window:
+          bankWork?.submission_window ||
+          item?.submission_window ||
+          null,
+      };
+    });
+
+    if (
+      voucher &&
+      voucher !== "__all__"
+    ) {
+      works = works.filter(
+        (item) =>
+          item.voucher_id === voucher
+      );
+    }
+
+    const mayShowActiveBank = (
+      !voucher ||
+      voucher === "__all__" ||
+      !activeVoucher ||
+      voucher === activeVoucher
+    );
+
+    /*
+     * Add solution-bank works that have no uploads yet.
+     * This lets the teacher schedule a work before
+     * students begin submitting.
+     */
+    if (mayShowActiveBank) {
+      const existingExamIds =
+        new Set(
+          works
+            .filter(
+              (item) =>
+                item.is_matched_exam
+            )
+            .map(
+              (item) =>
+                String(
+                  item.exam_id || ""
+                )
+            )
+        );
+
+      for (
+        const [examId, bankWork]
+        of solutionBankWorkMap.entries()
+      ) {
+        if (
+          !examId ||
+          existingExamIds.has(examId)
+        ) {
+          continue;
+        }
+
+        const workVoucher =
+          activeVoucher ||
+          (
+            voucher !== "__all__"
+              ? voucher
+              : ""
+          );
+
+        const studentCodes =
+          studentCodesForVoucher(
+            workVoucher
+          );
+
+        works.push({
+          voucher_id:
+            workVoucher,
+
+          exam_id:
+            examId,
+
+          is_matched_exam:
+            true,
+
+          uploaded_students:
+            0,
+
+          total_students:
+            totalStudentsForVoucher(
+              workVoucher
+            ),
+
+          completion_pct:
+            0,
+
+          upload_count:
+            0,
+
+          last_upload_at:
+            "",
+
+          students_uploaded:
+            [],
+
+          students_missing:
+            studentCodes,
+
+          submission_window:
+            bankWork?.submission_window ||
+            null,
+        });
+      }
+    }
+
+    return works.sort(
+      (a, b) => {
+        if (
+          Boolean(
+            a.is_matched_exam
+          ) !==
+          Boolean(
+            b.is_matched_exam
+          )
+        ) {
+          return a.is_matched_exam
+            ? -1
+            : 1;
+        }
+
+        return String(
+          a.exam_id || ""
+        ).localeCompare(
+          String(
+            b.exam_id || ""
+          )
+        );
+      }
+    );
+  }
+
+  function workProgressCard(
+    item,
+    index
+  ) {
+    const pct = Math.max(
+      0,
+      Math.min(
+        100,
+        Number(
+          item.completion_pct || 0
+        )
+      )
+    );
+
+    const uploaded = Number(
+      item.uploaded_students || 0
+    );
+
+    const total = Number(
+      item.total_students || 0
+    );
+
+    const attempts = Number(
+      item.upload_count || 0
+    );
+
+    const missing = Math.max(
+      0,
+      total - uploaded
+    );
+
+    const unmatched =
+      item.is_matched_exam
+        ? ""
+        : `
+            <span class="mg-work-tag muted">
+              Needs grading match
+            </span>
+          `;
+
+    const windowData =
+      item.submission_window || {};
+
+    const windowState =
+      resolveSubmissionWindowState(
+        windowData
+      );
+
+    const windowButtonLabel =
+      windowState.isScheduled
+        ? "Edit window"
+        : "Set window";
+
+    const activeClass = (
+      activeWorkExamId ===
+      String(
+        item.exam_id || ""
+      )
+    )
+      ? " active"
+      : "";
 
     return `
-      <div class="mg-work-progress-item" role="button" tabindex="0" data-work-index="${index}">
+      <div
+        class="mg-work-progress-item ${windowState.className}${activeClass}"
+        role="button"
+        tabindex="0"
+        data-work-index="${index}"
+        data-exam-id="${escapeHtml(
+          item.exam_id || ""
+        )}"
+      >
         <div class="mg-work-progress-top">
           <div>
-            <div class="mg-work-title">${escapeHtml(item.exam_id || "Unknown work")}</div>
-            <div class="mg-work-subtitle">${escapeHtml(item.voucher_id || "course")} · Last upload ${formatDateTime(item.last_upload_at)}</div>
+            <div class="mg-work-title">
+              ${escapeHtml(
+                item.exam_id ||
+                "Unknown work"
+              )}
+            </div>
+
+            <div class="mg-work-subtitle">
+              ${escapeHtml(
+                item.voucher_id ||
+                "course"
+              )}
+              · Last upload
+              ${formatDateTime(
+                item.last_upload_at
+              )}
+            </div>
           </div>
-          <div class="mg-work-percent">${formatPct(pct)}</div>
+
+          <div class="mg-work-progress-side">
+            <div class="mg-work-percent">
+              ${formatPct(pct)}
+            </div>
+
+            <span
+              class="mg-work-window-badge ${windowState.className}"
+            >
+              ${escapeHtml(
+                windowState.label
+              )}
+            </span>
+          </div>
         </div>
 
-        <div class="mg-work-meter" aria-hidden="true"><span style="width:${pct}%"></span></div>
+        <div
+          class="mg-work-meter"
+          aria-hidden="true"
+        >
+          <span style="width:${pct}%"></span>
+        </div>
 
         <div class="mg-work-footer">
-          <span><strong>${formatInt(uploaded)}/${formatInt(total)}</strong> uploaded</span>
-          <span>${formatInt(attempts)} attempt${attempts === 1 ? "" : "s"}</span>
-          <span>${formatInt(missing)} missing</span>
+          <span>
+            <strong>
+              ${formatInt(uploaded)}/${formatInt(total)}
+            </strong>
+            uploaded
+          </span>
+
+          <span>
+            ${formatInt(attempts)}
+            attempt${attempts === 1 ? "" : "s"}
+          </span>
+
+          <span>
+            ${formatInt(missing)}
+            missing
+          </span>
+
           ${unmatched}
+        </div>
+
+        <div class="mg-work-window-row">
+          <div class="mg-work-window-copy">
+            <strong>
+              Submission window
+            </strong>
+
+            <span>
+              ${escapeHtml(
+                submissionWindowSummary(
+                  windowData
+                )
+              )}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="secondary small mg-work-window-button"
+            data-action="manage-submission-window"
+            data-exam-id="${escapeHtml(
+              item.exam_id || ""
+            )}"
+          >
+            ${windowButtonLabel}
+          </button>
         </div>
       </div>
     `;
   }
 
   function renderWorkProgress() {
-    const grid = $("workProgressGrid");
-    const panel = $("workDetailPanel");
-    if (!grid) return;
+    const grid =
+      $("workProgressGrid");
 
-    const works = filteredWorkProgress().filter(
-      (item) => item.is_matched_exam
-    );
+    const panel =
+      $("workDetailPanel");
+
+    if (!grid) {
+      return;
+    }
+
+    const works =
+      filteredWorkProgress().filter(
+        (item) =>
+          item.is_matched_exam
+      );
 
     if (!works.length) {
       grid.innerHTML = `
         <div class="emptyState">
-          No recognized student works found for this course yet.
+          No solution-bank works found for this course yet.
         </div>
       `;
-      if (panel) panel.style.display = "none";
+
+      if (panel) {
+        panel.style.display =
+          "none";
+      }
+
       return;
     }
 
-    grid.innerHTML = works.map((item, index) => workProgressCard(item, index)).join("");
+    grid.innerHTML = works
+      .map(
+        (item, index) =>
+          workProgressCard(
+            item,
+            index
+          )
+      )
+      .join("");
 
-    grid.querySelectorAll(".mg-work-progress-item").forEach(card => {
-      const activate = () => {
-        const idx = Number(card.dataset.workIndex || 0);
+    grid
+      .querySelectorAll(
+        ".mg-work-progress-item"
+      )
+      .forEach((card) => {
+        const activate = () => {
+          const idx = Number(
+            card.dataset.workIndex ||
+            0
+          );
 
-        grid.querySelectorAll(".mg-work-progress-item").forEach(x => x.classList.remove("active"));
-        card.classList.add("active");
+          const item =
+            works[idx];
 
-        renderWorkDetail(works[idx]);
-      };
+          if (!item) {
+            return;
+          }
 
-      card.addEventListener("click", activate);
-      card.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          activate();
-        }
+          activeWorkExamId =
+            String(
+              item.exam_id || ""
+            );
+
+          grid
+            .querySelectorAll(
+              ".mg-work-progress-item"
+            )
+            .forEach(
+              (element) => {
+                element.classList.remove(
+                  "active"
+                );
+              }
+            );
+
+          card.classList.add(
+            "active"
+          );
+
+          renderWorkDetail(
+            item
+          );
+        };
+
+        card.addEventListener(
+          "click",
+          (event) => {
+            if (
+              event.target.closest(
+                "button, a"
+              )
+            ) {
+              return;
+            }
+
+            activate();
+          }
+        );
+
+        card.addEventListener(
+          "keydown",
+          (event) => {
+            if (
+              event.target.closest(
+                "button, a"
+              )
+            ) {
+              return;
+            }
+
+            if (
+              event.key === "Enter" ||
+              event.key === " "
+            ) {
+              event.preventDefault();
+              activate();
+            }
+          }
+        );
       });
-    });
+
+    wireSubmissionWindowButtons(
+      grid
+    );
   }
 
   function renderUnmatchedWorks() {
@@ -2109,6 +2720,14 @@ loadWorkspaceContext();
           </span>
         `;
 
+    const windowData =
+      item.submission_window || {};
+
+    const windowState =
+      resolveSubmissionWindowState(
+        windowData
+      );
+
     panel.style.display = "block";
 
     panel.innerHTML = `
@@ -2136,13 +2755,46 @@ loadWorkspaceContext();
           </div>
         </div>
 
-        <button
-          type="button"
-          class="secondary small"
-          id="closeWorkDetailBtn"
-        >
-          Close
-        </button>
+        <div class="mg-work-detail-actions">
+          <div class="mg-work-detail-window">
+            <span
+              class="mg-work-window-badge ${windowState.className}"
+            >
+              ${escapeHtml(
+                windowState.label
+              )}
+            </span>
+
+            <span>
+              ${escapeHtml(
+                submissionWindowSummary(
+                  windowData
+                )
+              )}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="secondary small"
+            data-action="manage-submission-window"
+            data-exam-id="${escapeHtml(
+              item.exam_id || ""
+            )}"
+          >
+            ${windowState.isScheduled
+              ? "Edit window"
+              : "Set window"}
+          </button>
+
+          <button
+            type="button"
+            class="secondary small"
+            id="closeWorkDetailBtn"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       <div class="mg-work-table-wrap">
@@ -2183,7 +2835,10 @@ loadWorkspaceContext();
       closeBtn.addEventListener(
         "click",
         () => {
-          panel.style.display = "none";
+          panel.style.display =
+            "none";
+
+          activeWorkExamId = "";
 
           document
             .querySelectorAll(
@@ -2197,6 +2852,10 @@ loadWorkspaceContext();
         }
       );
     }
+
+    wireSubmissionWindowButtons(
+      panel
+    );
   }
 
     function filteredStudentProgress() {
@@ -2738,6 +3397,7 @@ function groupSolutionItemsByExam(items) {
         latestCreatedAt: "",
         subject: "",
         grading_prompt_extra: "",
+        submission_window: null,
         full_solution_available: false,
         reference_tex_available: false,
         q_count: null,
@@ -2758,10 +3418,34 @@ function groupSolutionItemsByExam(items) {
 
     const group = groups.get(exam);
     const role = solutionFileRole(item);
-    if (item.subject && !group.subject) group.subject = item.subject;
-    if (item.grading_prompt_extra && !group.grading_prompt_extra) group.grading_prompt_extra = item.grading_prompt_extra;
+    if (
+      item.subject &&
+      !group.subject
+    ) {
+      group.subject =
+        item.subject;
+    }
 
-    group.items.push({ ...item, role });
+    if (
+      item.grading_prompt_extra &&
+      !group.grading_prompt_extra
+    ) {
+      group.grading_prompt_extra =
+        item.grading_prompt_extra;
+    }
+
+    if (
+      item.submission_window &&
+      !group.submission_window
+    ) {
+      group.submission_window =
+        item.submission_window;
+    }
+
+    group.items.push({
+      ...item,
+      role
+    });
 
     if (!group.byRole[role]) {
       group.byRole[role] = [];
@@ -2891,8 +3575,19 @@ async function loadExams() {
   const ids = j.exam_ids || [];
 
   if (!ids.length) {
-    setExamStatus("No reference solutions yet.");
-    renderEmptySolutionBank("Use the upload card below to add questions, answers, or a complete solution file.");
+    solutionBankWorkMap =
+      new Map();
+
+    refreshSubmissionProgressViews();
+
+    setExamStatus(
+      "No reference solutions yet."
+    );
+
+    renderEmptySolutionBank(
+      "Use the upload card below to add questions, answers, or a complete solution file."
+    );
+
     return;
   }
 
@@ -2919,6 +3614,10 @@ async function loadAllSolutionFiles(examIds) {
       allItems.push({
         ...item,
         exam_id: id,
+
+        submission_window:
+          j.submission_window ||
+          null,
       });
     }
   }
@@ -2926,8 +3625,1224 @@ async function loadAllSolutionFiles(examIds) {
   // Pull per-solution token usage from the AI usage logs before rendering.
   await loadTokenUsage();
 
-  renderSolutionList(allItems);
+  const solutionGroups =
+    groupSolutionItemsByExam(
+      allItems
+    );
+
+  solutionBankWorkMap =
+    new Map(
+      solutionGroups.map(
+        (group) => [
+          String(
+            group.exam_id || ""
+          ),
+
+          group
+        ]
+      )
+    );
+
+  renderSolutionList(
+    allItems
+  );
+
+  refreshSubmissionProgressViews();
 }
+
+function resolveSubmissionWindowState(
+  windowData
+) {
+  const source = (
+    windowData &&
+    typeof windowData === "object"
+  )
+    ? windowData
+    : {};
+
+  const opensAt = String(
+    source.opens_at || ""
+  );
+
+  const closesAt = String(
+    source.closes_at || ""
+  );
+
+  const isScheduled = !!(
+    source.is_scheduled &&
+    opensAt &&
+    closesAt
+  );
+
+  if (!isScheduled) {
+    const invalid = (
+      source.status === "invalid"
+    );
+
+    return {
+      status: invalid
+        ? "invalid"
+        : "not_scheduled",
+
+      label: invalid
+        ? "Schedule needs repair"
+        : "Not scheduled",
+
+      className: invalid
+        ? "is-invalid"
+        : "is-not-scheduled",
+
+      isScheduled: false,
+      acceptsSubmissions: false,
+    };
+  }
+
+  const opensTime =
+    new Date(opensAt).getTime();
+
+  const closesTime =
+    new Date(closesAt).getTime();
+
+  const now = Date.now();
+
+  if (
+    Number.isFinite(opensTime) &&
+    Number.isFinite(closesTime)
+  ) {
+    if (now < opensTime) {
+      return {
+        status: "upcoming",
+        label: "Upcoming",
+        className: "is-upcoming",
+        isScheduled: true,
+        acceptsSubmissions: false,
+      };
+    }
+
+    if (now < closesTime) {
+      return {
+        status: "open",
+        label: "Open for submission",
+        className: "is-open",
+        isScheduled: true,
+        acceptsSubmissions: true,
+      };
+    }
+
+    return {
+      status: "closed",
+      label: "Submission closed",
+      className: "is-closed",
+      isScheduled: true,
+      acceptsSubmissions: false,
+    };
+  }
+
+  return {
+    status: String(
+      source.status || "invalid"
+    ),
+
+    label: String(
+      source.status_label ||
+      "Schedule needs repair"
+    ),
+
+    className: "is-invalid",
+    isScheduled: true,
+    acceptsSubmissions: false,
+  };
+}
+
+
+function formatSubmissionWindowLocal(
+  value
+) {
+  const text = String(
+    value || ""
+  ).trim();
+
+  if (!text) {
+    return "Not set";
+  }
+
+  const match = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
+  );
+
+  if (!match) {
+    return text;
+  }
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour,
+    minute
+  ] = match;
+
+  const date = new Date(
+    Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute)
+    )
+  );
+
+  try {
+    return new Intl.DateTimeFormat(
+      undefined,
+      {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "UTC"
+      }
+    ).format(date);
+  } catch (_) {
+    return (
+      `${year}-${month}-${day} ` +
+      `${hour}:${minute}`
+    );
+  }
+}
+
+
+function submissionWindowSummary(
+  windowData
+) {
+  const source = (
+    windowData &&
+    typeof windowData === "object"
+  )
+    ? windowData
+    : {};
+
+  const state =
+    resolveSubmissionWindowState(
+      source
+    );
+
+  const opensText =
+    formatSubmissionWindowLocal(
+      source.opens_at_local ||
+      source.opens_at
+    );
+
+  const closesText =
+    formatSubmissionWindowLocal(
+      source.closes_at_local ||
+      source.closes_at
+    );
+
+  if (
+    state.status ===
+    "not_scheduled"
+  ) {
+    return (
+      "No submission dates are currently set."
+    );
+  }
+
+  if (
+    state.status === "invalid"
+  ) {
+    return (
+      source.warning ||
+      "The saved dates need to be corrected."
+    );
+  }
+
+  if (
+    state.status === "upcoming"
+  ) {
+    return (
+      `Opens ${opensText} · ` +
+      `Closes ${closesText}`
+    );
+  }
+
+  if (
+    state.status === "open"
+  ) {
+    return (
+      `Open now · Closes ${closesText}`
+    );
+  }
+
+  return (
+    `Closed ${closesText} · ` +
+    `Opened ${opensText}`
+  );
+}
+
+
+function submissionWindowEditorHtml(
+  group
+) {
+  const windowData =
+    group.submission_window || {};
+
+  const state =
+    resolveSubmissionWindowState(
+      windowData
+    );
+
+  const opensValue = String(
+    windowData.opens_at_local ||
+    ""
+  );
+
+  const closesValue = String(
+    windowData.closes_at_local ||
+    ""
+  );
+
+  const timezone = String(
+    windowData.timezone ||
+    "Asia/Jerusalem"
+  );
+
+  return `
+    <section
+      class="mg-submission-window-card ${state.className}"
+      data-role="submission-window-card"
+    >
+      <div class="mg-submission-window-head">
+        <div class="mg-submission-window-heading">
+          <span
+            class="mg-submission-window-icon"
+            aria-hidden="true"
+          >
+            📅
+          </span>
+
+          <div>
+            <div class="mg-submission-window-eyebrow">
+              Student submissions
+            </div>
+
+            <div class="mg-submission-window-title">
+              Submission window
+            </div>
+          </div>
+        </div>
+
+        <span
+          class="mg-submission-window-status ${state.className}"
+          data-role="submission-window-status"
+        >
+          ${escapeHtml(state.label)}
+        </span>
+      </div>
+
+      <div
+        class="mg-submission-window-summary"
+        data-role="submission-window-summary"
+      >
+        ${escapeHtml(
+          submissionWindowSummary(
+            windowData
+          )
+        )}
+      </div>
+
+      <div class="mg-submission-window-fields">
+        <label>
+          <span>Opens</span>
+
+          <input
+            type="datetime-local"
+            data-role="submission-opens"
+            value="${escapeHtml(opensValue)}"
+          />
+        </label>
+
+        <label>
+          <span>Closes</span>
+
+          <input
+            type="datetime-local"
+            data-role="submission-closes"
+            value="${escapeHtml(closesValue)}"
+          />
+        </label>
+
+        <div class="mg-submission-window-timezone">
+          <span>Timezone</span>
+
+          <strong>
+            ${escapeHtml(timezone)}
+          </strong>
+        </div>
+      </div>
+
+      <div class="mg-submission-window-footer">
+        <div class="mg-submission-window-actions">
+          <button
+            type="button"
+            data-action="save-submission-window"
+          >
+            Save window
+          </button>
+
+          <button
+            type="button"
+            class="secondary"
+            data-action="clear-submission-window"
+            ${state.isScheduled ? "" : "disabled"}
+          >
+            Clear window
+          </button>
+        </div>
+
+        <div
+          class="mg-submission-window-message"
+          data-role="submission-window-message"
+          aria-live="polite"
+        ></div>
+      </div>
+    </section>
+  `;
+}
+
+
+function updateSubmissionWindowCard(
+  card,
+  windowData
+) {
+  if (!card) {
+    return;
+  }
+
+  const state =
+    resolveSubmissionWindowState(
+      windowData
+    );
+
+  card.className =
+    `mg-submission-window-card ${state.className}`;
+
+  const status =
+    card.querySelector(
+      '[data-role="submission-window-status"]'
+    );
+
+  const summary =
+    card.querySelector(
+      '[data-role="submission-window-summary"]'
+    );
+
+  const opensInput =
+    card.querySelector(
+      '[data-role="submission-opens"]'
+    );
+
+  const closesInput =
+    card.querySelector(
+      '[data-role="submission-closes"]'
+    );
+
+  const clearButton =
+    card.querySelector(
+      '[data-action="clear-submission-window"]'
+    );
+
+  if (status) {
+    status.className =
+      `mg-submission-window-status ${state.className}`;
+
+    status.textContent =
+      state.label;
+  }
+
+  if (summary) {
+    summary.textContent =
+      submissionWindowSummary(
+        windowData
+      );
+  }
+
+  if (opensInput) {
+    opensInput.value = String(
+      windowData?.opens_at_local ||
+      ""
+    );
+  }
+
+  if (closesInput) {
+    closesInput.value = String(
+      windowData?.closes_at_local ||
+      ""
+    );
+  }
+
+  if (clearButton) {
+    clearButton.disabled =
+      !state.isScheduled;
+  }
+}
+
+
+function setSubmissionWindowMessage(
+  card,
+  message,
+  kind = ""
+) {
+  const element =
+    card?.querySelector(
+      '[data-role="submission-window-message"]'
+    );
+
+  if (!element) {
+    return;
+  }
+
+  element.textContent =
+    String(message || "");
+
+  element.classList.remove(
+    "ok",
+    "err",
+    "work"
+  );
+
+  if (kind) {
+    element.classList.add(
+      kind
+    );
+  }
+}
+
+
+function submissionWindowApiError(
+  payload,
+  fallback
+) {
+  if (
+    payload &&
+    typeof payload.detail === "string"
+  ) {
+    return payload.detail;
+  }
+
+  if (
+    payload &&
+    payload.detail &&
+    typeof payload.detail === "object"
+  ) {
+    return JSON.stringify(
+      payload.detail
+    );
+  }
+
+  return fallback;
+}
+
+function submissionWindowModalCard() {
+  return $(
+    "submissionWindowModalCard"
+  );
+}
+
+
+function setSubmissionWindowModalBusy(
+  busy
+) {
+  const saveButton =
+    $("submissionWindowModalSaveBtn");
+
+  const clearButton =
+    $("submissionWindowModalClearBtn");
+
+  const opensInput =
+    $("submissionWindowModalOpens");
+
+  const closesInput =
+    $("submissionWindowModalCloses");
+
+  if (saveButton) {
+    saveButton.disabled =
+      Boolean(busy);
+  }
+
+  if (opensInput) {
+    opensInput.disabled =
+      Boolean(busy);
+  }
+
+  if (closesInput) {
+    closesInput.disabled =
+      Boolean(busy);
+  }
+
+  if (
+    clearButton &&
+    busy
+  ) {
+    clearButton.disabled =
+      true;
+  }
+}
+
+
+function applySubmissionWindowToModal(
+  examId,
+  windowData
+) {
+  const card =
+    submissionWindowModalCard();
+
+  if (!card) {
+    return;
+  }
+
+  if ($("submissionWindowModalExam")) {
+    $("submissionWindowModalExam")
+      .textContent =
+        examId ||
+        "Unknown work";
+  }
+
+  if (
+    $("submissionWindowModalTimezone")
+  ) {
+    $("submissionWindowModalTimezone")
+      .textContent =
+        String(
+          windowData?.timezone ||
+          "Asia/Jerusalem"
+        );
+  }
+
+  updateSubmissionWindowCard(
+    card,
+    windowData || {}
+  );
+}
+
+
+function updateSubmissionWindowForExam(
+  examId,
+  windowData
+) {
+  const existing =
+    solutionBankWorkMap.get(
+      examId
+    ) || {
+      exam_id: examId,
+      items: [],
+    };
+
+  existing.submission_window =
+    windowData || {};
+
+  solutionBankWorkMap.set(
+    examId,
+    existing
+  );
+
+  refreshSubmissionProgressViews(
+    examId
+  );
+}
+
+
+function refreshSubmissionProgressViews(
+  examId = ""
+) {
+  renderWorkProgress();
+
+  const selectedExamId =
+    activeWorkExamId ||
+    String(
+      examId || ""
+    );
+
+  if (!selectedExamId) {
+    return;
+  }
+
+  const selectedWork =
+    filteredWorkProgress().find(
+      (item) =>
+        item.is_matched_exam &&
+        String(
+          item.exam_id || ""
+        ) === selectedExamId
+    );
+
+  if (
+    selectedWork &&
+    $("workDetailPanel")
+      ?.style.display !== "none"
+  ) {
+    renderWorkDetail(
+      selectedWork
+    );
+  }
+}
+
+
+async function openSubmissionWindowModal(
+  examId
+) {
+  const normalizedExamId =
+    String(
+      examId || ""
+    ).trim();
+
+  const modal =
+    $("submissionWindowModal");
+
+  const card =
+    submissionWindowModalCard();
+
+  if (
+    !normalizedExamId ||
+    !modal ||
+    !card
+  ) {
+    return;
+  }
+
+  activeSubmissionWindowExamId =
+    normalizedExamId;
+
+  modal.hidden = false;
+
+  document.body.classList.add(
+    "mg-modal-open"
+  );
+
+  applySubmissionWindowToModal(
+    normalizedExamId,
+    solutionBankWorkMap.get(
+      normalizedExamId
+    )?.submission_window || {}
+  );
+
+  setSubmissionWindowModalBusy(
+    true
+  );
+
+  setSubmissionWindowMessage(
+    card,
+    "Loading submission window…",
+    "work"
+  );
+
+  try {
+    const response =
+      await authedFetch(
+        (
+          API_BASE +
+          "/routes/bank/submission_window" +
+          "?exam_id=" +
+          encodeURIComponent(
+            normalizedExamId
+          )
+        ),
+        {
+          cache: "no-store",
+        }
+      );
+
+    const payload =
+      await response
+        .json()
+        .catch(() => null);
+
+    if (
+      !response.ok ||
+      !payload ||
+      !payload.ok
+    ) {
+      throw new Error(
+        submissionWindowApiError(
+          payload,
+          (
+            "Could not load the " +
+            "submission window."
+          )
+        )
+      );
+    }
+
+    const windowData =
+      payload.submission_window ||
+      {};
+
+    updateSubmissionWindowForExam(
+      normalizedExamId,
+      windowData
+    );
+
+    applySubmissionWindowToModal(
+      normalizedExamId,
+      windowData
+    );
+
+    setSubmissionWindowMessage(
+      card,
+      ""
+    );
+  } catch (error) {
+    setSubmissionWindowMessage(
+      card,
+      (
+        "Load failed: " +
+        (
+          error?.message ||
+          String(error)
+        )
+      ),
+      "err"
+    );
+  } finally {
+    setSubmissionWindowModalBusy(
+      false
+    );
+
+    const currentWindow =
+      solutionBankWorkMap.get(
+        normalizedExamId
+      )?.submission_window || {};
+
+    const clearButton =
+      $("submissionWindowModalClearBtn");
+
+    if (clearButton) {
+      clearButton.disabled =
+        !resolveSubmissionWindowState(
+          currentWindow
+        ).isScheduled;
+    }
+
+    window.setTimeout(
+      () => {
+        $("submissionWindowModalOpens")
+          ?.focus();
+      },
+      60
+    );
+  }
+}
+
+
+function closeSubmissionWindowModal() {
+  const modal =
+    $("submissionWindowModal");
+
+  if (!modal) {
+    return;
+  }
+
+  modal.hidden = true;
+
+  activeSubmissionWindowExamId =
+    "";
+
+  document.body.classList.remove(
+    "mg-modal-open"
+  );
+}
+
+
+async function saveSubmissionWindowFromModal() {
+  const examId =
+    activeSubmissionWindowExamId;
+
+  const card =
+    submissionWindowModalCard();
+
+  const opensAt = String(
+    $("submissionWindowModalOpens")
+      ?.value || ""
+  );
+
+  const closesAt = String(
+    $("submissionWindowModalCloses")
+      ?.value || ""
+  );
+
+  if (
+    !examId ||
+    !card
+  ) {
+    return;
+  }
+
+  if (
+    !opensAt ||
+    !closesAt
+  ) {
+    setSubmissionWindowMessage(
+      card,
+      (
+        "Choose both an opening " +
+        "and closing date."
+      ),
+      "err"
+    );
+
+    return;
+  }
+
+  if (
+    new Date(
+      closesAt
+    ).getTime() <=
+    new Date(
+      opensAt
+    ).getTime()
+  ) {
+    setSubmissionWindowMessage(
+      card,
+      (
+        "Closing time must be later " +
+        "than opening time."
+      ),
+      "err"
+    );
+
+    return;
+  }
+
+  setSubmissionWindowModalBusy(
+    true
+  );
+
+  setSubmissionWindowMessage(
+    card,
+    "Saving submission window…",
+    "work"
+  );
+
+  try {
+    const response =
+      await authedFetch(
+        (
+          API_BASE +
+          "/routes/bank/submission_window"
+        ),
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            exam_id:
+              examId,
+
+            opens_at:
+              opensAt,
+
+            closes_at:
+              closesAt,
+          }),
+        }
+      );
+
+    const payload =
+      await response
+        .json()
+        .catch(() => null);
+
+    if (
+      !response.ok ||
+      !payload ||
+      !payload.ok
+    ) {
+      throw new Error(
+        submissionWindowApiError(
+          payload,
+          (
+            "Could not save the " +
+            "submission window."
+          )
+        )
+      );
+    }
+
+    const windowData =
+      payload.submission_window ||
+      {};
+
+    updateSubmissionWindowForExam(
+      examId,
+      windowData
+    );
+
+    applySubmissionWindowToModal(
+      examId,
+      windowData
+    );
+
+    setSubmissionWindowMessage(
+      card,
+      "Submission window saved.",
+      "ok"
+    );
+  } catch (error) {
+    setSubmissionWindowMessage(
+      card,
+      (
+        "Save failed: " +
+        (
+          error?.message ||
+          String(error)
+        )
+      ),
+      "err"
+    );
+  } finally {
+    setSubmissionWindowModalBusy(
+      false
+    );
+
+    const clearButton =
+      $("submissionWindowModalClearBtn");
+
+    if (clearButton) {
+      clearButton.disabled =
+        !resolveSubmissionWindowState(
+          solutionBankWorkMap.get(
+            examId
+          )?.submission_window || {}
+        ).isScheduled;
+    }
+  }
+}
+
+
+async function clearSubmissionWindowFromModal() {
+  const examId =
+    activeSubmissionWindowExamId;
+
+  const card =
+    submissionWindowModalCard();
+
+  if (
+    !examId ||
+    !card
+  ) {
+    return;
+  }
+
+  const confirmed =
+    window.confirm(
+      (
+        "Clear the submission window " +
+        `for "${examId}"?`
+      )
+    );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setSubmissionWindowModalBusy(
+    true
+  );
+
+  setSubmissionWindowMessage(
+    card,
+    "Clearing submission window…",
+    "work"
+  );
+
+  try {
+    const response =
+      await authedFetch(
+        (
+          API_BASE +
+          "/routes/bank/submission_window" +
+          "?exam_id=" +
+          encodeURIComponent(
+            examId
+          )
+        ),
+        {
+          method: "DELETE",
+        }
+      );
+
+    const payload =
+      await response
+        .json()
+        .catch(() => null);
+
+    if (
+      !response.ok ||
+      !payload ||
+      !payload.ok
+    ) {
+      throw new Error(
+        submissionWindowApiError(
+          payload,
+          (
+            "Could not clear the " +
+            "submission window."
+          )
+        )
+      );
+    }
+
+    const windowData =
+      payload.submission_window ||
+      {};
+
+    updateSubmissionWindowForExam(
+      examId,
+      windowData
+    );
+
+    applySubmissionWindowToModal(
+      examId,
+      windowData
+    );
+
+    setSubmissionWindowMessage(
+      card,
+      "Submission window cleared.",
+      "ok"
+    );
+  } catch (error) {
+    setSubmissionWindowMessage(
+      card,
+      (
+        "Clear failed: " +
+        (
+          error?.message ||
+          String(error)
+        )
+      ),
+      "err"
+    );
+  } finally {
+    setSubmissionWindowModalBusy(
+      false
+    );
+
+    const clearButton =
+      $("submissionWindowModalClearBtn");
+
+    if (clearButton) {
+      clearButton.disabled =
+        !resolveSubmissionWindowState(
+          solutionBankWorkMap.get(
+            examId
+          )?.submission_window || {}
+        ).isScheduled;
+    }
+  }
+}
+
+
+function wireSubmissionWindowButtons(
+  root = document
+) {
+  root
+    .querySelectorAll(
+      '[data-action="manage-submission-window"]'
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          openSubmissionWindowModal(
+            button.dataset.examId ||
+            ""
+          );
+        }
+      );
+
+      button.addEventListener(
+        "keydown",
+        (event) => {
+          event.stopPropagation();
+        }
+      );
+    });
+}
+
+
+function wireSubmissionWindowModal() {
+  document
+    .querySelectorAll(
+      '[data-action="close-submission-window-modal"]'
+    )
+    .forEach((element) => {
+      element.addEventListener(
+        "click",
+        closeSubmissionWindowModal
+      );
+    });
+
+  $("submissionWindowModalCloseBtn")
+    ?.addEventListener(
+      "click",
+      closeSubmissionWindowModal
+    );
+
+  $("submissionWindowModalSaveBtn")
+    ?.addEventListener(
+      "click",
+      saveSubmissionWindowFromModal
+    );
+
+  $("submissionWindowModalClearBtn")
+    ?.addEventListener(
+      "click",
+      clearSubmissionWindowFromModal
+    );
+
+  const opensInput =
+    $("submissionWindowModalOpens");
+
+  const closesInput =
+    $("submissionWindowModalCloses");
+
+  if (
+    opensInput &&
+    closesInput
+  ) {
+    opensInput.addEventListener(
+      "change",
+      () => {
+        closesInput.min =
+          opensInput.value || "";
+      }
+    );
+  }
+
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        event.key === "Escape" &&
+        !$("submissionWindowModal")
+          ?.hidden
+      ) {
+        closeSubmissionWindowModal();
+      }
+    }
+  );
+}
+
+
+wireSubmissionWindowModal();
+
 
 function renderSolutionList(items) {
   $("itemsList").innerHTML = "";
@@ -3029,8 +4944,40 @@ function renderSolutionList(items) {
 
     let selectedIndex = 0;
 
-    const previewEl = div.querySelector(".preview");
-    const activeFileEl = div.querySelector('[data-role="active-file"]');
+    const previewEl =
+      div.querySelector(
+        ".preview"
+      );
+
+    const activeFileEl =
+      div.querySelector(
+        '[data-role="active-file"]'
+      );
+
+    const submissionWindowCard =
+      div.querySelector(
+        '[data-role="submission-window-card"]'
+      );
+
+    const submissionOpensInput =
+      div.querySelector(
+        '[data-role="submission-opens"]'
+      );
+
+    const submissionClosesInput =
+      div.querySelector(
+        '[data-role="submission-closes"]'
+      );
+
+    const saveSubmissionWindowBtn =
+      div.querySelector(
+        '[data-action="save-submission-window"]'
+      );
+
+    const clearSubmissionWindowBtn =
+      div.querySelector(
+        '[data-action="clear-submission-window"]'
+      );
 
     function selectedItem() {
       return group.items[selectedIndex] || group.primaryItem || group.items[0];
@@ -3054,12 +5001,290 @@ function renderSolutionList(items) {
       }
     }
 
-    div.querySelectorAll(".mg-solution-tab").forEach(btn => {
-      btn.onclick = () => {
-        selectedIndex = Number(btn.getAttribute("data-tab-index") || 0);
-        updateSelectedTab();
-      };
-    });
+    div
+      .querySelectorAll(
+        ".mg-solution-tab"
+      )
+      .forEach((btn) => {
+        btn.onclick = () => {
+          selectedIndex = Number(
+            btn.getAttribute(
+              "data-tab-index"
+            ) || 0
+          );
+
+          updateSelectedTab();
+        };
+      });
+
+    if (
+      submissionOpensInput &&
+      submissionClosesInput
+    ) {
+      submissionOpensInput.addEventListener(
+        "change",
+        () => {
+          submissionClosesInput.min =
+            submissionOpensInput.value ||
+            "";
+        }
+      );
+
+      submissionClosesInput.min =
+        submissionOpensInput.value ||
+        "";
+    }
+
+    if (saveSubmissionWindowBtn) {
+      saveSubmissionWindowBtn.onclick =
+        async () => {
+          const opensAt = String(
+            submissionOpensInput?.value ||
+            ""
+          );
+
+          const closesAt = String(
+            submissionClosesInput?.value ||
+            ""
+          );
+
+          if (!opensAt || !closesAt) {
+            setSubmissionWindowMessage(
+              submissionWindowCard,
+              (
+                "Choose both an opening " +
+                "and closing date."
+              ),
+              "err"
+            );
+
+            return;
+          }
+
+          if (
+            new Date(closesAt).getTime() <=
+            new Date(opensAt).getTime()
+          ) {
+            setSubmissionWindowMessage(
+              submissionWindowCard,
+              (
+                "Closing time must be later " +
+                "than opening time."
+              ),
+              "err"
+            );
+
+            return;
+          }
+
+          saveSubmissionWindowBtn.disabled =
+            true;
+
+          if (clearSubmissionWindowBtn) {
+            clearSubmissionWindowBtn.disabled =
+              true;
+          }
+
+          setSubmissionWindowMessage(
+            submissionWindowCard,
+            "Saving submission window…",
+            "work"
+          );
+
+          try {
+            const response =
+              await authedFetch(
+                (
+                  API_BASE +
+                  "/routes/bank/submission_window"
+                ),
+                {
+                  method: "POST",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json"
+                  },
+
+                  body: JSON.stringify({
+                    exam_id:
+                      group.exam_id,
+
+                    opens_at:
+                      opensAt,
+
+                    closes_at:
+                      closesAt,
+                  }),
+                }
+              );
+
+            const payload =
+              await response
+                .json()
+                .catch(() => null);
+
+            if (
+              !response.ok ||
+              !payload ||
+              !payload.ok
+            ) {
+              throw new Error(
+                submissionWindowApiError(
+                  payload,
+                  (
+                    "Could not save the " +
+                    "submission window."
+                  )
+                )
+              );
+            }
+
+            group.submission_window =
+              payload.submission_window ||
+              {};
+
+            updateSubmissionWindowCard(
+              submissionWindowCard,
+              group.submission_window
+            );
+
+            setSubmissionWindowMessage(
+              submissionWindowCard,
+              "Submission window saved.",
+              "ok"
+            );
+          } catch (error) {
+            setSubmissionWindowMessage(
+              submissionWindowCard,
+              (
+                "Save failed: " +
+                (
+                  error?.message ||
+                  String(error)
+                )
+              ),
+              "err"
+            );
+          } finally {
+            saveSubmissionWindowBtn.disabled =
+              false;
+
+            if (clearSubmissionWindowBtn) {
+              clearSubmissionWindowBtn.disabled =
+                !resolveSubmissionWindowState(
+                  group.submission_window
+                ).isScheduled;
+            }
+          }
+        };
+    }
+
+    if (clearSubmissionWindowBtn) {
+      clearSubmissionWindowBtn.onclick =
+        async () => {
+          const confirmed =
+            window.confirm(
+              (
+                `Clear the submission window ` +
+                `for "${group.exam_id}"?`
+              )
+            );
+
+          if (!confirmed) {
+            return;
+          }
+
+          clearSubmissionWindowBtn.disabled =
+            true;
+
+          if (saveSubmissionWindowBtn) {
+            saveSubmissionWindowBtn.disabled =
+              true;
+          }
+
+          setSubmissionWindowMessage(
+            submissionWindowCard,
+            "Clearing submission window…",
+            "work"
+          );
+
+          try {
+            const response =
+              await authedFetch(
+                (
+                  API_BASE +
+                  "/routes/bank/submission_window" +
+                  "?exam_id=" +
+                  encodeURIComponent(
+                    group.exam_id
+                  )
+                ),
+                {
+                  method: "DELETE",
+                }
+              );
+
+            const payload =
+              await response
+                .json()
+                .catch(() => null);
+
+            if (
+              !response.ok ||
+              !payload ||
+              !payload.ok
+            ) {
+              throw new Error(
+                submissionWindowApiError(
+                  payload,
+                  (
+                    "Could not clear the " +
+                    "submission window."
+                  )
+                )
+              );
+            }
+
+            group.submission_window =
+              payload.submission_window ||
+              {};
+
+            updateSubmissionWindowCard(
+              submissionWindowCard,
+              group.submission_window
+            );
+
+            setSubmissionWindowMessage(
+              submissionWindowCard,
+              "Submission window cleared.",
+              "ok"
+            );
+          } catch (error) {
+            setSubmissionWindowMessage(
+              submissionWindowCard,
+              (
+                "Clear failed: " +
+                (
+                  error?.message ||
+                  String(error)
+                )
+              ),
+              "err"
+            );
+          } finally {
+            if (saveSubmissionWindowBtn) {
+              saveSubmissionWindowBtn.disabled =
+                false;
+            }
+
+            clearSubmissionWindowBtn.disabled =
+              !resolveSubmissionWindowState(
+                group.submission_window
+              ).isScheduled;
+          }
+        };
+    }
 
     div.querySelector('[data-action="preview"]').onclick = async () => {
       const it = selectedItem();

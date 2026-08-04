@@ -5,6 +5,10 @@ from pathlib import Path
 import json
 import re
 from datetime import datetime
+from zoneinfo import (
+    ZoneInfo,
+    ZoneInfoNotFoundError,
+)
 import shutil
 from pydantic import BaseModel
 from typing import Optional
@@ -17,7 +21,10 @@ from fastapi.responses import PlainTextResponse
 
 from core.security import require_teacher
 from core.storage import require_safe_exam_id, require_safe_filename, uploads_dir, write_reference_summary, write_question_reservoir
-from core.config import BANK_ROOT
+from core.config import (
+    APP_TIMEZONE,
+    BANK_ROOT,
+)
 from common.tex.reference_tex import parse_reference_tex
 
 from starlette.concurrency import run_in_threadpool
@@ -124,6 +131,286 @@ class ExamRenameReq(BaseModel):
 
 class ExamDeleteReq(BaseModel):
     exam_id: str
+
+
+class SubmissionWindowReq(BaseModel):
+    exam_id: str
+    opens_at: str
+    closes_at: str
+
+
+SUBMISSION_WINDOW_FILENAME = (
+    "submission_window.json"
+)
+
+
+def _app_timezone():
+    """
+    Return the configured application timezone.
+
+    On Windows, the IANA timezone database may be
+    unavailable. In that case, use the computer's
+    local timezone rather than failing the request.
+    """
+    try:
+        return ZoneInfo(
+            APP_TIMEZONE
+        )
+    except (
+        ZoneInfoNotFoundError,
+        ValueError,
+    ):
+        return (
+            datetime.now()
+            .astimezone()
+            .tzinfo
+        )
+
+
+def _submission_window_path(
+    exam_id: str,
+) -> Path:
+    return (
+        uploads_dir(exam_id)
+        / SUBMISSION_WINDOW_FILENAME
+    )
+
+
+def _parse_submission_window_datetime(
+    value: str,
+    *,
+    label: str,
+) -> datetime:
+    """
+    Parse either:
+
+    - datetime-local browser input:
+      2026-08-05T08:00
+
+    - timezone-aware ISO value:
+      2026-08-05T08:00:00+03:00
+
+    Browser datetime-local values are interpreted in
+    the configured MathGrade application timezone.
+    """
+    text = str(
+        value or ""
+    ).strip()
+
+    if not text:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} is required.",
+        )
+
+    try:
+        parsed = datetime.fromisoformat(
+            text.replace(
+                "Z",
+                "+00:00",
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{label} must be a valid "
+                "date and time."
+            ),
+        ) from exc
+
+    app_timezone = (
+        _app_timezone()
+    )
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(
+            tzinfo=app_timezone,
+        )
+    else:
+        parsed = parsed.astimezone(
+            app_timezone,
+        )
+
+    return parsed.replace(
+        second=0,
+        microsecond=0,
+    )
+
+
+def _empty_submission_window(
+    exam_id: str,
+) -> dict:
+    return {
+        "exam_id": exam_id,
+        "timezone": APP_TIMEZONE,
+        "is_scheduled": False,
+        "accepts_submissions": False,
+        "status": "not_scheduled",
+        "status_label": "Not scheduled",
+        "opens_at": "",
+        "closes_at": "",
+        "opens_at_local": "",
+        "closes_at_local": "",
+        "updated_at": "",
+    }
+
+
+def _submission_window_view(
+    exam_id: str,
+    stored: dict | None,
+) -> dict:
+    """
+    Return the current dynamic state of a saved
+    submission window.
+
+    Status is calculated when the API is read rather
+    than permanently stored, because an upcoming
+    window automatically becomes open and later closed.
+    """
+    if not isinstance(
+        stored,
+        dict,
+    ):
+        return (
+            _empty_submission_window(
+                exam_id
+            )
+        )
+
+    try:
+        opens_at = (
+            _parse_submission_window_datetime(
+                str(
+                    stored.get(
+                        "opens_at"
+                    )
+                    or ""
+                ),
+                label="Opening time",
+            )
+        )
+
+        closes_at = (
+            _parse_submission_window_datetime(
+                str(
+                    stored.get(
+                        "closes_at"
+                    )
+                    or ""
+                ),
+                label="Closing time",
+            )
+        )
+    except HTTPException:
+        invalid = (
+            _empty_submission_window(
+                exam_id
+            )
+        )
+
+        invalid["status"] = "invalid"
+        invalid["status_label"] = (
+            "Schedule needs repair"
+        )
+
+        invalid["warning"] = (
+            "The saved submission window "
+            "contains an invalid date."
+        )
+
+        return invalid
+
+    now = datetime.now(
+        _app_timezone()
+    )
+
+    if now < opens_at:
+        status = "upcoming"
+        status_label = "Upcoming"
+    elif now < closes_at:
+        status = "open"
+        status_label = (
+            "Open for submission"
+        )
+    else:
+        status = "closed"
+        status_label = (
+            "Submission closed"
+        )
+
+    return {
+        "exam_id": exam_id,
+        "timezone": APP_TIMEZONE,
+        "is_scheduled": True,
+        "accepts_submissions": (
+            status == "open"
+        ),
+        "status": status,
+        "status_label": status_label,
+
+        # Timezone-aware values for future API enforcement.
+        "opens_at": (
+            opens_at.isoformat(
+                timespec="minutes"
+            )
+        ),
+        "closes_at": (
+            closes_at.isoformat(
+                timespec="minutes"
+            )
+        ),
+
+        # Values ready for <input type="datetime-local">.
+        "opens_at_local": (
+            opens_at.strftime(
+                "%Y-%m-%dT%H:%M"
+            )
+        ),
+        "closes_at_local": (
+            closes_at.strftime(
+                "%Y-%m-%dT%H:%M"
+            )
+        ),
+
+        "updated_at": str(
+            stored.get("updated_at")
+            or ""
+        ),
+    }
+
+
+def _read_submission_window(
+    exam_id: str,
+) -> dict:
+    path = (
+        _submission_window_path(
+            exam_id
+        )
+    )
+
+    if not path.exists():
+        return (
+            _empty_submission_window(
+                exam_id
+            )
+        )
+
+    try:
+        stored = json.loads(
+            path.read_text(
+                encoding="utf-8"
+            )
+        )
+    except Exception:
+        stored = None
+
+    return (
+        _submission_window_view(
+            exam_id,
+            stored,
+        )
+    )
 
 
 TEX_SUFFIXES = {".tex", ".txt"}
@@ -1679,6 +1966,165 @@ async def upload_questions_and_answers_pair_to_bank(
         raise
 
 
+@router.get("/submission_window")
+def get_submission_window(
+    exam_id: str,
+    _session: dict = Depends(
+        require_teacher
+    ),
+):
+    _bind_teacher_bank_from_session(
+        _session
+    )
+
+    exam_id = require_safe_exam_id(
+        exam_id
+    )
+
+    if not exam_dir(exam_id).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="exam_id not found",
+        )
+
+    return {
+        "ok": True,
+        "submission_window": (
+            _read_submission_window(
+                exam_id
+            )
+        ),
+    }
+
+
+@router.post("/submission_window")
+def save_submission_window(
+    req: SubmissionWindowReq,
+    _session: dict = Depends(
+        require_teacher
+    ),
+):
+    _bind_teacher_bank_from_session(
+        _session
+    )
+
+    exam_id = require_safe_exam_id(
+        req.exam_id
+    )
+
+    if not exam_dir(exam_id).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="exam_id not found",
+        )
+
+    opens_at = (
+        _parse_submission_window_datetime(
+            req.opens_at,
+            label="Opening time",
+        )
+    )
+
+    closes_at = (
+        _parse_submission_window_datetime(
+            req.closes_at,
+            label="Closing time",
+        )
+    )
+
+    if closes_at <= opens_at:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Closing time must be later "
+                "than opening time."
+            ),
+        )
+
+    now = datetime.now(
+        _app_timezone()
+    ).replace(
+        microsecond=0
+    )
+
+    stored = {
+        "schema_version": (
+            "submission_window_v1"
+        ),
+        "exam_id": exam_id,
+        "timezone": APP_TIMEZONE,
+        "opens_at": (
+            opens_at.isoformat(
+                timespec="minutes"
+            )
+        ),
+        "closes_at": (
+            closes_at.isoformat(
+                timespec="minutes"
+            )
+        ),
+        "updated_at": (
+            now.isoformat(
+                timespec="seconds"
+            )
+        ),
+    }
+
+    _write_json(
+        _submission_window_path(
+            exam_id
+        ),
+        stored,
+    )
+
+    return {
+        "ok": True,
+        "submission_window": (
+            _submission_window_view(
+                exam_id,
+                stored,
+            )
+        ),
+    }
+
+
+@router.delete("/submission_window")
+def clear_submission_window(
+    exam_id: str,
+    _session: dict = Depends(
+        require_teacher
+    ),
+):
+    _bind_teacher_bank_from_session(
+        _session
+    )
+
+    exam_id = require_safe_exam_id(
+        exam_id
+    )
+
+    if not exam_dir(exam_id).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="exam_id not found",
+        )
+
+    _submission_window_path(
+        exam_id
+    ).unlink(
+        missing_ok=True
+    )
+
+    return {
+        "ok": True,
+        "submission_window": (
+            _empty_submission_window(
+                exam_id
+            )
+        ),
+    }
+
+
 @router.get("/list")
 def list_exam_files(
     exam_id: str,
@@ -1737,7 +2183,15 @@ def list_exam_files(
             "practice_part_count": meta.get("practice_part_count"),
         })
 
-    return {"exam_id": exam_id, "items": items}
+    return {
+        "exam_id": exam_id,
+        "submission_window": (
+            _read_submission_window(
+                exam_id
+            )
+        ),
+        "items": items,
+    }
 
 @router.get("/token_usage")
 def bank_token_usage(_session: dict = Depends(require_teacher)):
@@ -2002,13 +2456,60 @@ def rename_exam(req: ExamRenameReq, _session: dict = Depends(require_teacher)):
 
     old_dir.rename(new_dir)
 
-    # Update stored metadata so preview/list show the new id
-    for meta_path in new_dir.rglob("*.meta.json"):
+    # Update stored metadata so preview/list show the new id.
+    for meta_path in new_dir.rglob(
+        "*.meta.json"
+    ):
         try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta = json.loads(
+                meta_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+
             meta["exam_id"] = new_id
-            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            meta_path.write_text(
+                json.dumps(
+                    meta,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
         except Exception:
             pass
 
-    return {"ok": True, "old_exam_id": old_id, "new_exam_id": new_id}
+    submission_window_path = (
+        uploads_dir(new_id)
+        / SUBMISSION_WINDOW_FILENAME
+    )
+
+    if submission_window_path.exists():
+        try:
+            submission_window = json.loads(
+                submission_window_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            if isinstance(
+                submission_window,
+                dict,
+            ):
+                submission_window[
+                    "exam_id"
+                ] = new_id
+
+                _write_json(
+                    submission_window_path,
+                    submission_window,
+                )
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "old_exam_id": old_id,
+        "new_exam_id": new_id,
+    }
