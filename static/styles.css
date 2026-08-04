@@ -353,8 +353,263 @@ input[type=file]{display:none;}
 .statusBox.ok{border-color:#cfe7d1;background:#edf7ee;color:#2f7d32;}
 .statusBox.work{border-color:#f6d39b;background:#fff7eb;color:#8a5a17;}
 
-.placeholderGrid{margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
-.placeholderCard,
+
+/* Student-facing grading failure card.
+   The technical status log remains directly below it. */
+.mg-grading-failure-card[hidden] {
+  display: none !important;
+}
+
+.mg-grading-failure-card {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 26px;
+  padding: 22px;
+  overflow: hidden;
+
+  border: 1px solid #efbcb5;
+  border-left: 7px solid #c43d2f;
+  border-radius: 22px;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(196, 61, 47, .10),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      #fff8f7,
+      #fff1ef
+    );
+
+  box-shadow:
+    0 16px 38px
+    rgba(127, 40, 31, .12);
+}
+
+.mg-grading-failure-card::after {
+  content: "";
+  position: absolute;
+  inset:
+    auto
+    -55px
+    -80px
+    auto;
+
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+
+  background:
+    rgba(196, 61, 47, .055);
+
+  pointer-events: none;
+}
+
+.mg-grading-failure-icon {
+  position: relative;
+  z-index: 1;
+
+  width: 56px;
+  height: 56px;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid #e7aaa2;
+  border-radius: 18px;
+  background: #ffffff;
+  color: #b5372b;
+
+  font-size: 29px;
+  font-weight: 950;
+
+  box-shadow:
+    0 10px 22px
+    rgba(196, 61, 47, .11);
+}
+
+.mg-grading-failure-content {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.mg-grading-failure-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mg-grading-failure-eyebrow {
+  margin-bottom: 5px;
+  color: #a1362b;
+
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+}
+
+.mg-grading-failure-head h3 {
+  margin: 0;
+  color: #75271f;
+
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: -.025em;
+}
+
+.mg-grading-failure-close {
+  width: 36px !important;
+  min-width: 36px;
+
+  height: 36px;
+  min-height: 36px !important;
+
+  padding: 0 !important;
+  flex: 0 0 36px;
+
+  border-color: #e8b8b2 !important;
+  border-radius: 999px !important;
+
+  background:
+    rgba(255, 255, 255, .82) !important;
+
+  color: #9f2f25 !important;
+  font-size: 23px !important;
+  line-height: 1;
+
+  box-shadow: none !important;
+}
+
+.mg-grading-failure-message {
+  max-width: 900px;
+  margin: 12px 0 0;
+
+  color: #6e3732;
+
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.6;
+}
+
+.mg-grading-failure-parts-wrap {
+  margin-top: 16px;
+}
+
+.mg-grading-failure-parts-wrap > strong,
+.mg-grading-failure-next > strong {
+  display: block;
+  margin-bottom: 8px;
+
+  color: #75271f;
+
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.mg-grading-failure-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mg-grading-failure-part {
+  display: inline-flex;
+  align-items: center;
+
+  min-height: 34px;
+  padding: 7px 12px;
+
+  border: 1px solid #e6aaa2;
+  border-radius: 999px;
+
+  background: #ffffff;
+  color: #9f2f25;
+
+  font-size: 14px;
+  font-weight: 950;
+
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.mg-grading-failure-next {
+  margin-top: 16px;
+  padding: 13px 15px;
+
+  border: 1px solid #f0c7a2;
+  border-radius: 16px;
+
+  background:
+    rgba(255, 250, 243, .88);
+}
+
+.mg-grading-failure-next span {
+  display: block;
+  color: #6f5231;
+
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.mg-grading-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+
+  margin-top: 16px;
+}
+
+.mg-grading-failure-actions
+.secondary-btn {
+  width: auto;
+
+  border-color: #e4b3ac;
+  color: #8f3027;
+
+  box-shadow: none;
+}
+
+.mg-grading-failure-actions
+.secondary-btn:hover {
+  border-color: #cf766c;
+  background: #ffffff;
+}
+
+@media (max-width: 700px) {
+  .mg-grading-failure-card {
+    grid-template-columns: 1fr;
+    padding: 18px;
+  }
+
+  .mg-grading-failure-icon {
+    width: 48px;
+    height: 48px;
+
+    border-radius: 16px;
+    font-size: 25px;
+  }
+
+  .mg-grading-failure-head h3 {
+    font-size: 19px;
+  }
+
+  .mg-grading-failure-actions
+  .secondary-btn {
+    width: 100%;
+  }
+}
+
+
+.placeholderGrid
 .examItem,
 .item{
   border:1px solid var(--line);

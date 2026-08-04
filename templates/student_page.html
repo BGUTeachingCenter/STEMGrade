@@ -528,6 +528,97 @@
 </div>
         </div>
 
+        <section
+          id="gradingFailureCard"
+          class="mg-grading-failure-card"
+          role="alert"
+          aria-live="assertive"
+          hidden
+        >
+          <div
+            class="mg-grading-failure-icon"
+            aria-hidden="true"
+          >
+            !
+          </div>
+
+          <div class="mg-grading-failure-content">
+            <div class="mg-grading-failure-head">
+              <div>
+                <div class="mg-grading-failure-eyebrow">
+                  Grading stopped
+                </div>
+
+                <h3 id="gradingFailureTitle">
+                  We couldn't grade this submission
+                </h3>
+              </div>
+
+              <button
+                id="gradingFailureCloseBtn"
+                class="secondary mg-grading-failure-close"
+                type="button"
+                aria-label="Dismiss grading error"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+
+            <p
+              id="gradingFailureMessage"
+              class="mg-grading-failure-message"
+            ></p>
+
+            <div
+              id="gradingFailurePartsWrap"
+              class="mg-grading-failure-parts-wrap"
+              hidden
+            >
+              <strong>Parts to check</strong>
+
+              <div
+                id="gradingFailureParts"
+                class="mg-grading-failure-parts"
+              ></div>
+            </div>
+
+            <div class="mg-grading-failure-next">
+              <strong>What to do next</strong>
+
+              <span id="gradingFailureSuggestion"></span>
+            </div>
+
+            <div class="mg-grading-failure-actions">
+              <button
+                id="gradingFailureReviewBtn"
+                class="secondary-btn secondary small"
+                type="button"
+                hidden
+              >
+                Review OCR
+              </button>
+
+              <button
+                id="gradingFailureEditBtn"
+                class="secondary-btn secondary small"
+                type="button"
+                hidden
+              >
+                Edit LaTeX
+              </button>
+
+              <button
+                id="gradingFailureUploadBtn"
+                class="secondary-btn secondary small"
+                type="button"
+              >
+                Choose another file
+              </button>
+            </div>
+          </div>
+        </section>
+
         <div class="statusBox" id="status">Idle</div>
     </section>
   </main>
@@ -698,8 +789,65 @@
       return res;
     }
 
-    const statusEl = document.getElementById("status");
-    const studentTex = document.getElementById("studentTex");
+    const statusEl =
+      document.getElementById(
+        "status"
+      );
+
+    const gradingFailureCard =
+      document.getElementById(
+        "gradingFailureCard"
+      );
+
+    const gradingFailureTitle =
+      document.getElementById(
+        "gradingFailureTitle"
+      );
+
+    const gradingFailureMessage =
+      document.getElementById(
+        "gradingFailureMessage"
+      );
+
+    const gradingFailurePartsWrap =
+      document.getElementById(
+        "gradingFailurePartsWrap"
+      );
+
+    const gradingFailureParts =
+      document.getElementById(
+        "gradingFailureParts"
+      );
+
+    const gradingFailureSuggestion =
+      document.getElementById(
+        "gradingFailureSuggestion"
+      );
+
+    const gradingFailureCloseBtn =
+      document.getElementById(
+        "gradingFailureCloseBtn"
+      );
+
+    const gradingFailureReviewBtn =
+      document.getElementById(
+        "gradingFailureReviewBtn"
+      );
+
+    const gradingFailureEditBtn =
+      document.getElementById(
+        "gradingFailureEditBtn"
+      );
+
+    const gradingFailureUploadBtn =
+      document.getElementById(
+        "gradingFailureUploadBtn"
+      );
+
+    const studentTex =
+      document.getElementById(
+        "studentTex"
+      );
     const dropStudentTex = document.getElementById("dropStudentTex");
     const stuChip = document.getElementById("stuChip");
     const stuName = document.getElementById("stuName");
@@ -8745,9 +8893,240 @@ function wireSavedOcrButtons() {
 
     function hideBusy() {
       if (busyOverlay) {
-        busyOverlay.classList.remove("show");
-        busyOverlay.setAttribute("aria-hidden", "true");
+        busyOverlay.classList.remove(
+          "show"
+        );
+
+        busyOverlay.setAttribute(
+          "aria-hidden",
+          "true"
+        );
       }
+    }
+
+    function hideGradingFailureCard() {
+      if (!gradingFailureCard) {
+        return;
+      }
+
+      gradingFailureCard.hidden = true;
+    }
+
+    function extractUnmatchedPartsFromError(
+      errorText
+    ) {
+      const text = String(
+        errorText || ""
+      );
+
+      const sectionMatch = text.match(
+        /selected reference:\s*(.*?)\.\s*No partial grading result/is
+      );
+
+      const candidates = sectionMatch
+        ? sectionMatch[1].split(
+            /\s*[,;]\s*/
+          )
+        : (
+            text.match(
+              /Q\d+\s*(?:\([^)]*\))?/gi
+            ) || []
+          );
+
+      return Array.from(
+        new Set(
+          candidates
+            .map((item) =>
+              String(
+                item || ""
+              ).trim()
+            )
+            .filter(Boolean)
+        )
+      );
+    }
+
+    function normalizeGradingFailure(
+      detail,
+      statusCode = 500
+    ) {
+      const structuredDetail = (
+        detail &&
+        typeof detail === "object" &&
+        !Array.isArray(detail)
+      )
+        ? detail
+        : {};
+
+      const technicalDetail = String(
+        structuredDetail.technical_detail ||
+        (
+          typeof detail === "string"
+            ? detail
+            : JSON.stringify(
+                detail || {},
+                null,
+                2
+              )
+        )
+      ).trim();
+
+      const coverageFailed = (
+        structuredDetail.code ===
+          "grading_coverage_failed" ||
+
+        technicalDetail.includes(
+          "Grading coverage check failed before AI grading"
+        )
+      );
+
+      const unmatchedParts = Array.isArray(
+        structuredDetail.unmatched_parts
+      )
+        ? structuredDetail.unmatched_parts
+            .map((item) =>
+              String(
+                item || ""
+              ).trim()
+            )
+            .filter(Boolean)
+        : extractUnmatchedPartsFromError(
+            technicalDetail
+          );
+
+      return {
+        title: String(
+          structuredDetail.title ||
+          (
+            coverageFailed
+              ? (
+                  "We couldn't grade this submission"
+                )
+              : (
+                  "Grading could not be completed"
+                )
+          )
+        ),
+
+        message: String(
+          structuredDetail.message ||
+          (
+            coverageFailed
+              ? (
+                  "Some answer sections could not be matched safely " +
+                  "to the selected assignment, so no partial result " +
+                  "was created."
+                )
+              : (
+                  "Something went wrong while grading this submission. " +
+                  "No grading result was created."
+                )
+          )
+        ),
+
+        suggestion: String(
+          structuredDetail.suggestion ||
+          (
+            coverageFailed
+              ? (
+                  "Check that the question numbers and part labels in " +
+                  "your submitted work match the assignment. If this " +
+                  "came from OCR, correct the labels in the LaTeX text, " +
+                  "choose ‘Use this as LaTeX answer’, and grade again."
+                )
+              : (
+                  "Try grading again. If the problem continues, ask your " +
+                  "teacher to check the submission and assignment reference."
+                )
+          )
+        ),
+
+        unmatchedParts,
+        technicalDetail,
+        statusCode
+      };
+    }
+
+    function showGradingFailureCard(
+      detail,
+      statusCode = 500
+    ) {
+      if (!gradingFailureCard) {
+        return;
+      }
+
+      const failure =
+        normalizeGradingFailure(
+          detail,
+          statusCode
+        );
+
+      if (gradingFailureTitle) {
+        gradingFailureTitle.textContent =
+          failure.title;
+      }
+
+      if (gradingFailureMessage) {
+        gradingFailureMessage.textContent =
+          failure.message;
+      }
+
+      if (gradingFailureSuggestion) {
+        gradingFailureSuggestion.textContent =
+          failure.suggestion;
+      }
+
+      if (gradingFailureParts) {
+        gradingFailureParts.replaceChildren();
+
+        failure.unmatchedParts.forEach(
+          (partLabel) => {
+            const chip =
+              document.createElement(
+                "span"
+              );
+
+            chip.className =
+              "mg-grading-failure-part";
+
+            chip.textContent =
+              partLabel;
+
+            gradingFailureParts.appendChild(
+              chip
+            );
+          }
+        );
+      }
+
+      if (gradingFailurePartsWrap) {
+        gradingFailurePartsWrap.hidden =
+          failure.unmatchedParts.length === 0;
+      }
+
+      const hasEditableOcr = !!(
+        ocrReviewPanel &&
+        ocrTexReview &&
+        ocrTexReview.value.trim()
+      );
+
+      if (gradingFailureReviewBtn) {
+        gradingFailureReviewBtn.hidden =
+          !hasEditableOcr;
+      }
+
+      if (gradingFailureEditBtn) {
+        gradingFailureEditBtn.hidden =
+          !hasEditableOcr ||
+          TEACHER_REVIEW_MODE;
+      }
+
+      gradingFailureCard.hidden = false;
+
+      gradingFailureCard.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
     }
 
     wireDropZone(dropStudentTex, studentTex, (f) => {
@@ -8818,8 +9197,19 @@ function wireSavedOcrButtons() {
         window.location.href = "/student-login";
         return;
       }
-      const stu = (studentTex.files && studentTex.files[0]) || ocrGeneratedBundleFile || ocrGeneratedTexFile;
-      if (!stu) return;
+      const stu =
+        (
+          studentTex.files &&
+          studentTex.files[0]
+        ) ||
+        ocrGeneratedBundleFile ||
+        ocrGeneratedTexFile;
+
+      if (!stu) {
+        return;
+      }
+
+      hideGradingFailureCard();
 
       disableAll(true);
       showBusy(`${providerLabel} is running…`);
@@ -8913,14 +9303,82 @@ function wireSavedOcrButtons() {
 
         if (!res.ok) {
           stopSignal.stopped = true;
+
           await pollPromise;
-          if (contentType.includes("application/json")) {
-            const j = await res.json();
-            lines.push(`[${nowTag()}] ERROR: ${typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail ?? j, null, 2)}`);
+
+          let responseDetail = null;
+          let technicalDetail = "";
+
+          if (
+            contentType.includes(
+              "application/json"
+            )
+          ) {
+            const responseJson =
+              await res.json().catch(
+                () => null
+              );
+
+            responseDetail =
+              responseJson?.detail ??
+              responseJson;
+
+            if (
+              responseDetail &&
+              typeof responseDetail ===
+                "object"
+            ) {
+              technicalDetail = String(
+                responseDetail.technical_detail ||
+                JSON.stringify(
+                  responseDetail,
+                  null,
+                  2
+                )
+              );
+
+              if (
+                responseDetail.debug_log_path
+              ) {
+                technicalDetail +=
+                  "\n\nSaved traceback to: " +
+                  responseDetail.debug_log_path;
+              }
+            } else {
+              technicalDetail = String(
+                responseDetail ||
+                (
+                  `Grading request failed ` +
+                  `(${res.status})`
+                )
+              );
+            }
           } else {
-            lines.push(`[${nowTag()}] ERROR: ${await res.text()}`);
+            technicalDetail =
+              await res.text();
+
+            responseDetail =
+              technicalDetail;
           }
-          setStatusText(lines, "err");
+
+          showGradingFailureCard(
+            responseDetail,
+            res.status
+          );
+
+          /*
+           * Preserve the complete technical information
+           * in the existing bottom log.
+           */
+          lines.push(
+            `[${nowTag()}] ERROR: ${technicalDetail}`
+          );
+
+          setStatusText(
+            lines,
+            "err"
+          );
+
           return;
         }
 
@@ -9206,6 +9664,64 @@ function wireSavedOcrButtons() {
       if (studentTex) studentTex.value = "";
 
       updateUI();
+    }
+
+    if (gradingFailureCloseBtn) {
+      gradingFailureCloseBtn.addEventListener(
+        "click",
+        hideGradingFailureCard
+      );
+    }
+
+    if (gradingFailureReviewBtn) {
+      gradingFailureReviewBtn.addEventListener(
+        "click",
+        () => {
+          activateOcrReviewTab(
+            "preview"
+          );
+
+          ocrReviewPanel?.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+        }
+      );
+    }
+
+    if (gradingFailureEditBtn) {
+      gradingFailureEditBtn.addEventListener(
+        "click",
+        () => {
+          activateOcrReviewTab(
+            "edit"
+          );
+
+          ocrReviewPanel?.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+
+          window.setTimeout(
+            () => {
+              ocrTexReview?.focus();
+            },
+            350
+          );
+        }
+      );
+    }
+
+    if (gradingFailureUploadBtn) {
+      gradingFailureUploadBtn.addEventListener(
+        "click",
+        () => {
+          feedbackUploadArea?.scrollIntoView({
+            behavior: "smooth",
+            block: "center"
+          });
+        }
+      );
     }
 
     gradeOllamaBtn.addEventListener("click", () => postAndDownload(ENDPOINT_GRADE_OLLAMA, "graded_test_ollama.pdf", "Ollama grading"));

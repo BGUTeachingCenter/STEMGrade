@@ -115,6 +115,130 @@ def _display_provider(provider: str) -> str:
     return "ollama"
 
 
+def _extract_unmatched_grading_parts(
+    error_text: str,
+) -> list[str]:
+    """
+    Extract labels such as Q1(ו) from a grading coverage error.
+    """
+    text = str(error_text or "").strip()
+
+    section_match = re.search(
+        (
+            r"selected reference:\s*(.*?)"
+            r"\.\s*No partial grading result"
+        ),
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    if section_match:
+        candidates = re.split(
+            r"\s*[,;]\s*",
+            section_match.group(1),
+        )
+    else:
+        candidates = re.findall(
+            r"Q\d+\s*(?:\([^)]*\))?",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    result: list[str] = []
+
+    for candidate in candidates:
+        label = str(candidate or "").strip()
+
+        if not label or label in result:
+            continue
+
+        result.append(label)
+
+    return result
+
+
+def _student_facing_grading_error(
+    error: Exception,
+    *,
+    log_path: Path | str,
+) -> tuple[int, dict[str, Any]]:
+    """
+    Build a structured student-facing error while retaining
+    the complete technical information for the bottom log.
+    """
+    technical_detail = _safe_str(
+        error,
+        4000,
+    )
+
+    debug_log_path = str(
+        log_path or ""
+    )
+
+    coverage_failed = (
+        "Grading coverage check failed before AI grading"
+        in technical_detail
+    )
+
+    if coverage_failed:
+        unmatched_parts = (
+            _extract_unmatched_grading_parts(
+                technical_detail
+            )
+        )
+
+        return 422, {
+            "code": "grading_coverage_failed",
+
+            "title": (
+                "We couldn't grade this submission"
+            ),
+
+            "message": (
+                "Some answer sections could not be matched safely "
+                "to the selected assignment, so no partial result "
+                "was created."
+            ),
+
+            "unmatched_parts": unmatched_parts,
+
+            "suggestion": (
+                "Check that the question numbers and part labels in "
+                "your submitted work match the assignment. If this "
+                "came from OCR, correct the labels in the LaTeX text, "
+                "choose 'Use this as LaTeX answer', and grade again."
+            ),
+
+            "technical_detail": technical_detail,
+
+            "debug_log_path": debug_log_path,
+        }
+
+    return 500, {
+        "code": "grading_failed",
+
+        "title": (
+            "Grading could not be completed"
+        ),
+
+        "message": (
+            "Something went wrong while grading this submission. "
+            "No grading result was created."
+        ),
+
+        "unmatched_parts": [],
+
+        "suggestion": (
+            "Try grading again. If the problem continues, ask your "
+            "teacher to check the submission and assignment reference."
+        ),
+
+        "technical_detail": technical_detail,
+
+        "debug_log_path": debug_log_path,
+    }
+
+
 def _build_persistent_result_path(
     *,
     persistent_root: Path,
@@ -1902,13 +2026,37 @@ async def _grade_tex_flow(
             fail(job_id, "HTTPException")
         raise
 
+
     except Exception as e:
-        trace.error("grading", e)
-        log_path = write_debug_log(f"grade_tex_{_display_provider(provider)}", e)
+        trace.error(
+            "grading",
+            e,
+        )
+        log_path = write_debug_log(
+            f"grade_tex_{_display_provider(provider)}",
+            e,
+        )
+
         if job_id:
-            push(job_id, f"FAILED: {_safe_str(e, 400)}")
-            fail(job_id, f"{e}")
-        raise HTTPException(status_code=500, detail=f"{e}\n\nSaved traceback to: {log_path}")
+            push(
+                job_id,
+                f"FAILED: {_safe_str(e, 400)}",
+            )
+            fail(
+                job_id,
+                f"{e}",
+            )
+        status_code, error_detail = (
+            _student_facing_grading_error(
+                e,
+                log_path=log_path,
+            )
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=error_detail,
+
+        ) from e
 
     finally:
         if tmp_dir and tmp_dir.exists():
