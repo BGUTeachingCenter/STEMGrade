@@ -18,6 +18,7 @@ from routes.progress import router as progress_router
 from routes.stats import router as stats_router
 from routes.ocr_routes import router as ocr_router
 from routes.simple_ui import router as simple_ui_router
+from routes import simple_assignments
 from routes.student_work_routes import router as student_work_router
 from core.config import ALLOWED_ORIGINS, PRODUCTION, PROJECT_ROOT, APP_NAME
 from core.security import SESSION_SECRET_CONFIGURED
@@ -68,4 +69,5 @@ app.include_router(admin_router)
 app.include_router(stats_router)
 app.include_router(ocr_router)
 app.include_router(simple_ui_router)  
+app.include_router(simple_assignments.router)
 app.include_router(student_work_router)

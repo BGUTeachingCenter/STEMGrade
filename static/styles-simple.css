@@ -1,24 +1,43 @@
 /* static/styles-simple.css
-   Standalone stylesheet for the simple student screen.
+   Standalone stylesheet for the simple student + teacher screens.
    Does not import or depend on styles.css. Palette copied from it so the
-   two screens look like the same product. */
+   screens look like the same product.
+
+   Typography: Assistant for the interface (a Hebrew-first UI face — Inter,
+   used before, has no Hebrew glyphs at all, so Hebrew silently fell back to
+   Segoe UI), Frank Ruhl Libre for headings, which is the Hebrew serif
+   academic material is normally set in. Both degrade to system Hebrew faces
+   if the font link is unavailable. */
 
 :root {
+  --sui-font-ui: "Assistant", "Segoe UI", "Arial Hebrew", Arial, sans-serif;
+  --sui-font-display: "Frank Ruhl Libre", "Times New Roman", Georgia, serif;
+  --sui-font-mono: ui-monospace, Consolas, "Liberation Mono", monospace;
+
   --sui-bg1: #f5f5f5;
   --sui-bg2: #ececec;
   --sui-card: #ffffff;
-  --sui-text: #4f4f52;
-  --sui-muted: #6a6a6d;
+  --sui-text: #3d3d40;
+  --sui-muted: #5f5f63;
   --sui-line: #d8d8da;
+  --sui-line-strong: #b6b6ba;
+
+  /* Light orange stays a background/accent colour only. Text and buttons use
+     the deeper tones, because #f39a1e against white is roughly 2:1 — far
+     below the 4.5:1 needed for readable small text. */
   --sui-primary: #f39a1e;
-  --sui-primary-2: #d97f08;
+  --sui-primary-2: #b56a08;
+  --sui-primary-ink: #8a5000;
   --sui-primary-soft: #fff3e3;
+
   --sui-success: #2f7d32;
   --sui-success-soft: #edf7ee;
-  --sui-error: #c43d2f;
+  --sui-error: #b8352a;
+  --sui-error-soft: #fdf0ee;
   --sui-shadow: 0 18px 50px rgba(79, 79, 82, .12);
   --sui-radius: 24px;
   --sui-radius-sm: 14px;
+  --sui-focus: 0 0 0 3px rgba(181, 106, 8, .35);
 }
 
 * { box-sizing: border-box; }
@@ -26,8 +45,15 @@
 html, body {
   margin: 0;
   padding: 0;
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: var(--sui-font-ui);
   color: var(--sui-text);
+}
+
+/* One visible focus treatment for every control on both screens. */
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--sui-primary-2);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 body {
@@ -59,7 +85,7 @@ body {
   border: 1px solid #f0bd75;
   border-radius: var(--sui-radius-sm);
   background: var(--sui-primary-soft);
-  color: var(--sui-primary-2);
+  color: var(--sui-primary-ink);
   font-size: 14px;
   font-weight: 700;
 }
@@ -80,9 +106,11 @@ body {
 
 .sui-course-title {
   margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -.02em;
+  font-family: var(--sui-font-display);
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.25;
 }
 
 .sui-course-meta {
@@ -114,6 +142,7 @@ body {
   align-items: center;
   gap: 14px;
   width: 100%;
+  min-height: 64px;
   padding: 16px 20px;
   border: 0;
   border-bottom: 1px solid var(--sui-line);
@@ -139,9 +168,9 @@ body {
 .sui-row-dot.is-partial { background: var(--sui-primary); }
 
 .sui-row-main { flex: 1 1 auto; min-width: 0; }
-.sui-row-title { font-size: 16px; font-weight: 800; }
-.sui-row-sub { margin-top: 3px; color: var(--sui-muted); font-size: 13px; font-weight: 600; }
-.sui-row-due { flex: 0 0 auto; color: var(--sui-muted); font-size: 13px; font-weight: 700; }
+.sui-row-title { display: block; font-size: 17px; font-weight: 700; line-height: 1.35; }
+.sui-row-sub { display: block; margin-top: 2px; color: var(--sui-muted); font-size: 13.5px; font-weight: 400; }
+.sui-row-due { flex: 0 0 auto; color: var(--sui-muted); font-size: 13.5px; font-weight: 600; }
 .sui-row-chevron { flex: 0 0 auto; color: var(--sui-muted); font-size: 13px; }
 
 .sui-panel {
@@ -262,7 +291,7 @@ body {
   border-radius: var(--sui-radius-sm);
   background: #fff;
   color: var(--sui-text);
-  font-family: ui-monospace, Consolas, "Liberation Mono", monospace;
+  font-family: var(--sui-font-mono);
   font-size: 13px;
   line-height: 1.6;
   resize: vertical;
@@ -280,24 +309,31 @@ body {
 }
 
 .sui-btn {
-  padding: 11px 20px;
-  border: 1px solid var(--sui-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 11px 22px;
+  border: 1px solid var(--sui-primary-2);
   border-radius: 999px;
-  background: var(--sui-primary);
+  background: var(--sui-primary-2);
   color: #fff;
   font: inherit;
-  font-size: 14px;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
   cursor: pointer;
 }
-.sui-btn:hover { background: var(--sui-primary-2); border-color: var(--sui-primary-2); }
-.sui-btn:disabled { opacity: .55; cursor: default; }
+.sui-btn:hover { background: var(--sui-primary-ink); border-color: var(--sui-primary-ink); }
+.sui-btn:disabled { opacity: .5; cursor: default; }
 
 .sui-btn-quiet {
   background: #fff;
   color: var(--sui-primary-2);
+  border-color: var(--sui-line-strong);
 }
-.sui-btn-quiet:hover { background: var(--sui-primary-soft); }
+.sui-btn-quiet:hover { background: var(--sui-primary-soft); color: var(--sui-primary-ink); }
 
 .sui-file {
   flex: 1 1 200px;
@@ -332,6 +368,7 @@ body {
 }
 
 .sui-footer a { color: var(--sui-primary-2); font-weight: 700; }
+.sui-footer a:hover { color: var(--sui-primary-ink); }
 
 @media (max-width: 620px) {
   .sui-row-due { display: none; }
@@ -657,47 +694,45 @@ mjx-container { direction: ltr !important; }
 @media (prefers-reduced-motion: reduce) {
   .sui-mark, .sui-mark-dot, .sui-mark-tag { transition: none; }
 }
-
 /* ==================================================================
-   Assignments. Append to the end of static/styles-simple.css —
-   everything here is additive; no rule above is changed.
+   Assignments: extra row states, the teacher's form controls.
    ================================================================== */
 
-/* ---- extra row states ---- */
+/* ---- row states ---- */
 
-/* Published but the deadline has passed and nothing was submitted. */
+/* Published, deadline passed, nothing submitted. */
 .sui-row-dot.is-late { background: var(--sui-error); }
 
-/* Teacher side: an assignment that has no full solution behind it yet. */
+/* Teacher side: no full solution behind this assignment yet. */
 .sui-row-dot.is-draft {
   background: #fff;
-  box-shadow: inset 0 0 0 2px var(--sui-line);
+  box-shadow: inset 0 0 0 2px var(--sui-line-strong);
 }
 
-.sui-row-due.is-late { color: var(--sui-error); }
+.sui-row-due.is-late { color: var(--sui-error); font-weight: 700; }
 
 .sui-badge {
   flex: 0 0 auto;
-  padding: 3px 10px;
-  border: 1px solid var(--sui-line);
+  padding: 4px 11px;
+  border: 1px solid var(--sui-line-strong);
   border-radius: 999px;
-  background: var(--sui-bg1);
+  background: #fff;
   color: var(--sui-muted);
-  font-size: 11px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 700;
   white-space: nowrap;
 }
 .sui-badge.is-live {
-  border-color: #a8cfa9;
+  border-color: #7fae81;
   background: var(--sui-success-soft);
   color: var(--sui-success);
 }
 
-/* ---- the teacher's card blocks ---- */
+/* ---- card blocks ---- */
 
 .sui-card-block {
-  margin-bottom: 20px;
-  padding: 20px 22px;
+  margin-bottom: 22px;
+  padding: 26px 28px 28px;
   border: 1px solid var(--sui-line);
   border-radius: var(--sui-radius);
   background: var(--sui-card);
@@ -705,82 +740,232 @@ mjx-container { direction: ltr !important; }
 }
 
 .sui-block-title {
-  margin: 0 0 16px;
-  font-size: 17px;
-  font-weight: 800;
+  margin: 0 0 4px;
+  font-family: var(--sui-font-display);
+  font-size: 21px;
+  font-weight: 700;
 }
 
-/* ---- forms ---- */
+.sui-block-note {
+  margin: 0 0 22px;
+  color: var(--sui-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ---- forms ----
+   Two explicit columns, never auto-fit: an auto-fit track count changes with
+   the viewport, which is what folded the labels and inputs onto one line. */
 
 .sui-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
   align-items: start;
 }
 
 .sui-field {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
   min-width: 0;
 }
 .sui-field-wide { grid-column: 1 / -1; }
 
 .sui-field-label {
-  color: var(--sui-muted);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: .02em;
+  color: var(--sui-text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .sui-field-hint {
   color: var(--sui-muted);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.5;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.55;
 }
 
 .sui-input {
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--sui-line);
-  border-radius: var(--sui-radius-sm);
+  min-height: 46px;
+  padding: 11px 14px;
+  border: 1px solid var(--sui-line-strong);
+  border-radius: 12px;
   background: #fff;
   color: var(--sui-text);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
 }
+.sui-input::placeholder { color: #8a8a8e; }
+.sui-input:hover { border-color: var(--sui-muted); }
 .sui-input:focus {
-  outline: 2px solid var(--sui-primary);
-  outline-offset: -1px;
-  border-color: var(--sui-primary);
+  border-color: var(--sui-primary-2);
+  box-shadow: var(--sui-focus);
+  outline: none;
 }
 
-/* A date input keeps its own control LTR while the label stays RTL. */
-input.sui-input[type="date"] { direction: ltr; text-align: start; }
+/* The native date control renders its own LTR spinner; the surrounding
+   layout stays right-to-left. */
+input.sui-input[type="date"],
+input.sui-input[type="number"] { direction: ltr; text-align: start; }
 
-select.sui-input { cursor: pointer; }
+select.sui-input {
+  cursor: pointer;
+  appearance: none;
+  padding-inline-end: 38px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--sui-muted) 50%),
+    linear-gradient(135deg, var(--sui-muted) 50%, transparent 50%);
+  background-position:
+    left 18px top 50%,
+    left 13px top 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
 
-.sui-checkbox {
+/* ---- file field ----
+   The browser's default file button is unlabelled in Hebrew and tiny. The
+   real input is hidden from sight but kept in the tab order and paired with
+   a visible label, so the keyboard and a screen reader still reach it. */
+
+.sui-filefield {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 12px 14px;
-  border: 1px solid var(--sui-line);
-  border-radius: var(--sui-radius-sm);
-  background: var(--sui-primary-soft);
-  font-size: 13.5px;
+  border: 1px dashed var(--sui-line-strong);
+  border-radius: 12px;
+  background: #fcfcfc;
+}
+
+.sui-filefield input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sui-filefield-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 9px 18px;
+  border: 1px solid var(--sui-line-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sui-primary-2);
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
-.sui-checkbox input {
-  width: 17px;
-  height: 17px;
-  accent-color: var(--sui-primary);
-  cursor: pointer;
+.sui-filefield-btn:hover { background: var(--sui-primary-soft); color: var(--sui-primary-ink); }
+
+.sui-filefield input[type="file"]:focus-visible + .sui-filefield-btn {
+  outline: 2px solid var(--sui-primary-2);
+  outline-offset: 2px;
 }
 
-@media (max-width: 620px) {
+.sui-filefield-name {
+  min-width: 0;
+  color: var(--sui-muted);
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+.sui-filefield-name.is-set { color: var(--sui-text); font-weight: 600; }
+
+/* ---- publish checkbox ---- */
+
+.sui-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #f0bd75;
+  border-radius: 12px;
+  background: var(--sui-primary-soft);
+  cursor: pointer;
+}
+.sui-checkbox input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--sui-primary-2);
+  cursor: pointer;
+}
+.sui-checkbox-text { display: block; font-size: 14.5px; font-weight: 700; line-height: 1.4; }
+.sui-checkbox-hint { display: block; margin-top: 2px; color: var(--sui-primary-ink); font-size: 12.5px; font-weight: 400; }
+
+/* ---- form footer ---- */
+
+.sui-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 20px;
+  border-top: 1px solid var(--sui-line);
+}
+
+/* ---- teacher panel ---- */
+
+.sui-panel-section { margin-top: 22px; }
+.sui-panel-section:first-child { margin-top: 0; }
+
+.sui-panel-heading {
+  margin: 0 0 14px;
+  color: var(--sui-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.sui-panel-meta {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--sui-line);
+  color: var(--sui-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.sui-panel-meta code {
+  font-family: var(--sui-font-mono);
+  font-size: 12px;
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+.sui-warn {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #f0bd75;
+  border-radius: 12px;
+  background: var(--sui-primary-soft);
+  color: var(--sui-primary-ink);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.sui-empty {
+  padding: 40px 24px;
+  color: var(--sui-muted);
+  font-size: 15px;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
   .sui-form { grid-template-columns: 1fr; }
   .sui-badge { display: none; }
+  .sui-card-block { padding: 20px; }
 }
