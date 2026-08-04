@@ -26,6 +26,11 @@ router = APIRouter(prefix="/simple", tags=["simple-ui"])
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 
 TEMPLATE_NAME = "simple/student_page.html"
+TEACHER_TEMPLATE_NAME = "simple/teacher_page.html"
+
+# Where the "המסך המתקדם" button sends a teacher. Change this to whatever
+# routes/template_pages.py serves course_workspace.html on.
+ADVANCED_TEACHER_URL = "/workspace"
 
 
 @router.get("/feedback")
@@ -49,5 +54,34 @@ def serve_simple_feedback(request: Request):
         context={
             "app_name": APP_NAME,
             "role": session.get("role") or "student",
+        },
+    )
+
+
+@router.get("/teacher")
+def serve_simple_teacher(request: Request):
+    """Render the simplified teacher screen: assignment rows and uploads."""
+    session = get_session(request)
+    if not session:
+        return RedirectResponse(url="/teacher-login", status_code=303)
+
+    if session.get("role") != "teacher":
+        # A student who lands here goes back to their own simple screen.
+        return RedirectResponse(url="/simple/feedback", status_code=303)
+
+    template_path = PROJECT_ROOT / "templates" / TEACHER_TEMPLATE_NAME
+    if not template_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"templates/{TEACHER_TEMPLATE_NAME} not found",
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name=TEACHER_TEMPLATE_NAME,
+        context={
+            "app_name": APP_NAME,
+            "role": "teacher",
+            "advanced_url": ADVANCED_TEACHER_URL,
         },
     )

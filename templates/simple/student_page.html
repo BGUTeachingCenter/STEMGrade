@@ -55,7 +55,9 @@ const DEMO_DATA = {
   ocr_quota: { used: 1, limit: 3 },
   exercises: [
     { exercise_id: "hw1", title: "תרגיל 1 — גבולות ורציפות", due_at: "2026-03-12",
-      max_attempts: 2, attempts: [] }
+      max_attempts: 2, open_for_submission: true, attempts: [] },
+    { exercise_id: "hw2", title: "תרגיל 2 — נגזרות", due_at: "",
+      max_attempts: 2, open_for_submission: false, attempts: [] }
   ]
 };
 
@@ -87,21 +89,21 @@ async function loadData() {
   return loadRealData();
 }
 
+/* The list is driven by what the teacher published, not by what the student
+   submitted: an exercise appears the moment it is published, with "טרם הוגש"
+   and its deadline, and submissions are hung onto it by exam_id afterwards. */
 async function loadRealData() {
-  const res = await fetch("/routes/student/dashboard", {
-    credentials: "same-origin",
-    cache: "no-store"
-  });
-  if (!res.ok) throw new Error(await readError(res));
-  const data = await res.json();
+  const [data, assignmentData] = await Promise.all([
+    fetchJSON("/routes/student/dashboard"),
+    // A student whose course has no assignments yet still gets their history.
+    fetchJSON("/simple/api/assignments").catch(() => ({ assignments: [] }))
+  ]);
 
   const results = Array.isArray(data.previous_results) ? data.previous_results : [];
 
-  // Grouping by exam_id — the known weak spot: unmatched submissions fall
-  // into their own bucket until the server stores an explicit link.
   const groups = new Map();
   for (const item of results) {
-    const key = item.exam_id || "ללא שיוך";
+    const key = item.exam_id || "";
     if (!groups.has(key)) groups.set(key, []);
     const files = Array.isArray(item.files) ? item.files : [];
     groups.get(key).push({
@@ -116,17 +118,41 @@ async function loadRealData() {
     });
   }
 
+  const published = Array.isArray(assignmentData && assignmentData.assignments)
+    ? assignmentData.assignments : [];
+
+  const exercises = published.map((assignment) => ({
+    exercise_id: assignment.exam_id,
+    title: assignment.title || assignment.exam_id,
+    due_at: assignment.due_at || "",
+    max_attempts: Number(assignment.max_attempts || 2),
+    // A published exercise with no full solution behind it cannot be graded,
+    // so we say so instead of letting the student hit a server error.
+    open_for_submission: assignment.gradeable !== false,
+    attempts: groups.get(assignment.exam_id) || []
+  }));
+
+  // Anything submitted against an exam that is not a published assignment —
+  // older work, or a reference the teacher unpublished — stays reachable.
+  const knownIds = new Set(published.map((assignment) => assignment.exam_id));
+  for (const [examId, attempts] of groups) {
+    if (knownIds.has(examId)) continue;
+    exercises.push({
+      exercise_id: examId || "unassigned",
+      title: examId || "הגשות ללא שיוך",
+      due_at: "",
+      max_attempts: Math.max(2, attempts.length),
+      open_for_submission: true,
+      attempts,
+      is_unassigned: true
+    });
+  }
+
   return {
     course: data.course || {},
     student: data.student || {},
     ocr_quota: data.ocr_quota || null,
-    exercises: [...groups.entries()].map(([title, attempts]) => ({
-      exercise_id: title,
-      title,
-      due_at: "",                           // MOCK until deadlines exist
-      max_attempts: 2,                      // MOCK until a limit exists
-      attempts
-    }))
+    exercises
   };
 }
 
@@ -160,16 +186,29 @@ function formatDate(iso) {
   return parts.length === 3 ? parts[2] + "." + parts[1] : iso;
 }
 
+/* Display only: a passed deadline is shown, never enforced. Submission logic
+   stays untouched until the server owns the rule. */
+function isOverdue(ex) {
+  if (!ex.due_at) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return ex.due_at < today;
+}
+
 function statusLine(ex) {
   const count = ex.attempts.length;
-  if (!count) return "טרם הוגש";
+
+  if (!count) {
+    if (!ex.open_for_submission) return "טרם נפתח להגשה";
+    return isOverdue(ex) ? "טרם הוגש · עבר תאריך ההגשה" : "טרם הוגש";
+  }
+
   const left = Math.max(0, ex.max_attempts - count);
   const base = "הגשה " + count + " מתוך " + ex.max_attempts;
   return left ? base + " · נותרה עוד הגשה אחת" : base + " · נוצלו כל ההגשות";
 }
 
 function dotClass(ex) {
-  if (!ex.attempts.length) return "";
+  if (!ex.attempts.length) return isOverdue(ex) ? "is-late" : "";
   return ex.attempts.length >= ex.max_attempts ? "is-graded" : "is-partial";
 }
 
@@ -219,7 +258,10 @@ function renderExercise(ex) {
         '<span class="sui-row-title">' + escapeHtml(ex.title) + '</span>' +
         '<span class="sui-row-sub">' + escapeHtml(statusLine(ex)) + '</span>' +
       '</span>' +
-      (ex.due_at ? '<span class="sui-row-due">עד ' + escapeHtml(formatDate(ex.due_at)) + '</span>' : "") +
+      (ex.due_at
+        ? '<span class="sui-row-due' + (isOverdue(ex) ? " is-late" : "") + '">עד ' +
+            escapeHtml(formatDate(ex.due_at)) + '</span>'
+        : "") +
       '<span class="sui-row-chevron">' + (isOpen ? "▲" : "▼") + '</span>' +
     '</button>';
 
@@ -227,7 +269,8 @@ function renderExercise(ex) {
 }
 
 function renderPanel(ex) {
-  const canSubmit = ex.attempts.length < ex.max_attempts;
+  const canSubmit =
+    ex.open_for_submission !== false && ex.attempts.length < ex.max_attempts;
   const tabs = ex.attempts.map((att, index) =>
     '<button type="button" class="sui-tab' + (index === openAttemptIndex ? " is-active" : "") +
       '" data-attempt="' + index + '">הגשה ' + (index + 1) +
@@ -242,8 +285,15 @@ function renderPanel(ex) {
 
   const current = ex.attempts[openAttemptIndex];
 
+  const closedNote =
+    (ex.open_for_submission === false && !ex.attempts.length)
+      ? '<p class="sui-fix-note" style="margin:0;">המרצה עדיין לא סיים להעלות את החומר למטלה הזו. ' +
+        (ex.due_at ? 'תאריך ההגשה: ' + escapeHtml(formatDate(ex.due_at)) + '.' : '') + '</p>'
+      : "";
+
   return '<div class="sui-panel">' +
     (tabs.length ? '<div class="sui-tabs">' + tabs.join("") + '</div>' : "") +
+    closedNote +
     (current ? renderAttempt(current) : "") +
     (canSubmit ? renderSubmitBox(ex) : "") +
     '<div class="sui-status" id="statusBox" hidden></div>' +

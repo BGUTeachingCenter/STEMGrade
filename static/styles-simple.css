@@ -657,3 +657,130 @@ mjx-container { direction: ltr !important; }
 @media (prefers-reduced-motion: reduce) {
   .sui-mark, .sui-mark-dot, .sui-mark-tag { transition: none; }
 }
+
+/* ==================================================================
+   Assignments. Append to the end of static/styles-simple.css —
+   everything here is additive; no rule above is changed.
+   ================================================================== */
+
+/* ---- extra row states ---- */
+
+/* Published but the deadline has passed and nothing was submitted. */
+.sui-row-dot.is-late { background: var(--sui-error); }
+
+/* Teacher side: an assignment that has no full solution behind it yet. */
+.sui-row-dot.is-draft {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px var(--sui-line);
+}
+
+.sui-row-due.is-late { color: var(--sui-error); }
+
+.sui-badge {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--sui-line);
+  border-radius: 999px;
+  background: var(--sui-bg1);
+  color: var(--sui-muted);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.sui-badge.is-live {
+  border-color: #a8cfa9;
+  background: var(--sui-success-soft);
+  color: var(--sui-success);
+}
+
+/* ---- the teacher's card blocks ---- */
+
+.sui-card-block {
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius);
+  background: var(--sui-card);
+  box-shadow: var(--sui-shadow);
+}
+
+.sui-block-title {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+/* ---- forms ---- */
+
+.sui-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.sui-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.sui-field-wide { grid-column: 1 / -1; }
+
+.sui-field-label {
+  color: var(--sui-muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.sui-field-hint {
+  color: var(--sui-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.sui-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: #fff;
+  color: var(--sui-text);
+  font: inherit;
+  font-size: 14px;
+}
+.sui-input:focus {
+  outline: 2px solid var(--sui-primary);
+  outline-offset: -1px;
+  border-color: var(--sui-primary);
+}
+
+/* A date input keeps its own control LTR while the label stays RTL. */
+input.sui-input[type="date"] { direction: ltr; text-align: start; }
+
+select.sui-input { cursor: pointer; }
+
+.sui-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--sui-line);
+  border-radius: var(--sui-radius-sm);
+  background: var(--sui-primary-soft);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sui-checkbox input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--sui-primary);
+  cursor: pointer;
+}
+
+@media (max-width: 620px) {
+  .sui-form { grid-template-columns: 1fr; }
+  .sui-badge { display: none; }
+}

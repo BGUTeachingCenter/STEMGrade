@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{{ app_name }} — מטלות</title>
+  <link rel="stylesheet" href="/static/styles-simple.css" />
+</head>
+<body data-role="{{ role }}">
+
+<div class="sui-wrap">
+
+  <header class="sui-header">
+    <div>
+      <h1 class="sui-course-title" id="courseTitle">המטלות שלי</h1>
+      <p class="sui-course-meta" id="courseMeta">טוען…</p>
+    </div>
+    <a class="sui-btn sui-btn-quiet" href="{{ advanced_url }}">המסך המתקדם</a>
+  </header>
+
+  <section class="sui-card-block">
+    <h2 class="sui-block-title">מטלה חדשה</h2>
+
+    <div class="sui-form">
+      <label class="sui-field sui-field-wide">
+        <span class="sui-field-label">שם המטלה (מה שהסטודנטים יראו)</span>
+        <input type="text" class="sui-input" id="newTitle"
+               placeholder="למשל: תרגיל 1 — גבולות ורציפות" maxlength="120" />
+      </label>
+
+      <label class="sui-field">
+        <span class="sui-field-label">תאריך הגשה</span>
+        <input type="date" class="sui-input" id="newDue" />
+        <span class="sui-field-hint">אפשר להשאיר ריק — ללא תאריך</span>
+      </label>
+
+      <label class="sui-field">
+        <span class="sui-field-label">מספר הגשות מותר</span>
+        <input type="number" class="sui-input" id="newAttempts" value="2" min="1" max="10" />
+      </label>
+
+      <label class="sui-field">
+        <span class="sui-field-label">מה יש בקובץ</span>
+        <select class="sui-input" id="newContentType">
+          <option value="questions_answers">שאלות ופתרונות באותו קובץ</option>
+          <option value="questions_only">שאלות בלבד</option>
+          <option value="answers_only">פתרונות בלבד</option>
+        </select>
+      </label>
+
+      <label class="sui-field">
+        <span class="sui-field-label">סוג הקובץ</span>
+        <select class="sui-input" id="newFileKind">
+          <option value="tex">TEX / טקסט מוקלד</option>
+          <option value="printed">PDF מודפס</option>
+          <option value="handwritten">PDF או צילום בכתב יד</option>
+        </select>
+        <span class="sui-field-hint" id="fileKindHint"></span>
+      </label>
+
+      <label class="sui-field sui-field-wide">
+        <span class="sui-field-label">הקובץ</span>
+        <input type="file" class="sui-file" id="newFile"
+               accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />
+      </label>
+
+      <label class="sui-checkbox sui-field-wide">
+        <input type="checkbox" id="newPublished" />
+        <span>פרסם לסטודנטים — המטלה תופיע להם כשורה חדשה</span>
+      </label>
+
+      <div class="sui-field-wide">
+        <button type="button" class="sui-btn" id="createBtn">יצירת המטלה</button>
+      </div>
+    </div>
+
+    <div class="sui-status" id="createStatus" hidden></div>
+  </section>
+
+  <div class="sui-list" id="assignmentList"></div>
+
+  <div class="sui-footer">
+    <span>מסך פשוט — מרצה</span>
+    <span><a href="#" id="logoutLink">התנתקות</a></span>
+  </div>
+
+</div>
+
+{% raw %}
+<script>
+/* ------------------------------------------------------------------
+   Fixed by design, exactly like the simple student screen:
+     reading a scanned or printed file  -> Google (Gemini)
+     grading a student submission       -> ChatGPT
+   Anyone who needs to choose a provider goes to the advanced screen.
+------------------------------------------------------------------ */
+const OCR_PROVIDER = "google";
+
+const $ = (id) => document.getElementById(id);
+
+let assignments = [];
+let openExamId = null;
+let busy = false;
+
+/* ------------------------------------------------------------------
+   Helpers
+------------------------------------------------------------------ */
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const parts = String(iso).split("-");
+  return parts.length === 3 ? parts[2] + "." + parts[1] + "." + parts[0] : iso;
+}
+
+async function readError(res) {
+  try {
+    const body = await res.json();
+    return body.detail || body.error || ("שגיאה " + res.status);
+  } catch (_) {
+    return "שגיאה " + res.status;
+  }
+}
+
+async function apiGet(url) {
+  const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  if (res.status === 401) { window.location.href = "/teacher-login"; return null; }
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+async function apiPost(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 401) { window.location.href = "/teacher-login"; return null; }
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+function setStatus(boxId, message, isError) {
+  const box = $(boxId);
+  if (!box) return;
+  box.hidden = false;
+  box.textContent = message;
+  box.classList.toggle("is-error", Boolean(isError));
+}
+
+function appendStatus(boxId, message) {
+  const box = $(boxId);
+  if (!box) return;
+  box.hidden = false;
+  box.textContent += (box.textContent ? "\n" : "") + message;
+}
+
+/* ------------------------------------------------------------------
+   Rendering
+------------------------------------------------------------------ */
+function stateLine(item) {
+  if (!item.has_any_file) return "אין עדיין קובץ — העלי קובץ כדי שהמטלה תהיה זמינה";
+  if (!item.gradeable) {
+    if (item.has_questions && !item.has_answers) return "יש שאלות, חסרים פתרונות";
+    if (item.has_answers && !item.has_questions) return "יש פתרונות, חסרות שאלות";
+    return "הקבצים נשמרו אך טרם אוחדו לפתרון מלא";
+  }
+  return item.published ? "מפורסם לסטודנטים" : "מוכן — טרם פורסם";
+}
+
+function dotClass(item) {
+  if (!item.gradeable) return "is-draft";
+  return item.published ? "is-graded" : "is-partial";
+}
+
+function renderRow(item) {
+  const isOpen = item.exam_id === openExamId;
+
+  return '<button type="button" class="sui-row' + (isOpen ? " is-open" : "") +
+      '" data-exam="' + escapeHtml(item.exam_id) + '" aria-expanded="' + isOpen + '">' +
+      '<span class="sui-row-dot ' + dotClass(item) + '"></span>' +
+      '<span class="sui-row-main">' +
+        '<span class="sui-row-title">' + escapeHtml(item.title) + '</span>' +
+        '<span class="sui-row-sub">' + escapeHtml(stateLine(item)) + '</span>' +
+      '</span>' +
+      (item.published ? '<span class="sui-badge is-live">מפורסם</span>' : '<span class="sui-badge">טיוטה</span>') +
+      (item.due_at ? '<span class="sui-row-due">עד ' + escapeHtml(formatDate(item.due_at)) + '</span>' : "") +
+      '<span class="sui-row-chevron">' + (isOpen ? "▲" : "▼") + '</span>' +
+    '</button>' +
+    (isOpen ? renderPanel(item) : "");
+}
+
+function renderPanel(item) {
+  return '<div class="sui-panel">' +
+    '<div class="sui-form">' +
+      '<label class="sui-field sui-field-wide">' +
+        '<span class="sui-field-label">שם המטלה</span>' +
+        '<input type="text" class="sui-input" id="editTitle" maxlength="120" value="' +
+          escapeHtml(item.title) + '" />' +
+      '</label>' +
+      '<label class="sui-field">' +
+        '<span class="sui-field-label">תאריך הגשה</span>' +
+        '<input type="date" class="sui-input" id="editDue" value="' + escapeHtml(item.due_at) + '" />' +
+      '</label>' +
+      '<label class="sui-field">' +
+        '<span class="sui-field-label">מספר הגשות</span>' +
+        '<input type="number" class="sui-input" id="editAttempts" min="1" max="10" value="' +
+          Number(item.max_attempts || 2) + '" />' +
+      '</label>' +
+      '<label class="sui-checkbox sui-field-wide">' +
+        '<input type="checkbox" id="editPublished"' + (item.published ? " checked" : "") + ' />' +
+        '<span>פרסם לסטודנטים</span>' +
+      '</label>' +
+      '<div class="sui-field-wide">' +
+        '<button type="button" class="sui-btn" id="saveBtn">שמירה</button>' +
+      '</div>' +
+    '</div>' +
+
+    (item.gradeable ? "" :
+      '<p class="sui-fix-note" style="margin-top:14px;">' +
+        'כל עוד אין פתרון מלא, סטודנט שיגיש יקבל שגיאה. אפשר להוסיף כאן את הקובץ החסר.' +
+      '</p>') +
+
+    '<div class="sui-form" style="margin-top:14px;">' +
+      '<label class="sui-field">' +
+        '<span class="sui-field-label">הוספת קובץ — מה יש בו</span>' +
+        '<select class="sui-input" id="addContentType">' +
+          '<option value="answers_only">פתרונות בלבד</option>' +
+          '<option value="questions_only">שאלות בלבד</option>' +
+          '<option value="questions_answers">שאלות ופתרונות</option>' +
+        '</select>' +
+      '</label>' +
+      '<label class="sui-field">' +
+        '<span class="sui-field-label">סוג הקובץ</span>' +
+        '<select class="sui-input" id="addFileKind">' +
+          '<option value="tex">TEX / טקסט מוקלד</option>' +
+          '<option value="printed">PDF מודפס</option>' +
+          '<option value="handwritten">PDF או צילום בכתב יד</option>' +
+        '</select>' +
+      '</label>' +
+      '<label class="sui-field sui-field-wide">' +
+        '<span class="sui-field-label">הקובץ</span>' +
+        '<input type="file" class="sui-file" id="addFile"' +
+          ' accept=".tex,.txt,.pdf,.png,.jpg,.jpeg,.webp" />' +
+      '</label>' +
+      '<div class="sui-field-wide">' +
+        '<button type="button" class="sui-btn sui-btn-quiet" id="addFileBtn">העלאת הקובץ</button>' +
+      '</div>' +
+    '</div>' +
+
+    (item.source_files && item.source_files.length
+      ? '<p class="sui-field-hint" style="margin-top:10px;">קבצים שמורים: ' +
+          escapeHtml(item.source_files.join(", ")) + '</p>'
+      : "") +
+
+    '<p class="sui-field-hint" style="margin-top:6px;">מזהה פנימי: ' +
+      escapeHtml(item.exam_id) + '</p>' +
+
+    '<div class="sui-status" id="panelStatus" hidden></div>' +
+  '</div>';
+}
+
+function render() {
+  if (!assignments.length) {
+    $("assignmentList").innerHTML =
+      '<div class="sui-panel" style="border-bottom:0;">' +
+        '<p class="sui-fix-note" style="margin:0;">אין עדיין מטלות. הטופס למעלה יוצר את הראשונה.</p>' +
+      '</div>';
+    return;
+  }
+
+  $("assignmentList").innerHTML = assignments.map(renderRow).join("");
+  bindRows();
+}
+
+function bindRows() {
+  document.querySelectorAll(".sui-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const id = row.dataset.exam;
+      openExamId = (openExamId === id) ? null : id;
+      render();
+    });
+  });
+
+  const saveBtn = $("saveBtn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      saveOpenAssignment();
+    });
+  }
+
+  const addFileBtn = $("addFileBtn");
+  if (addFileBtn) {
+    addFileBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      addFileToOpenAssignment();
+    });
+  }
+
+  // A click inside the panel must not fold the row back up.
+  document.querySelectorAll(".sui-panel").forEach((panel) => {
+    panel.addEventListener("click", (event) => event.stopPropagation());
+  });
+}
+
+/* ------------------------------------------------------------------
+   Loading
+------------------------------------------------------------------ */
+async function load() {
+  const data = await apiGet("/simple/api/teacher/assignments");
+  if (!data) return;
+  assignments = data.assignments || [];
+  $("courseMeta").textContent =
+    assignments.length + " מטלות · " +
+    assignments.filter(a => a.published).length + " מפורסמות";
+  render();
+}
+
+/* ------------------------------------------------------------------
+   The upload: identical contract to the advanced screen, with the
+   provider fixed. A .tex/.txt upload skips OCR on the server by file
+   suffix, so "סוג הקובץ" only really steers PDFs and photos.
+------------------------------------------------------------------ */
+function documentTypeFor(fileKind) {
+  return fileKind === "handwritten" ? "handwritten" : "printed";
+}
+
+function fileKindMismatch(file, fileKind) {
+  const name = (file.name || "").toLowerCase();
+  const isTexFile = name.endsWith(".tex") || name.endsWith(".txt");
+
+  if (fileKind === "tex" && !isTexFile) {
+    return "בחרת TEX אבל הקובץ אינו .tex או .txt.";
+  }
+  if (fileKind !== "tex" && isTexFile) {
+    return "הקובץ הוא .tex — בחרי בסוג הקובץ 'TEX / טקסט מוקלד'.";
+  }
+  return "";
+}
+
+async function uploadFileToExam(examId, file, contentType, fileKind, statusBoxId) {
+  const jobId = "simple-bank-" + Date.now();
+
+  const form = new FormData();               // never set Content-Type by hand
+  form.append("exam_id", examId);
+  form.append("content_type", contentType);
+  form.append("tex_file", file);
+  form.append("job_id", jobId);
+  form.append("ocr_provider", OCR_PROVIDER);
+  form.append("document_type", documentTypeFor(fileKind));
+
+  const timer = startProgress(jobId, statusBoxId);
+
+  try {
+    const res = await fetch("/routes/bank/upload", {
+      method: "POST",
+      credentials: "same-origin",
+      body: form
+    });
+    if (!res.ok) throw new Error(await readError(res));
+    return res.json();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+let lastSeq = 0;
+
+function startProgress(jobId, statusBoxId) {
+  lastSeq = 0;
+  return setInterval(async () => {
+    try {
+      const res = await fetch("/routes/progress/" + encodeURIComponent(jobId), {
+        credentials: "same-origin",
+        cache: "no-store"
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      (data.steps || []).forEach((step) => {
+        if (step.seq > lastSeq) { lastSeq = step.seq; appendStatus(statusBoxId, step.msg); }
+      });
+    } catch (_) { /* polling is best effort */ }
+  }, 1500);
+}
+
+/* ------------------------------------------------------------------
+   Actions
+------------------------------------------------------------------ */
+async function createAssignment() {
+  if (busy) return;
+
+  const title = ($("newTitle").value || "").trim();
+  const file = $("newFile").files && $("newFile").files[0];
+  const fileKind = $("newFileKind").value;
+
+  if (!title) { setStatus("createStatus", "צריך לתת שם למטלה.", true); return; }
+  if (!file) { setStatus("createStatus", "צריך לבחור קובץ.", true); return; }
+
+  const mismatch = fileKindMismatch(file, fileKind);
+  if (mismatch) { setStatus("createStatus", mismatch, true); return; }
+
+  busy = true;
+  $("createBtn").disabled = true;
+
+  try {
+    setStatus("createStatus", "יוצר את המטלה…");
+
+    // 1. Metadata first: this allocates the ASCII folder name the bank needs.
+    const created = await apiPost("/simple/api/teacher/assignments/new", {
+      title,
+      due_at: $("newDue").value || "",
+      published: $("newPublished").checked,
+      max_attempts: Number($("newAttempts").value || 2)
+    });
+    if (!created) return;
+
+    const examId = created.assignment.exam_id;
+    appendStatus("createStatus", "מעלה את הקובץ…");
+
+    // 2. The file goes to the existing bank endpoint, unchanged.
+    const result = await uploadFileToExam(
+      examId, file, $("newContentType").value, fileKind, "createStatus"
+    );
+
+    if (result && result.full_solution_available === false) {
+      appendStatus("createStatus",
+        "הקובץ נשמר, אבל עדיין אין פתרון מלא. הוסיפי את החלק החסר לפני שסטודנטים יגישו.");
+    } else {
+      appendStatus("createStatus", "המטלה מוכנה ✅");
+    }
+
+    $("newTitle").value = "";
+    $("newDue").value = "";
+    $("newFile").value = "";
+    $("newPublished").checked = false;
+
+    openExamId = examId;
+    await load();
+  } catch (error) {
+    setStatus("createStatus", String(error.message || error), true);
+  } finally {
+    busy = false;
+    $("createBtn").disabled = false;
+  }
+}
+
+async function saveOpenAssignment() {
+  if (busy || !openExamId) return;
+
+  busy = true;
+  try {
+    setStatus("panelStatus", "שומר…");
+    const saved = await apiPost("/simple/api/teacher/assignments/update", {
+      exam_id: openExamId,
+      title: ($("editTitle").value || "").trim(),
+      due_at: $("editDue").value || "",
+      published: $("editPublished").checked,
+      max_attempts: Number($("editAttempts").value || 2)
+    });
+    if (!saved) return;
+    await load();
+  } catch (error) {
+    setStatus("panelStatus", String(error.message || error), true);
+  } finally {
+    busy = false;
+  }
+}
+
+async function addFileToOpenAssignment() {
+  if (busy || !openExamId) return;
+
+  const file = $("addFile").files && $("addFile").files[0];
+  const fileKind = $("addFileKind").value;
+
+  if (!file) { setStatus("panelStatus", "צריך לבחור קובץ.", true); return; }
+
+  const mismatch = fileKindMismatch(file, fileKind);
+  if (mismatch) { setStatus("panelStatus", mismatch, true); return; }
+
+  busy = true;
+  $("addFileBtn").disabled = true;
+
+  try {
+    setStatus("panelStatus", "מעלה את הקובץ…");
+    const result = await uploadFileToExam(
+      openExamId, file, $("addContentType").value, fileKind, "panelStatus"
+    );
+
+    appendStatus("panelStatus",
+      result && result.full_solution_available === false
+        ? "נשמר, אך עדיין אין פתרון מלא."
+        : "הקובץ נוסף ✅");
+
+    await load();
+  } catch (error) {
+    setStatus("panelStatus", String(error.message || error), true);
+  } finally {
+    busy = false;
+    const btn = $("addFileBtn");
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Start
+------------------------------------------------------------------ */
+function updateFileKindHint() {
+  const kind = $("newFileKind").value;
+  $("fileKindHint").textContent =
+    kind === "tex"
+      ? "נקרא ישירות, ללא OCR ובלי עלות."
+      : "ייקרא אוטומטית דרך Google. אפשר לבחור ספק אחר במסך המתקדם.";
+}
+
+$("newFileKind").addEventListener("change", updateFileKindHint);
+$("createBtn").addEventListener("click", createAssignment);
+
+$("logoutLink").addEventListener("click", async (event) => {
+  event.preventDefault();
+  await fetch("/routes/logout", { method: "POST", credentials: "same-origin" });
+  window.location.href = "/";
+});
+
+(async function start() {
+  updateFileKindHint();
+  try {
+    await load();
+  } catch (error) {
+    $("courseMeta").textContent = String(error.message || error);
+  }
+})();
+</script>
+{% endraw %}
+
+</body>
+</html>
