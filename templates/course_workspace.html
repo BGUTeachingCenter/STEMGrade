@@ -2251,6 +2251,8 @@ loadWorkspaceContext();
         class="mg-work-progress-item ${windowState.className}${activeClass}"
         role="button"
         tabindex="0"
+        aria-expanded="${activeClass ? "true" : "false"}"
+        aria-controls="workDetailPanel"
         data-work-index="${index}"
         data-exam-id="${escapeHtml(
           item.exam_id || ""
@@ -2410,11 +2412,43 @@ loadWorkspaceContext();
             return;
           }
 
-          activeWorkExamId =
-            String(
-              item.exam_id || ""
+          const examId = String(
+            item.exam_id || ""
+          );
+
+          const isAlreadyOpen = Boolean(
+            panel &&
+            panel.style.display !== "none" &&
+            activeWorkExamId === examId
+          );
+
+          /*
+           * Clicking the currently open homework again
+           * collapses its student details.
+           */
+          if (isAlreadyOpen) {
+            panel.style.display = "none";
+            panel.innerHTML = "";
+
+            activeWorkExamId = "";
+
+            card.classList.remove(
+              "active"
             );
 
+            card.setAttribute(
+              "aria-expanded",
+              "false"
+            );
+
+            return;
+          }
+
+          activeWorkExamId = examId;
+
+          /*
+           * Only one homework can be expanded at a time.
+           */
           grid
             .querySelectorAll(
               ".mg-work-progress-item"
@@ -2424,11 +2458,21 @@ loadWorkspaceContext();
                 element.classList.remove(
                   "active"
                 );
+
+                element.setAttribute(
+                  "aria-expanded",
+                  "false"
+                );
               }
             );
 
           card.classList.add(
             "active"
+          );
+
+          card.setAttribute(
+            "aria-expanded",
+            "true"
           );
 
           renderWorkDetail(

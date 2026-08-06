@@ -3572,19 +3572,21 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 }
 
 .mg-work-detail-panel {
-  margin-top: 18px;
-  padding: 18px;
-  border: 1px solid #f1dcc0;
-  border-radius: 24px;
-  background: #fffdfa;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: none;
 }
 
+/*
+ * The selected HW card already shows the title,
+ * progress, submission status, and Edit window action.
+ * Do not repeat them in the expanded student details.
+ */
 .mg-work-detail-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 14px;
+  display: none;
 }
 
 .mg-work-table-wrap {
