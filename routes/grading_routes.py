@@ -157,10 +157,133 @@ def _extract_unmatched_grading_parts(
     return result
 
 
+def _provider_student_label(
+    provider: str,
+) -> str:
+    normalized = _display_provider(
+        provider
+    )
+
+    if normalized == "gemini":
+        return "Gemini"
+
+    if normalized == "gpt":
+        return "GPT"
+
+    if normalized == "ollama":
+        return "Ollama"
+
+    return "The AI grading service"
+
+
+def _ai_service_failure_kind(
+    error_text: str,
+    *,
+    provider: str,
+) -> str:
+    """
+    Classify failures originating from an AI provider.
+
+    Returns:
+      temporary:
+        Overload, high demand, rate limiting, timeout,
+        connection failure, or provider-side server failure.
+
+      configuration:
+        Authentication, API-key, permissions, or model setup failure.
+
+      "":
+        The exception is not clearly an AI-service failure.
+    """
+    text = str(
+        error_text or ""
+    ).strip().lower()
+
+    if not text:
+        return ""
+
+    provider_is_known = bool(
+        str(provider or "").strip()
+    )
+
+    configuration_markers = (
+        "missing openai_api_key",
+        "missing google_api_key",
+        "missing gemini_api_key",
+        "invalid authentication",
+        "invalid api key",
+        "authentication credentials",
+        "permission_denied",
+        "permission denied",
+        "model not found",
+    )
+
+    if (
+        provider_is_known
+        and any(
+            marker in text
+            for marker in configuration_markers
+        )
+    ):
+        return "configuration"
+
+    # Match status codes only when they occur next to
+    # "API error" or "failed". This avoids mistaking text
+    # such as "First 500 chars" for an HTTP 500 response.
+    temporary_http_status = re.search(
+        (
+            r"(?:api\s+error|failed)"
+            r"\s*\(?\s*"
+            r"(408|409|429|500|502|503|504)\b"
+        ),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    temporary_markers = (
+        '"status": "unavailable"',
+        "status\": \"unavailable",
+        "resource_exhausted",
+        "rate limit",
+        "rate_limit",
+        "high demand",
+        "temporarily unavailable",
+        "temporary service",
+        "try again later",
+        "overloaded",
+        "server_error",
+        "service unavailable",
+        "bad gateway",
+        "gateway timeout",
+        "timed out",
+        "timeout",
+        "connection error",
+        "connection aborted",
+        "connection reset",
+        "connection refused",
+        "remote end closed",
+    )
+
+    if (
+        provider_is_known
+        and (
+            temporary_http_status
+            or any(
+                marker in text
+                for marker in temporary_markers
+            )
+        )
+    ):
+        return "temporary"
+
+    return ""
+
+
 def _student_facing_grading_error(
     error: Exception,
     *,
     log_path: Path | str,
+    provider: str = "",
 ) -> tuple[int, dict[str, Any]]:
     """
     Build a structured student-facing error while retaining
@@ -208,6 +331,105 @@ def _student_facing_grading_error(
                 "came from OCR, correct the labels in the LaTeX text, "
                 "choose 'Use this as LaTeX answer', and grade again."
             ),
+
+            "technical_detail": technical_detail,
+
+                        "debug_log_path": debug_log_path,
+        }
+
+    ai_failure_kind = (
+        _ai_service_failure_kind(
+            technical_detail,
+            provider=provider,
+        )
+    )
+
+    provider_label = (
+        _provider_student_label(
+            provider
+        )
+    )
+
+    if ai_failure_kind == "temporary":
+        return 503, {
+            "code": (
+                "ai_service_temporarily_unavailable"
+            ),
+
+            "card_variant": "technical",
+
+            "eyebrow": (
+                "Temporary technical problem"
+            ),
+
+            "icon": "↻",
+
+            "title": (
+                f"{provider_label} is temporarily unavailable"
+            ),
+
+            "message": (
+                f"{provider_label} could not finish grading because "
+                "the AI service reported a temporary technical problem. "
+                "This does not indicate a problem with your submission."
+            ),
+
+            "unmatched_parts": [],
+
+            "suggestion": (
+                "Do not edit or upload your work again right now. "
+                "Wait a few minutes and try grading again, or choose "
+                "another grading model."
+            ),
+
+            "student_action_required": False,
+
+            "retryable": True,
+
+            "provider_label": provider_label,
+
+            "technical_detail": technical_detail,
+
+            "debug_log_path": debug_log_path,
+        }
+
+    if ai_failure_kind == "configuration":
+        return 503, {
+            "code": (
+                "ai_service_configuration_error"
+            ),
+
+            "card_variant": "technical",
+
+            "eyebrow": (
+                "Technical service problem"
+            ),
+
+            "icon": "⚙",
+
+            "title": (
+                "The grading service needs attention"
+            ),
+
+            "message": (
+                f"{provider_label} could not start because of a "
+                "service configuration or authentication problem. "
+                "This is not caused by your submission."
+            ),
+
+            "unmatched_parts": [],
+
+            "suggestion": (
+                "Do not change or upload your work again. Try another "
+                "grading model, or ask your teacher to check the "
+                "grading-service setup."
+            ),
+
+            "student_action_required": False,
+
+            "retryable": False,
+
+            "provider_label": provider_label,
 
             "technical_detail": technical_detail,
 
@@ -2050,6 +2272,7 @@ async def _grade_tex_flow(
             _student_facing_grading_error(
                 e,
                 log_path=log_path,
+                provider=provider,
             )
         )
         raise HTTPException(

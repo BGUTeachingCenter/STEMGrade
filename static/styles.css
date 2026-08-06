@@ -584,6 +584,93 @@ input[type=file]{display:none;}
   background: #ffffff;
 }
 
+
+/* Temporary AI/provider failures are technical,
+   not problems with the student's submission. */
+.mg-grading-failure-card.is-technical {
+  border-color: #a9cce7;
+  border-left-color: #3f7fae;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(63, 127, 174, .11),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      #f8fcff,
+      #edf7ff
+    );
+
+  box-shadow:
+    0 16px 38px
+    rgba(49, 103, 143, .13);
+}
+
+.mg-grading-failure-card.is-technical::after {
+  background:
+    rgba(63, 127, 174, .07);
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-icon {
+  border-color: #a9cce7;
+  color: #2f6f9f;
+
+  box-shadow:
+    0 10px 22px
+    rgba(63, 127, 174, .13);
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-eyebrow {
+  color: #2f6f9f;
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-head h3 {
+  color: #234f70;
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-message {
+  color: #365d78;
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-next {
+  border-color: #b8d7ed;
+  background:
+    rgba(255, 255, 255, .80);
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-next > strong {
+  color: #234f70;
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-next span {
+  color: #42647b;
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-close,
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-actions
+.secondary-btn {
+  border-color: #a9cce7 !important;
+  color: #2f6f9f !important;
+}
+
+.mg-grading-failure-card.is-technical
+.mg-grading-failure-actions
+.secondary-btn:hover {
+  border-color: #6fa8cf !important;
+  background: #ffffff !important;
+}
+
 @media (max-width: 700px) {
   .mg-grading-failure-card {
     grid-template-columns: 1fr;

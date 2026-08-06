@@ -527,7 +527,6 @@
   </section>
 </div>
         </div>
-
         <section
           id="gradingFailureCard"
           class="mg-grading-failure-card"
@@ -536,6 +535,7 @@
           hidden
         >
           <div
+            id="gradingFailureIcon"
             class="mg-grading-failure-icon"
             aria-hidden="true"
           >
@@ -545,7 +545,10 @@
           <div class="mg-grading-failure-content">
             <div class="mg-grading-failure-head">
               <div>
-                <div class="mg-grading-failure-eyebrow">
+                <div
+                  id="gradingFailureEyebrow"
+                  class="mg-grading-failure-eyebrow"
+                >
                   Grading stopped
                 </div>
 
@@ -590,6 +593,15 @@
             </div>
 
             <div class="mg-grading-failure-actions">
+              <button
+                id="gradingFailureRetryBtn"
+                class="secondary-btn secondary small"
+                type="button"
+                hidden
+              >
+                Try grading again
+              </button>
+
               <button
                 id="gradingFailureReviewBtn"
                 class="secondary-btn secondary small"
@@ -793,10 +805,19 @@
       document.getElementById(
         "status"
       );
-
     const gradingFailureCard =
       document.getElementById(
         "gradingFailureCard"
+      );
+
+    const gradingFailureIcon =
+      document.getElementById(
+        "gradingFailureIcon"
+      );
+
+    const gradingFailureEyebrow =
+      document.getElementById(
+        "gradingFailureEyebrow"
       );
 
     const gradingFailureTitle =
@@ -827,6 +848,11 @@
     const gradingFailureCloseBtn =
       document.getElementById(
         "gradingFailureCloseBtn"
+      );
+
+    const gradingFailureRetryBtn =
+      document.getElementById(
+        "gradingFailureRetryBtn"
       );
 
     const gradingFailureReviewBtn =
@@ -972,6 +998,7 @@
     let reviewOriginalDownload = null;
     let reviewGradedDownload = null;
     let reviewOcrFilename = "reviewed_ocr_answer.tex";
+    let lastGradingAttempt = null;
 
     function normalizeReviewFilename(
       value,
@@ -8945,7 +8972,6 @@ function wireSavedOcrButtons() {
         )
       );
     }
-
     function normalizeGradingFailure(
       detail,
       statusCode = 500
@@ -8971,6 +8997,9 @@ function wireSavedOcrButtons() {
         )
       ).trim();
 
+      const normalizedTechnicalDetail =
+        technicalDetail.toLowerCase();
+
       const coverageFailed = (
         structuredDetail.code ===
           "grading_coverage_failed" ||
@@ -8980,73 +9009,240 @@ function wireSavedOcrButtons() {
         )
       );
 
-      const unmatchedParts = Array.isArray(
-        structuredDetail.unmatched_parts
-      )
-        ? structuredDetail.unmatched_parts
-            .map((item) =>
-              String(
-                item || ""
-              ).trim()
-            )
-            .filter(Boolean)
-        : extractUnmatchedPartsFromError(
-            technicalDetail
-          );
+      const temporaryServiceFailure = (
+        structuredDetail.code ===
+          "ai_service_temporarily_unavailable" ||
 
-      return {
-        title: String(
-          structuredDetail.title ||
-          (
-            coverageFailed
-              ? (
-                  "We couldn't grade this submission"
+        /(?:api\s+error|failed)\s*\(?\s*(408|409|429|500|502|503|504)\b/i.test(
+          technicalDetail
+        ) ||
+
+        [
+          '"status": "unavailable"',
+          "resource_exhausted",
+          "rate limit",
+          "rate_limit",
+          "high demand",
+          "temporarily unavailable",
+          "try again later",
+          "overloaded",
+          "server_error",
+          "service unavailable",
+          "bad gateway",
+          "gateway timeout",
+          "timed out",
+          "timeout",
+          "connection error",
+          "connection reset",
+          "connection refused",
+          "failed to fetch",
+          "networkerror"
+        ].some(
+          (marker) =>
+            normalizedTechnicalDetail.includes(
+              marker
+            )
+        )
+      );
+
+      const configurationServiceFailure = (
+        structuredDetail.code ===
+          "ai_service_configuration_error" ||
+
+        [
+          "missing openai_api_key",
+          "missing google_api_key",
+          "missing gemini_api_key",
+          "invalid authentication",
+          "invalid api key",
+          "authentication credentials",
+          "permission_denied",
+          "model not found"
+        ].some(
+          (marker) =>
+            normalizedTechnicalDetail.includes(
+              marker
+            )
+        )
+      );
+
+      const technicalServiceFailure = (
+        temporaryServiceFailure ||
+        configurationServiceFailure
+      );
+
+      const providerLabel = String(
+        structuredDetail.provider_label ||
+        (
+          normalizedTechnicalDetail.includes(
+            "gemini"
+          )
+            ? "Gemini"
+            : normalizedTechnicalDetail.includes(
+                "openai"
+              )
+              ? "GPT"
+              : normalizedTechnicalDetail.includes(
+                  "ollama"
                 )
-              : (
-                  "Grading could not be completed"
+                ? "Ollama"
+                : "The AI grading service"
+        )
+      );
+
+      const unmatchedParts = coverageFailed
+        ? (
+            Array.isArray(
+              structuredDetail.unmatched_parts
+            )
+              ? structuredDetail.unmatched_parts
+                  .map((item) =>
+                    String(
+                      item || ""
+                    ).trim()
+                  )
+                  .filter(Boolean)
+              : extractUnmatchedPartsFromError(
+                  technicalDetail
                 )
           )
-        ),
+        : [];
 
-        message: String(
-          structuredDetail.message ||
-          (
-            coverageFailed
+      const studentActionRequired = (
+        typeof structuredDetail
+          .student_action_required ===
+          "boolean"
+      )
+        ? structuredDetail
+            .student_action_required
+        : !technicalServiceFailure;
+
+      const retryable = (
+        typeof structuredDetail.retryable ===
+          "boolean"
+      )
+        ? structuredDetail.retryable
+        : temporaryServiceFailure;
+
+      const cardVariant = String(
+        structuredDetail.card_variant ||
+        (
+          technicalServiceFailure
+            ? "technical"
+            : coverageFailed
+              ? "submission"
+              : "generic"
+        )
+      );
+
+      const fallbackTitle = (
+        coverageFailed
+          ? "We couldn't grade this submission"
+          : configurationServiceFailure
+            ? "The grading service needs attention"
+            : temporaryServiceFailure
+              ? `${providerLabel} is temporarily unavailable`
+              : "Grading could not be completed"
+      );
+
+      const fallbackMessage = (
+        coverageFailed
+          ? (
+              "Some answer sections could not be matched safely " +
+              "to the selected assignment, so no partial result " +
+              "was created."
+            )
+          : configurationServiceFailure
+            ? (
+                `${providerLabel} could not start because of a ` +
+                "service configuration problem. This is not caused " +
+                "by your submission."
+              )
+            : temporaryServiceFailure
               ? (
-                  "Some answer sections could not be matched safely " +
-                  "to the selected assignment, so no partial result " +
-                  "was created."
+                  `${providerLabel} could not finish grading because ` +
+                  "the AI service reported a temporary technical " +
+                  "problem. This does not indicate a problem with " +
+                  "your submission."
                 )
               : (
                   "Something went wrong while grading this submission. " +
                   "No grading result was created."
                 )
-          )
-        ),
+      );
 
-        suggestion: String(
-          structuredDetail.suggestion ||
-          (
-            coverageFailed
+      const fallbackSuggestion = (
+        coverageFailed
+          ? (
+              "Check that the question numbers and part labels in " +
+              "your submitted work match the assignment. If this " +
+              "came from OCR, correct the labels in the LaTeX text, " +
+              "choose ‘Use this as LaTeX answer’, and grade again."
+            )
+          : configurationServiceFailure
+            ? (
+                "Do not change or upload your work again. Try another " +
+                "grading model, or ask your teacher to check the " +
+                "grading-service setup."
+              )
+            : temporaryServiceFailure
               ? (
-                  "Check that the question numbers and part labels in " +
-                  "your submitted work match the assignment. If this " +
-                  "came from OCR, correct the labels in the LaTeX text, " +
-                  "choose ‘Use this as LaTeX answer’, and grade again."
+                  "Do not edit or upload your work again right now. " +
+                  "Wait a few minutes and try grading again, or choose " +
+                  "another grading model."
                 )
               : (
                   "Try grading again. If the problem continues, ask your " +
                   "teacher to check the submission and assignment reference."
                 )
+      );
+
+      return {
+        title: String(
+          structuredDetail.title ||
+          fallbackTitle
+        ),
+
+        message: String(
+          structuredDetail.message ||
+          fallbackMessage
+        ),
+
+        suggestion: String(
+          structuredDetail.suggestion ||
+          fallbackSuggestion
+        ),
+
+        eyebrow: String(
+          structuredDetail.eyebrow ||
+          (
+            technicalServiceFailure
+              ? "Technical grading problem"
+              : coverageFailed
+                ? "Submission needs review"
+                : "Grading stopped"
+          )
+        ),
+
+        icon: String(
+          structuredDetail.icon ||
+          (
+            temporaryServiceFailure
+              ? "↻"
+              : configurationServiceFailure
+                ? "⚙"
+                : "!"
           )
         ),
 
         unmatchedParts,
         technicalDetail,
-        statusCode
+        statusCode,
+        studentActionRequired,
+        retryable,
+        cardVariant
       };
     }
-
     function showGradingFailureCard(
       detail,
       statusCode = 500
@@ -9060,6 +9256,26 @@ function wireSavedOcrButtons() {
           detail,
           statusCode
         );
+
+      gradingFailureCard.classList.remove(
+        "is-technical",
+        "is-submission",
+        "is-generic"
+      );
+
+      gradingFailureCard.classList.add(
+        `is-${failure.cardVariant}`
+      );
+
+      if (gradingFailureIcon) {
+        gradingFailureIcon.textContent =
+          failure.icon;
+      }
+
+      if (gradingFailureEyebrow) {
+        gradingFailureEyebrow.textContent =
+          failure.eyebrow;
+      }
 
       if (gradingFailureTitle) {
         gradingFailureTitle.textContent =
@@ -9110,15 +9326,31 @@ function wireSavedOcrButtons() {
         ocrTexReview.value.trim()
       );
 
+      if (gradingFailureRetryBtn) {
+        gradingFailureRetryBtn.hidden = !(
+          failure.retryable &&
+          lastGradingAttempt
+        );
+      }
+
       if (gradingFailureReviewBtn) {
-        gradingFailureReviewBtn.hidden =
-          !hasEditableOcr;
+        gradingFailureReviewBtn.hidden = !(
+          failure.studentActionRequired &&
+          hasEditableOcr
+        );
       }
 
       if (gradingFailureEditBtn) {
-        gradingFailureEditBtn.hidden =
-          !hasEditableOcr ||
-          TEACHER_REVIEW_MODE;
+        gradingFailureEditBtn.hidden = !(
+          failure.studentActionRequired &&
+          hasEditableOcr &&
+          !TEACHER_REVIEW_MODE
+        );
+      }
+
+      if (gradingFailureUploadBtn) {
+        gradingFailureUploadBtn.hidden =
+          !failure.studentActionRequired;
       }
 
       gradingFailureCard.hidden = false;
@@ -9208,6 +9440,12 @@ function wireSavedOcrButtons() {
       if (!stu) {
         return;
       }
+
+      lastGradingAttempt = {
+        url,
+        downloadName,
+        providerLabel
+      };
 
       hideGradingFailureCard();
 
@@ -9664,6 +9902,29 @@ function wireSavedOcrButtons() {
       if (studentTex) studentTex.value = "";
 
       updateUI();
+    }
+
+    if (gradingFailureRetryBtn) {
+      gradingFailureRetryBtn.addEventListener(
+        "click",
+        () => {
+          if (!lastGradingAttempt) {
+            return;
+          }
+
+          const retryAttempt = {
+            ...lastGradingAttempt
+          };
+
+          hideGradingFailureCard();
+
+          postAndDownload(
+            retryAttempt.url,
+            retryAttempt.downloadName,
+            retryAttempt.providerLabel
+          );
+        }
+      );
     }
 
     if (gradingFailureCloseBtn) {
