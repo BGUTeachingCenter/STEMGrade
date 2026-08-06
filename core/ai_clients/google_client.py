@@ -177,7 +177,12 @@ def _extract_google_usage(data: dict[str, Any]) -> AiUsage:
 @dataclass
 class GoogleClient:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        self.api_key = (api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
+        self.api_key = (
+                api_key
+                or os.getenv("GEMINI_API_KEY")
+                or os.getenv("GOOGLE_API_KEY")
+                or ""
+        ).strip()
         self.model = (model or os.getenv("GOOGLE_MODEL") or os.getenv("GEMINI_MODEL") or "").strip()
         self.api_base = (os.getenv("GOOGLE_API_BASE") or "https://generativelanguage.googleapis.com").rstrip("/")
         self.api_version = (os.getenv("GOOGLE_API_VERSION") or "v1beta").strip()
@@ -250,7 +255,11 @@ class GoogleClient:
             raise RuntimeError("Missing GOOGLE_MODEL (or GEMINI_MODEL), or set client.model before calling.")
 
         url = f"{self.api_base}/{self.api_version}/models/{self.model}:generateContent"
-        params = {"key": self.api_key}
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
 
         safe_schema = _sanitize_schema_for_gemini(schema)
 
@@ -270,7 +279,12 @@ class GoogleClient:
             "generationConfig": generation_config,
         }
 
-        r = requests.post(url, params=params, json=payload, timeout=timeout_s)
+        r = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=timeout_s,
+        )
         if r.status_code != 200:
             raise RuntimeError(f"Google Gemini API error {r.status_code}: {r.text[:1000]}")
 
@@ -358,7 +372,11 @@ class GoogleClient:
         )
 
         url = f"{self.api_base}/{self.api_version}/models/{model_to_use}:generateContent"
-        params = {"key": self.api_key}
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
 
         generation_config: dict[str, Any] = {
             "maxOutputTokens": int(options.max_output_tokens),
@@ -388,7 +406,7 @@ class GoogleClient:
 
         r = requests.post(
             url,
-            params=params,
+            headers=headers,
             json=payload,
             timeout=options.timeout_s,
         )
