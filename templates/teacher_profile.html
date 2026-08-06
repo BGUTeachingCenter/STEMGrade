@@ -154,7 +154,8 @@
         <h2>Your courses</h2>
 
         <p>
-          Select a course to make it active and open its grading workspace.
+          Open any course to enter its grading workspace.
+          All courses are available.
         </p>
       </div>
 
@@ -407,16 +408,13 @@ function renderSubjectOptions() {
 }
 
 function courseCard(course) {
-  const courseId = String(course.course_id || "");
-  const activeCourseId = String(
-    TEACHER_PROFILE.active_course_id ||
-    TEACHER_PROFILE.active_course?.course_id ||
-    ""
+  const courseId = String(
+    course.course_id || ""
   );
 
-  const isActive = courseId === activeCourseId;
   const courseLabel = escapeHtml(
-    course.course_label || "Untitled course"
+    course.course_label ||
+    "Untitled course"
   );
 
   const subject = escapeHtml(
@@ -425,26 +423,26 @@ function courseCard(course) {
     "General STEM"
   );
 
-  const status = escapeHtml(course.status || "active");
-  const createdAt = escapeHtml(formatDate(course.created_at));
+  const createdAt = escapeHtml(
+    formatDate(course.created_at)
+  );
 
   return `
-    <article
-      class="mg-profile-course-card ${isActive ? "is-active" : ""}"
-    >
+    <article class="mg-profile-course-card">
       <div class="mg-profile-course-card-head">
-        <div class="mg-profile-course-icon">📚</div>
-
-        <div class="mg-profile-course-heading">
-          <div class="mg-profile-course-title">${courseLabel}</div>
-          <div class="mg-profile-course-subject">${subject}</div>
+        <div class="mg-profile-course-icon">
+          📚
         </div>
 
-        <span
-          class="mg-profile-course-state ${isActive ? "active" : ""}"
-        >
-          ${isActive ? "Active course" : status}
-        </span>
+        <div class="mg-profile-course-heading">
+          <div class="mg-profile-course-title">
+            ${courseLabel}
+          </div>
+
+          <div class="mg-profile-course-subject">
+            ${subject}
+          </div>
+        </div>
       </div>
 
       <div class="mg-profile-course-meta-grid">
@@ -465,7 +463,7 @@ function courseCard(course) {
           class="primary-btn mg-open-course-btn"
           data-course-id="${escapeHtml(courseId)}"
         >
-          ${isActive ? "Open workspace" : "Select and open"}
+          Open workspace
         </button>
       </div>
     </article>
@@ -711,41 +709,61 @@ async function changePassword() {
 }
 
 async function openCourse(courseId) {
-  if (!courseId) return;
+  if (!courseId) {
+    return;
+  }
 
-  const currentCourseId = String(
-    TEACHER_PROFILE.active_course_id ||
-    TEACHER_PROFILE.active_course?.course_id ||
-    ""
+  const button = document.querySelector(
+    `.mg-open-course-btn[data-course-id="${CSS.escape(courseId)}"]`
   );
 
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Opening…";
+  }
+
   try {
-    if (courseId !== currentCourseId) {
-      const response = await authedFetch(
-        "/routes/teacher/active_course",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            course_id: courseId,
-          }),
-        }
-      );
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok || !data || !data.ok) {
-        throw new Error(
-          (data && data.detail) ||
-          "Could not select the course."
-        );
+    /*
+     * This call only selects which course data the workspace
+     * should load. It does not activate or deactivate courses.
+     */
+    const response = await authedFetch(
+      "/routes/teacher/active_course",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          course_id: courseId,
+        }),
       }
+    );
+
+    const data = await response
+      .json()
+      .catch(() => null);
+
+    if (
+      !response.ok ||
+      !data ||
+      !data.ok
+    ) {
+      throw new Error(
+        (data && data.detail) ||
+        "Could not open the course."
+      );
     }
 
-    window.location.href = "/course-workspace";
+    window.location.href =
+      "/course-workspace";
   } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent =
+        "Open workspace";
+    }
+
     setStatus(
       "accountStatus",
       error && error.message

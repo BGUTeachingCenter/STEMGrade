@@ -1810,7 +1810,188 @@ loadWorkspaceContext();
 
   function formatPct(n) {
     const value = Number(n || 0);
-    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
+
+    return `${
+      Number.isInteger(value)
+        ? value.toFixed(0)
+        : value.toFixed(1)
+    }%`;
+  }
+
+  const STUDENT_PERFORMANCE_LEVELS = [
+    "correct",
+    "mostly_correct",
+    "partially_correct",
+    "needs_work",
+    "not_answered",
+  ];
+
+  const STUDENT_PERFORMANCE_META = {
+    correct: {
+      label: "Correct",
+      className: "is-correct",
+    },
+
+    mostly_correct: {
+      label: "Mostly correct",
+      className:
+        "is-mostly-correct",
+    },
+
+    partially_correct: {
+      label: "Partially correct",
+      className:
+        "is-partially-correct",
+    },
+
+    needs_work: {
+      label: "Needs work",
+      className: "is-needs-work",
+    },
+
+    not_answered: {
+      label: "Not answered",
+      className:
+        "is-not-answered",
+    },
+  };
+
+  function renderStudentPerformance(
+    summary,
+    status = ""
+  ) {
+    const counts =
+      summary &&
+      typeof summary === "object" &&
+      summary.counts &&
+      typeof summary.counts === "object"
+        ? summary.counts
+        : null;
+
+    const total = counts
+      ? STUDENT_PERFORMANCE_LEVELS.reduce(
+          (sum, level) =>
+            sum + Math.max(
+              0,
+              Number(
+                counts[level] || 0
+              )
+            ),
+          0
+        )
+      : 0;
+
+    if (!counts || total <= 0) {
+      const normalizedStatus =
+        String(
+          status || ""
+        ).toLowerCase();
+
+      return `
+        <span
+          class="mg-student-performance-empty"
+        >
+          ${
+            normalizedStatus ===
+            "graded"
+              ? "Chart unavailable"
+              : "Not graded yet"
+          }
+        </span>
+      `;
+    }
+
+    const summaryText =
+      STUDENT_PERFORMANCE_LEVELS
+        .map((level) => {
+          const meta =
+            STUDENT_PERFORMANCE_META[
+              level
+            ];
+
+          return (
+            `${meta.label}: ` +
+            `${formatInt(
+              counts[level] || 0
+            )}`
+          );
+        })
+        .join(" · ");
+
+    const segments =
+      STUDENT_PERFORMANCE_LEVELS
+        .map((level) => {
+          const count = Math.max(
+            0,
+            Number(
+              counts[level] || 0
+            )
+          );
+
+          if (!count) {
+            return "";
+          }
+
+          const meta =
+            STUDENT_PERFORMANCE_META[
+              level
+            ];
+
+          const percentage =
+            count * 100 / total;
+
+          const tooltip =
+            `${meta.label}: ` +
+            `${formatInt(count)} of ` +
+            `${formatInt(total)} parts ` +
+            `(${Math.round(
+              percentage
+            )}%)`;
+
+          return `
+            <span
+              class="
+                mg-student-performance-segment
+                ${meta.className}
+              "
+              style="
+                --performance-width:
+                ${percentage}%;
+              "
+              title="${
+                escapeHtml(tooltip)
+              }"
+            ></span>
+          `;
+        })
+        .join("");
+
+    return `
+      <div
+        class="mg-student-performance"
+        aria-label="${
+          escapeHtml(summaryText)
+        }"
+      >
+        <div
+          class="mg-student-performance-bar"
+          title="${
+            escapeHtml(summaryText)
+          }"
+        >
+          ${segments}
+        </div>
+
+        <div
+          class="mg-student-performance-caption"
+        >
+          <strong>
+            ${formatInt(total)}
+          </strong>
+          parts graded
+        </div>
+      </div>
+    `;
   }
 
   function formatDateTime(value) {
@@ -2690,6 +2871,12 @@ loadWorkspaceContext();
                 `
               : "—";
 
+            const performanceCell =
+              renderStudentPerformance(
+                student.performance_summary,
+                student.status
+              );
+
             return `
               <tr>
                 <td>
@@ -2724,6 +2911,12 @@ loadWorkspaceContext();
                   )}
                 </td>
 
+                <td
+                  class="mg-student-performance-cell"
+                >
+                  ${performanceCell}
+                </td>
+
                 <td>
                   ${escapeHtml(
                     student.source_filename ||
@@ -2740,7 +2933,7 @@ loadWorkspaceContext();
           .join("")
       : `
           <tr>
-            <td colspan="7">
+            <td colspan="8">
               No uploaded students yet.
             </td>
           </tr>
@@ -2850,6 +3043,7 @@ loadWorkspaceContext();
               <th>Latest upload</th>
               <th>Attempts</th>
               <th>Status</th>
+              <th>Performance</th>
               <th>Latest source file</th>
               <th>Review</th>
             </tr>

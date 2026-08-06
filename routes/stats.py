@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from io import BytesIO
 import json
+from pathlib import Path
 import re
 from typing import Any
 from urllib.parse import quote
@@ -205,6 +206,276 @@ def _review_files_for_meta(
         "graded_result_filename": graded_result_filename,
     }
 
+PERFORMANCE_LEVELS = (
+    "correct",
+    "mostly_correct",
+    "partially_correct",
+    "needs_work",
+    "not_answered",
+)
+
+def _normalize_performance_level(value: Any) -> str:
+    normalized = (
+        str(value or "")
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+    aliases = {
+        "fully_correct": "correct",
+        "mostly": "mostly_correct",
+        "partial": "partially_correct",
+        "partially": "partially_correct",
+        "incorrect": "needs_work",
+        "wrong": "needs_work",
+        "no_submission": "not_answered",
+        "missing": "not_answered",
+    }
+
+    resolved = aliases.get(
+        normalized,
+        normalized,
+    )
+
+    return (
+        resolved
+        if resolved in PERFORMANCE_LEVELS
+        else ""
+    )
+
+def _feedback_items(
+        value: Any,
+) -> list[str]:
+    if isinstance(value, list):
+        return [
+            str(item).strip()
+            for item in value
+            if str(item or "").strip()
+        ]
+
+    text = str(value or "").strip()
+
+    return [text] if text else []
+
+def _infer_performance_level(
+        part: dict[str, Any],
+) -> str:
+    correctness = (
+        part.get("correctness")
+        if isinstance(
+            part.get("correctness"),
+            dict,
+        )
+        else {}
+    )
+
+    explicit = (
+        _normalize_performance_level(
+            correctness.get("level")
+            or part.get(
+                "correctness_level"
+            )
+        )
+    )
+
+    if explicit:
+        return explicit
+
+    if not str(
+            part.get("student_answer")
+            or ""
+    ).strip():
+        return "not_answered"
+
+    feedback = (
+        part.get("feedback")
+        if isinstance(
+            part.get("feedback"),
+            dict,
+        )
+        else {}
+    )
+
+    correct_items = _feedback_items(
+        feedback.get(
+            "what_was_correct"
+        )
+    )
+
+    mistake_items = _feedback_items(
+        feedback.get(
+            "main_mistakes"
+        )
+    )
+
+    if not mistake_items:
+        return "correct"
+
+    if (
+            correct_items
+            and len(mistake_items) <= 1
+    ):
+        return "mostly_correct"
+
+    if correct_items:
+        return "partially_correct"
+
+    return "needs_work"
+
+def _performance_summary_for_meta(
+        meta: dict[str, Any],
+) -> dict[str, Any] | None:
+    feedback = (
+        meta.get("feedback")
+        if isinstance(
+            meta.get("feedback"),
+            dict,
+        )
+        else {}
+    )
+
+    filename = _metadata_file_by_kind(
+        meta,
+        "graded_result_json",
+    )
+
+    if not filename:
+        filename = str(
+            feedback.get(
+                "structured_json_filename"
+            )
+            or ""
+        ).strip()
+
+    if not filename.lower().endswith(
+            ".json"
+    ):
+        return None
+
+    metadata_path = str(
+        meta.get("metadata_path")
+        or ""
+    ).strip()
+
+    if not metadata_path:
+        return None
+
+    result_path = (
+            Path(metadata_path).parent
+            / filename
+    )
+
+    try:
+        data = json.loads(
+            result_path.read_text(
+                encoding="utf-8",
+            )
+        )
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    parts = [
+        part
+        for part in (
+                data.get("parts")
+                or []
+        )
+        if isinstance(part, dict)
+    ]
+
+    raw_summary = (
+        data.get("performance_summary")
+        if isinstance(
+            data.get(
+                "performance_summary"
+            ),
+            dict,
+        )
+        else {}
+    )
+
+    raw_counts = (
+        raw_summary.get("counts")
+        if isinstance(
+            raw_summary.get("counts"),
+            dict,
+        )
+        else {}
+    )
+
+    counts: dict[str, int] = {}
+
+    for level in PERFORMANCE_LEVELS:
+        try:
+            counts[level] = max(
+                0,
+                int(
+                    raw_counts.get(level)
+                    or 0
+                ),
+            )
+        except (
+                TypeError,
+                ValueError,
+        ):
+            counts[level] = 0
+
+    total_parts = sum(
+        counts.values()
+    )
+
+    # Match the student page: rebuild old or incomplete
+    # summaries from the individual graded parts.
+    if (
+            not raw_counts
+            or (
+            parts
+            and total_parts != len(parts)
+    )
+    ):
+        counts = {
+            level: 0
+            for level in PERFORMANCE_LEVELS
+        }
+
+        for part in parts:
+            level = (
+                _infer_performance_level(
+                    part
+                )
+            )
+
+            counts[level] += 1
+
+        total_parts = len(parts)
+
+    if total_parts <= 0:
+        return None
+
+    percentages = {
+        level: round(
+            counts[level]
+            * 100
+            / total_parts,
+            1,
+        )
+        for level in PERFORMANCE_LEVELS
+    }
+
+    return {
+        "total_parts": total_parts,
+        "answered_parts": (
+                total_parts
+                - counts["not_answered"]
+        ),
+        "counts": counts,
+        "percentages": percentages,
+    }
 
 def _safe_filename_part(value: str, fallback: str = "upload_log") -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", (value or "").strip()).strip("._-")
@@ -346,9 +617,28 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
         exam_id, is_matched = _exam_id_for_work(meta)
         upload_at = _best_upload_time(meta)
         last_at = _best_last_time(meta)
-        work_id = str(meta.get("work_id") or "").strip()
-        review_files = _review_files_for_meta(meta)
-        day = upload_at[:10] if upload_at else "unknown"
+        work_id = str(
+            meta.get("work_id")
+            or ""
+        ).strip()
+
+        review_files = (
+            _review_files_for_meta(
+                meta
+            )
+        )
+
+        performance_summary = (
+            _performance_summary_for_meta(
+                meta
+            )
+        )
+
+        day = (
+            upload_at[:10]
+            if upload_at
+            else "unknown"
+        )
 
         per_day[day]["count"] += 1
         per_day[day]["students"].add(code)
@@ -385,6 +675,9 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
                 "original_filename": "",
                 "ocr_tex_filename": "",
                 "graded_result_filename": "",
+                "performance_summary": None,
+                "performance_work_id": "",
+                "performance_updated_at": "",
                 "work_ids": [],
             }
 
@@ -405,11 +698,57 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
             student_row["latest_work_id"] = work_id
             student_row.update(review_files)
 
-        if last_at and last_at > str(student_row.get("last_graded_at") or ""):
-            student_row["last_graded_at"] = last_at
+        if (
+                last_at
+                and last_at
+                > str(
+            student_row.get(
+                "last_graded_at"
+            )
+            or ""
+        )
+        ):
+            student_row[
+                "last_graded_at"
+            ] = last_at
+
+        performance_updated_at = str(
+            last_at
+            or upload_at
+            or ""
+        )
+
+        if (
+                performance_summary
+                and (
+                not student_row.get(
+                    "performance_summary"
+                )
+                or performance_updated_at
+                >= str(
+            student_row.get(
+                "performance_updated_at"
+            )
+            or ""
+        )
+        )
+        ):
+            student_row[
+                "performance_summary"
+            ] = performance_summary
+
+            student_row[
+                "performance_work_id"
+            ] = work_id
+
+            student_row[
+                "performance_updated_at"
+            ] = performance_updated_at
 
         if work_id:
-            student_row["work_ids"].append(work_id)
+            student_row[
+                "work_ids"
+            ].append(work_id)
 
         recent_uploads.append(
             {
