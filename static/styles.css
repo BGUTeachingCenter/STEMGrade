@@ -1691,9 +1691,11 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   }
 }
 
-/* Teacher login: static grading-assistant image */
+/* Teacher and student login: static assistant images */
 .mg-teacher-login-page
-.mg-teacher-login-visual {
+.mg-teacher-login-visual,
+.mg-student-login-page
+.mg-student-login-visual {
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -1708,7 +1710,8 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
   overflow: hidden;
 }
 
-.mg-teacher-login-image {
+.mg-teacher-login-image,
+.mg-student-login-image {
   display: block;
   width: 100%;
   height: 100%;
@@ -1733,7 +1736,9 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 
 @media (max-width: 980px) {
   .mg-teacher-login-page
-  .mg-teacher-login-visual {
+  .mg-teacher-login-visual,
+  .mg-student-login-page
+  .mg-student-login-visual {
     width: min(100%, 620px);
     min-height: 0;
     margin: 0 auto;
@@ -1743,7 +1748,9 @@ canvas{width:100%;height:220px;border-radius:14px;background:#fffdfa;border:1px 
 
 @media (max-width: 640px) {
   .mg-teacher-login-page
-  .mg-teacher-login-visual {
+  .mg-teacher-login-visual,
+  .mg-student-login-page
+  .mg-student-login-visual {
     width: 100%;
     min-height: 0;
     aspect-ratio: 1 / 1;

@@ -8,43 +8,23 @@
 {% endblock %}
 
 {% block content %}
-  <main class="mg-agent-login-page">
+    <main class="mg-agent-login-page mg-student-login-page">
     <section class="mg-agent-login-card">
-      <div class="mg-agent-login-visual" aria-hidden="true">
-        <div class="mg-agent-orb mg-agent-orb-one"></div>
-        <div class="mg-agent-orb mg-agent-orb-two"></div>
-
-        <div class="mg-agent-phone">
-          <div class="mg-agent-phone-top">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-
-          <div class="mg-agent-message-row bot">
-            <div class="mg-agent-avatar">∑</div>
-            <div class="mg-agent-message">
-              <strong>Welcome back</strong>
-              <span>Enter your student code.</span>
-            </div>
-          </div>
-
-          <div class="mg-agent-message-row user">
-            <div class="mg-agent-message">
-              <strong>My solution is ready</strong>
-              <span>Upload LaTeX or handwritten work.</span>
-            </div>
-            <div class="mg-agent-avatar">🎓</div>
-          </div>
-
-          <div class="mg-agent-message-row bot">
-            <div class="mg-agent-avatar">✓</div>
-            <div class="mg-agent-message">
-              <strong>Feedback page unlocked</strong>
-              <span>Grading tools open after login.</span>
-            </div>
-          </div>
-        </div>
+      <div
+        class="
+          mg-agent-login-visual
+          mg-student-login-visual
+        "
+      >
+        <img
+          class="mg-student-login-image"
+          src="/static/student_image.png"
+          alt="Friendly math assistant welcoming a student"
+          width="1536"
+          height="1536"
+          loading="eager"
+          decoding="async"
+        >
       </div>
 
       <div class="mg-agent-login-copy">
