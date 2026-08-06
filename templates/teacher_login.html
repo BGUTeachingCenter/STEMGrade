@@ -12,37 +12,21 @@
 {% block content %}
   <main class="mg-agent-login-page mg-teacher-login-page">
     <section class="mg-agent-login-card">
-      <div class="mg-agent-login-visual" aria-hidden="true">
-        <div class="mg-agent-orb mg-agent-orb-one"></div>
-        <div class="mg-agent-orb mg-agent-orb-two"></div>
-
-        <div class="mg-agent-phone">
-          <div class="mg-agent-phone-top"><span></span><span></span><span></span></div>
-
-          <div class="mg-agent-message-row bot">
-            <div class="mg-agent-avatar">{{ app_logo_mark }}</div>
-            <div class="mg-agent-message">
-              <strong>Teacher account</strong>
-                <span>Sign in with your username and password.</span>
-            </div>
-          </div>
-
-          <div class="mg-agent-message-row user">
-            <div class="mg-agent-message">
-              <strong>Manage grading</strong>
-              <span>Subject prompts, references, and comments.</span>
-            </div>
-            <div class="mg-agent-avatar">🧑‍🏫</div>
-          </div>
-
-          <div class="mg-agent-message-row bot">
-            <div class="mg-agent-avatar">✓</div>
-            <div class="mg-agent-message">
-              <strong>Portal unlocked</strong>
-              <span>The dashboard opens after teacher login.</span>
-            </div>
-          </div>
-        </div>
+      <div
+        class="
+          mg-agent-login-visual
+          mg-teacher-login-visual
+        "
+      >
+        <img
+          class="mg-teacher-login-image"
+          src="/static/teacher_image.png"
+          alt="Math grading assistant reviewing student work"
+          width="1536"
+          height="1536"
+          loading="eager"
+          decoding="async"
+        >
       </div>
 <div class="mg-agent-login-copy">
   <div class="badge">{{ app_name }}</div>
