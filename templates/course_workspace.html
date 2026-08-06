@@ -2057,8 +2057,21 @@ loadWorkspaceContext();
   }
 
   function currentVoucherFilter() {
-    const el = $("uploadLogVoucherSelect");
-    return el ? (el.value || "__all__") : "__all__";
+    const activeVoucher =
+      activeCourseVoucherId();
+
+    if (activeVoucher) {
+      return activeVoucher;
+    }
+
+    const element =
+      $("uploadLogVoucherSelect");
+
+    return element
+      ? String(
+          element.value || ""
+        )
+      : "";
   }
 
   function updateUploadLogHref() {
@@ -2114,24 +2127,87 @@ loadWorkspaceContext();
   }
 
   function renderVoucherOptions(data) {
-    const select = $("uploadLogVoucherSelect");
-    if (!select) return;
+    const select =
+      $("uploadLogVoucherSelect");
 
-    const previous = select.value || "__all__";
-    const vouchers = data?.vouchers || [];
+    if (!select) {
+      return;
+    }
 
-    const options = [
-      `<option value="__all__">All courses / vouchers</option>`,
-      ...vouchers.map(v => {
-        const label = `${v.course_label || "Course"} · ${v.total_students || 0} students · ${v.upload_count || 0} uploads`;
-        return `<option value="${escapeHtml(v.voucher_id || "")}">${escapeHtml(label)}</option>`;
-      })
-    ];
+    const activeVoucher =
+      activeCourseVoucherId() ||
+      String(
+        data?.course?.voucher_id ||
+        ""
+      );
 
-    select.innerHTML = options.join("");
+    const vouchers = (
+      Array.isArray(data?.vouchers)
+        ? data.vouchers
+        : []
+    ).filter(
+      (voucher) =>
+        !activeVoucher ||
+        String(
+          voucher?.voucher_id ||
+          ""
+        ) === activeVoucher
+    );
 
-    const values = Array.from(select.options).map(o => o.value);
-    select.value = values.includes(previous) ? previous : "__all__";
+    const voucher =
+      vouchers[0] || null;
+
+    if (!voucher) {
+      select.innerHTML = `
+        <option value="${escapeHtml(
+          activeVoucher
+        )}">
+          Current course
+        </option>
+      `;
+
+      select.value =
+        activeVoucher;
+
+      select.disabled = true;
+
+      updateUploadLogHref();
+
+      return;
+    }
+
+    const voucherId = String(
+      voucher.voucher_id ||
+      activeVoucher ||
+      ""
+    );
+
+    const label =
+      `${voucher.course_label || "Course"} · ` +
+      `${Number(
+        voucher.total_students || 0
+      ).toLocaleString()} students · ` +
+      `${Number(
+        voucher.upload_count || 0
+      ).toLocaleString()} uploads`;
+
+    select.innerHTML = `
+      <option value="${escapeHtml(
+        voucherId
+      )}">
+        ${escapeHtml(label)}
+      </option>
+    `;
+
+    select.value =
+      voucherId;
+
+    /*
+     * This workspace represents one course.
+     * The selector is retained only for the
+     * existing download control layout.
+     */
+    select.disabled = true;
 
     updateUploadLogHref();
   }
@@ -2248,9 +2324,8 @@ loadWorkspaceContext();
     }
 
     const mayShowActiveBank = (
-      !voucher ||
-      voucher === "__all__" ||
       !activeVoucher ||
+      !voucher ||
       voucher === activeVoucher
     );
 
@@ -2288,11 +2363,8 @@ loadWorkspaceContext();
 
         const workVoucher =
           activeVoucher ||
-          (
-            voucher !== "__all__"
-              ? voucher
-              : ""
-          );
+          voucher ||
+          "";
 
         const studentCodes =
           studentCodesForVoucher(

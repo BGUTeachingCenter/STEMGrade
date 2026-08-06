@@ -65,22 +65,64 @@ def _teacher_id_from_session(session: dict | None) -> str:
     return ((session or {}).get("teacher_id") or (session or {}).get("sub") or "").strip()
 
 
-def _bind_teacher_bank_from_session(session: dict | None) -> Path:
-    teacher_id = _teacher_id_from_session(session)
-    if not teacher_id or teacher_id == "teacher":
+def _bind_teacher_bank_from_session(
+    session: dict | None,
+) -> Path:
+    teacher_id = (
+        _teacher_id_from_session(
+            session
+        )
+    )
+
+    if (
+        not teacher_id
+        or teacher_id == "teacher"
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Teacher profile is required for a private reference bank.",
+            detail=(
+                "Teacher profile is required "
+                "for a private reference bank."
+            ),
         )
-    teacher = get_teacher(teacher_id) or {}
+
+    teacher = get_teacher(
+        teacher_id
+    ) or {}
+
+    active_course = (
+        teacher.get("active_course")
+        if isinstance(
+            teacher.get("active_course"),
+            dict,
+        )
+        else {}
+    )
+
     voucher_id = str(
-        teacher.get("voucher_id")
-        or teacher.get("voucher_hash")
-        or teacher.get("voucher_code")
+        active_course.get("voucher_id")
+        or active_course.get("course_id")
+        or teacher.get("voucher_id")
+        or teacher.get("active_course_id")
         or ""
     ).strip()
-    root = teacher_bank_root(teacher_id, voucher_id=voucher_id)
+
+    if not voucher_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Open a course before accessing "
+                "its solution bank."
+            ),
+        )
+
+    root = teacher_bank_root(
+        teacher_id,
+        voucher_id=voucher_id,
+    )
+
     bind_bank_root(root)
+
     return root
 
 

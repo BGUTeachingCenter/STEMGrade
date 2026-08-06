@@ -60,21 +60,70 @@ def _teacher_id_from_session(session: dict[str, Any]) -> str:
     return teacher_id
 
 
-def _default_voucher_for_teacher(teacher_id: str) -> str:
-    teacher = get_teacher(teacher_id) or {}
-    return str(
-        teacher.get("voucher_id")
-        or teacher.get("voucher_hash")
-        or teacher.get("voucher_code")
-        or "voucher_default"
-    ).strip() or "voucher_default"
+def _default_voucher_for_teacher(
+    teacher_id: str,
+) -> str:
+    """
+    Return the voucher belonging to the course currently
+    opened in the teacher workspace.
+
+    The name is retained for compatibility with the rest
+    of this module, but this is now the active course
+    voucher rather than a teacher-wide default.
+    """
+    teacher = get_teacher(
+        teacher_id
+    ) or {}
+
+    active_course = (
+        teacher.get("active_course")
+        if isinstance(
+            teacher.get("active_course"),
+            dict,
+        )
+        else {}
+    )
+
+    voucher_id = str(
+        active_course.get("voucher_id")
+        or active_course.get("course_id")
+        or teacher.get("voucher_id")
+        or teacher.get("active_course_id")
+        or ""
+    ).strip()
+
+    if not voucher_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No course is currently selected "
+                "for this teacher workspace."
+            ),
+        )
+
+    return voucher_id
 
 
-def _roster_for_teacher(teacher_id: str) -> list[dict[str, Any]]:
-    default_voucher = _default_voucher_for_teacher(teacher_id)
-    roster: list[dict[str, Any]] = []
+def _roster_for_teacher(
+    teacher_id: str,
+    *,
+    voucher_id: str,
+) -> list[dict[str, Any]]:
+    default_voucher = (
+        str(voucher_id or "").strip()
+        or _default_voucher_for_teacher(
+            teacher_id
+        )
+    )
 
-    for rec in list_student_codes_for_teacher(teacher_id):
+    roster: list[
+        dict[str, Any]
+    ] = []
+
+    for rec in list_student_codes_for_teacher(
+        teacher_id,
+        voucher_id=default_voucher,
+    ):
         if rec.get("status") != "active":
             continue
         code = str(rec.get("code") or "").strip()
@@ -95,9 +144,25 @@ def _roster_for_teacher(teacher_id: str) -> list[dict[str, Any]]:
                 "course_label": str(rec.get("course_label") or "").strip(),
                 "student_name": str(rec.get("student_name") or "").strip(),
                 "student_email": str(rec.get("student_email") or "").strip(),
-                "note": str(rec.get("note") or "").strip(),
-                "last_used_at": str(rec.get("last_used_at") or ""),
-                "uses": int(rec.get("uses") or 0),
+                                "note": str(
+                    rec.get("note")
+                    or ""
+                ).strip(),
+
+                "created_at": str(
+                    rec.get("created_at")
+                    or ""
+                ),
+
+                "last_used_at": str(
+                    rec.get("last_used_at")
+                    or ""
+                ),
+
+                "uses": int(
+                    rec.get("uses")
+                    or 0
+                ),
             }
         )
 
@@ -584,24 +649,139 @@ def _read_teacher_ai_usage(
     return gemini_by_code, gpt_by_code
 
 
-def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
+def _build_teacher_upload_dashboard(
+    teacher_id: str,
+) -> dict[str, Any]:
+    default_voucher = (
+        _default_voucher_for_teacher(
+            teacher_id
+        )
+    )
+
+    roster = _roster_for_teacher(
+        teacher_id,
+        voucher_id=default_voucher,
+    )
+
+    teacher_codes = {
+        str(
+            rec.get("code")
+            or ""
+        ).strip()
+        for rec in roster
+        if str(
+            rec.get("code")
+            or ""
+        ).strip()
+    }
+
     rows = _read_rows()
-    teacher_codes = active_student_code_set_for_teacher(teacher_id)
 
-    # Keep legacy usage/token charts working, but only for this teacher's codes.
-    rows = [r for r in rows if (str(r.get("code") or "").strip() in teacher_codes)]
+    # Legacy spreadsheet rows do not always carry a
+    # voucher ID, so restrict them using the codes
+    # belonging to this course only.
+    rows = [
+        row
+        for row in rows
+        if str(
+            row.get("code")
+            or ""
+        ).strip()
+        in teacher_codes
+    ]
 
-    roster = _roster_for_teacher(teacher_id)
-    default_voucher = _default_voucher_for_teacher(teacher_id)
+    roster_by_voucher: dict[
+        str,
+        list[dict[str, Any]],
+    ] = defaultdict(list)
 
-    roster_by_voucher: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    roster_by_code: dict[str, dict[str, Any]] = {}
+    roster_by_code: dict[
+        str,
+        dict[str, Any],
+    ] = {}
 
     for rec in roster:
-        roster_by_voucher[rec["voucher_id"]].append(rec)
-        roster_by_code[rec["code"]] = rec
+        roster_by_voucher[
+            rec["voucher_id"]
+        ].append(rec)
 
-    metadata_items = list_teacher_student_work_metadata(teacher_id)
+        roster_by_code[
+            rec["code"]
+        ] = rec
+
+    metadata_items: list[
+        dict[str, Any]
+    ] = []
+
+    for raw_meta in (
+        list_teacher_student_work_metadata(
+            teacher_id
+        )
+    ):
+        if not isinstance(
+            raw_meta,
+            dict,
+        ):
+            continue
+
+        code = str(
+            raw_meta.get("student_code")
+            or ""
+        ).strip()
+
+        if not code:
+            continue
+
+        roster_rec = (
+            roster_by_code.get(code)
+            or {}
+        )
+
+        metadata_voucher = str(
+            raw_meta.get("voucher_id")
+            or ""
+        ).strip()
+
+        # Older metadata sometimes used the generic
+        # voucher_default value. Recover the course from
+        # the student-code record in that case.
+        if metadata_voucher in {
+            "",
+            "voucher_default",
+        }:
+            resolved_voucher = str(
+                roster_rec.get(
+                    "voucher_id"
+                )
+                or ""
+            ).strip()
+        else:
+            resolved_voucher = (
+                metadata_voucher
+            )
+
+        if (
+                not resolved_voucher
+                or resolved_voucher
+                != default_voucher
+        ):
+            continue
+
+        # A submission cannot belong to the current
+        # course unless its student code also belongs
+        # to the current course roster.
+        if code not in teacher_codes:
+            continue
+
+        meta = dict(raw_meta)
+
+        meta["voucher_id"] = (
+            resolved_voucher
+        )
+
+        metadata_items.append(
+            meta
+        )
 
     per_day: dict[str, dict[str, Any]] = defaultdict(lambda: {"count": 0, "students": set()})
     recent_uploads: list[dict[str, Any]] = []
@@ -964,6 +1144,13 @@ def _build_teacher_upload_dashboard(teacher_id: str) -> dict[str, Any]:
 
     return {
         "ok": True,
+
+        "course": {
+            "voucher_id": (
+                default_voucher
+            ),
+        },
+
         "roster": {
             "total_students": len(roster),
             "active_codes": [r["code"] for r in roster],

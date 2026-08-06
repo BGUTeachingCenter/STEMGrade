@@ -73,34 +73,47 @@ def teacher_course_root(teacher_id: str, voucher_id: str = "") -> Path:
     return d
 
 
-def teacher_bank_root(teacher_id: str, voucher_id: str = "") -> Path:
+def teacher_bank_root(
+    teacher_id: str,
+    voucher_id: str = "",
+) -> Path:
     """
-    Canonical isolated solution bank root for one teacher/course:
+    Return the isolated solution-bank root for one
+    teacher course:
 
-      data/teachers/<teacher_id>/courses/<voucher_id>/solution_bank/
+      data/teachers/<teacher_id>/courses/
+      <voucher_id>/solution_bank/
 
-    Backward compatibility:
-      if data/teacher_banks/<teacher_id>/ exists and the new course bank is empty,
-      copy the old bank into the new course bank once.
+    Legacy banks are no longer copied automatically.
+    Automatic copying caused one teacher's old bank to
+    be duplicated into every newly created course.
+
+    Any required legacy migration should be performed
+    once and explicitly, rather than during every bank
+    lookup.
     """
-    teacher_id = require_safe_teacher_id(teacher_id)
-    course_root = teacher_course_root(teacher_id, voucher_id=voucher_id)
-    d = course_root / "solution_bank"
-    d.mkdir(parents=True, exist_ok=True)
+    teacher_id = (
+        require_safe_teacher_id(
+            teacher_id
+        )
+    )
 
-    legacy = TEACHER_BANK_ROOT / teacher_id
-    try:
-        is_empty = not any(d.iterdir())
-    except Exception:
-        is_empty = False
+    course_root = teacher_course_root(
+        teacher_id,
+        voucher_id=voucher_id,
+    )
 
-    if legacy.exists() and legacy.is_dir() and is_empty:
-        try:
-            shutil.copytree(legacy, d, dirs_exist_ok=True)
-        except Exception:
-            pass
+    bank_root = (
+        course_root
+        / "solution_bank"
+    )
 
-    return d
+    bank_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    return bank_root
 
 
 def bind_bank_root(bank_root: Path | str | None) -> None:
